@@ -10,12 +10,6 @@ Three parties share one Martian chasm: a scientific outpost that got there first
 docker compose up
 ```
 
-Or without Docker:
-
-```bash
-npm install && npm run dev
-```
-
 Then open http://localhost:5173.
 
 Append `?debug=1` for a mission jump control, the canyon seed, a reroll button, and a `window.__mtm` console handle with `place(x, y)`, `overTarget(height)` and `scale(n)`.

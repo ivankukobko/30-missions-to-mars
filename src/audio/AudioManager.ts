@@ -100,9 +100,16 @@ export class AudioManager {
     this.sfx.playSuccess(rank);
   }
 
-  public updateEngineSound(mainThrust: number, sideThrust: number): void {
+  /** Positions one voice per engine. Call when the vehicle changes, not per frame. */
+  public setEngineLayout(offsets: number[]): void {
+    this.init();
+    this.sfx.setEngineLayout(offsets);
+  }
+
+  /** `lit` is one flag per engine; `side` is −1, 0 or +1 for the attitude jets. */
+  public updateEngineSound(lit: boolean[], side = 0): void {
     if (this.isMuted) return;
-    this.sfx.updateEngineSound(mainThrust, sideThrust);
+    this.sfx.updateEngineSound(lit, side);
   }
 
   public updateWind(heightAboveGround: number, horizontalSpeed: number): void {

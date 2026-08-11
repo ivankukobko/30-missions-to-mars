@@ -54,6 +54,21 @@ export interface Mission {
   airframe?: AirframeId;
   /** Built at the start of this mission and standing for every mission after. */
   adds?: { props?: Prop[]; digs?: Excavation[] };
+  /**
+   * Pads taken out of service at the start of this mission, by id, along with whatever
+   * deck each one rests on.
+   *
+   * The ledger was append-only until this existed, on the grounds that a world which is
+   * a pure function of the mission index is what makes a retry reproducible. Removal
+   * does not threaten that — the world is still derived entirely from where you are in
+   * the campaign — it just stops the derivation being monotonic.
+   *
+   * What forced it: Helion drove its cavern at x −33 directly beneath its own crest
+   * deck, and by the time the cavern opened there was nowhere left on the west wall to
+   * put either. The charter revising its own work is the honest reading, and it is the
+   * one `docs/colony.md` already argued was worth the cost.
+   */
+  decommissions?: string[];
 }
 
 /**
@@ -155,7 +170,7 @@ export const MISSIONS: Mission[] = [
     target: null,
     failDepth: -60,
     brief:
-      '<b>UPLINK</b> · established<br/><b>IXION OUTPOST</b><br/>Welcome to Coprates Chasma, pilot. We are the only thing at the bottom of this canyon, and we intend to stay that way.<br/><br/>You are carrying our navigation radar. Until it is standing on the floor of this chasm you have no altimeter, no ranging and no target guidance — so put it down somewhere, anywhere, in one piece. Where you land is where it stays.<br/><br/><b>OBJECTIVE</b> Descend past the rim. Land intact on open ground.',
+      '<b>UPLINK</b> · established<br/><b>IXION OUTPOST</b><br/>Welcome to Coprates Chasma. We are the only thing at the bottom of this canyon, and we intend to stay that way.<br/><br/>You are carrying our navigation radar. Until it is standing on the floor of this chasm you have no altimeter, no ranging and no target bearing — so put it down somewhere, anywhere, in one piece. Where you set it down is where it stays, and everything we do afterwards is measured from it.<br/><br/><b>OBJECTIVE</b> Descend past the rim. Land intact on open ground.',
   },
   {
     id: 2,
@@ -166,7 +181,7 @@ export const MISSIONS: Mission[] = [
     target: 'outpost-main',
     failDepth: -60,
     brief:
-      '<b>IXION OUTPOST</b><br/>Radar is up and slaved to your panel — altitude, range and target bearing, all of it off the mast you planted yesterday. Our pad is in as well, so from here on you are flying to an address.<br/><br/>Second run. Watch your descent rate: the canyon floor is not forgiving, and neither is the west wall.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.',
+      '<b>IXION OUTPOST</b><br/>Radar is up and slaved to your feed — altitude, range and target bearing, all of it off the mast you set down yesterday. Our pad is in as well, so from here on you are flying to an address.<br/><br/>You placed it better than the specification asked for. We have started calling you the navigator. It is not a rank anyone here has the standing to award, but it has stuck.<br/><br/>Second run. Watch your descent rate — the canyon floor is not forgiving and neither is the west wall.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.',
     adds: {
       props: [
         pad('outpost', 'outpost-main', -14, 16),
@@ -183,7 +198,7 @@ export const MISSIONS: Mission[] = [
     target: 'outpost-main',
     failDepth: -60,
     brief:
-      '<b>IXION OUTPOST</b><br/>Heavier load today. Mass makes the lander slow to answer the stick — start your corrections earlier than feels right.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.',
+      '<b>IXION OUTPOST</b><br/>Heavier load today, navigator. Mass makes the airframe slow to answer — start your corrections earlier than the figures suggest.<br/><br/>The lag is worse than the mass number implies. We have never worked out why.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.',
     adds: { props: [{ kind: 'mast', corp: 'outpost', x: 7, topY: 48 }] },
   },
   {
@@ -195,7 +210,7 @@ export const MISSIONS: Mission[] = [
     target: 'outpost-main',
     failDepth: -60,
     brief:
-      '<b>IXION OUTPOST</b><br/>Two extraction charters just cleared orbit. Helion to our west, Kessler to our east. We filed first. It will not matter.<br/><br/><b>OBJECTIVE</b> Deliver the filings before the corporate survey lands.',
+      '<b>IXION OUTPOST</b><br/>Two extraction charters cleared orbit this morning. Helion to our west, Kessler to our east.<br/><br/>We filed first. It will not matter, navigator, but it will be on the record — and the record is the only thing we have that they cannot dig up.<br/><br/><b>OBJECTIVE</b> Deliver the filings before the corporate survey lands.',
     adds: {
       props: [{ kind: 'tower', corp: 'helion', x: -52, width: 11, topY: 88 }],
     },
@@ -223,7 +238,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-crest',
     failDepth: -60,
     brief:
-      '<b>KESSLER DEEP</b><br/>Helion drills sideways. We drill down. Our east tower is up and our deck is waiting.<br/><br/>You will be flying one of ours. Nothing that goes down a bore has any business turning, so it does not.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER CREST.',
+      '<b>KESSLER DEEP</b><br/>Helion drills sideways. We drill down. East tower is up and the deck is waiting.<br/><br/>You will be flying one of ours. Nothing that goes down a bore has any business turning, so it does not. Try not to bend it, tin can — the frame costs more than the contract does.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER CREST.',
     adds: {
       props: [
         { kind: 'tower', corp: 'kessler', x: 52, width: 12, topY: 96 },
@@ -252,7 +267,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-crest',
     failDepth: -60,
     brief:
-      '<b>KESSLER DEEP</b><br/>Casing is heavy and you are starting on the wrong side of the canyon. Cross high or cross low, but cross deliberately.<br/><br/><b>OBJECTIVE</b> Carry the casing east to KESSLER CREST.',
+      '<b>KESSLER DEEP</b><br/>Casing is heavy and you start on the wrong side of the canyon.<br/><br/>Cross high or cross low, tin can, but cross deliberately. Drifting through the middle is how you meet the gantry Helion put up.<br/><br/><b>OBJECTIVE</b> Carry the casing east to KESSLER CREST.',
     adds: { props: [{ kind: 'mast', corp: 'kessler', x: 14, topY: 110 }] },
   },
   {
@@ -264,7 +279,7 @@ export const MISSIONS: Mission[] = [
     target: 'outpost-main',
     failDepth: -60,
     brief:
-      '<b>IXION OUTPOST</b><br/>They are building on our sightlines. This injunction will be ignored, but it will be <i>filed</i>.<br/><br/><b>OBJECTIVE</b> Return to the outpost pad.',
+      '<b>IXION OUTPOST</b><br/>They are building on our sightlines. This injunction will be ignored, but it will be <i>filed</i>.<br/><br/>You will have noticed the approach is tighter than it was. That is not your handling, navigator. That is the canyon closing, and it will keep closing.<br/><br/><b>OBJECTIVE</b> Return to the outpost pad.',
     adds: {
       props: [{ kind: 'tower', corp: 'helion', x: -64, width: 11, topY: 132 }],
     },
@@ -294,7 +309,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-crest',
     failDepth: -60,
     brief:
-      '<b>KESSLER DEEP</b><br/>Our own span goes up today. Helion will call it provocation. It is a winch.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER CREST.',
+      '<b>KESSLER DEEP</b><br/>Our own span goes up today. Helion will call it provocation. It is a winch.<br/><br/>Mind it on the way in, tin can. It went up this morning and it is not on the chart you flew last time.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER CREST.',
     adds: {
       props: [
         { kind: 'tower', corp: 'kessler', x: 65, width: 12, topY: 124 },
@@ -311,7 +326,7 @@ export const MISSIONS: Mission[] = [
     target: 'outpost-main',
     failDepth: -60,
     brief:
-      '<b>IXION OUTPOST</b><br/>Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.',
+      '<b>IXION OUTPOST</b><br/>Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open, and it is open because we filed for it.<br/><br/>Heavy load, navigator, and a narrower corridor than the last time you flew it.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.',
     adds: { props: [{ kind: 'mast', corp: 'outpost', x: -4, topY: 60 }] },
   },
   {
@@ -337,7 +352,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-crest',
     failDepth: -60,
     brief:
-      '<b>KESSLER DEEP</b><br/>Last surface delivery. Tomorrow we open the floor.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER CREST.',
+      '<b>KESSLER DEEP</b><br/>Last surface delivery. Tomorrow we open the floor.<br/><br/>Heaviest thing you have carried for us, tin can, and the deck has not grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER CREST.',
     adds: {
       props: [{ kind: 'gantry', corp: 'kessler', x1: 34, x2: 52, y: 94, thickness: 2 }],
     },
@@ -353,7 +368,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-crest',
     failDepth: -95,
     brief:
-      '<b>KESSLER DEEP</b><br/>The shaft is open. Do not go down it yet — there is nothing down there to land on and the walls are unlined.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER CREST.',
+      '<b>KESSLER DEEP</b><br/>The shaft is open. Do not go down it yet — there is nothing down there to land on and the walls are unlined.<br/><br/>The core goes on the crest deck, same as always. Look at the hole on your way past if you like. It is the last time it will be that shallow.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER CREST.',
     adds: {
       digs: [{ x: 10, halfWidth: 12, depth: 58 }],
       props: [{ kind: 'mast', corp: 'kessler', x: 18, topY: 78 }],
@@ -368,7 +383,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-shaft',
     failDepth: -95,
     brief:
-      '<b>KESSLER DEEP</b><br/>Pad is in at the shaft floor. Fifty-eight metres below the canyon, walls close on both sides. Come down slow and come down straight.<br/><br/><b>OBJECTIVE</b> Descend the shaft. Deliver to KESSLER SHAFT.',
+      '<b>KESSLER DEEP</b><br/>Pad is in at the shaft floor. Fifty-eight metres below the canyon, walls close on both sides.<br/><br/>Come down slow and come down straight, tin can. Light load today, and that is deliberate — I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Descend the shaft. Deliver to KESSLER SHAFT.',
     adds: {
       props: [pad('kessler', 'kessler-shaft', 10, 12)],
     },
@@ -398,7 +413,10 @@ export const MISSIONS: Mission[] = [
     brief:
       '<b>HELION EXTRACTION</b><br/>Bracing goes over the west excavation. After today that pit has a ceiling, and getting under it is a flying problem.<br/><br/><b>OBJECTIVE</b> Deliver bracing to HELION CREST.',
     adds: {
-      props: [{ kind: 'caveRoof', corp: 'helion', x: -33, halfWidth: 9, y: -12 }],
+      // Half-width 3 against a dig of 10, so the bracing spans the middle of the pad
+      // and still leaves a real slot either side. At the authored 9 it sealed the hole:
+      // one unit of clearance for a 1.24 hull. See MIN_MOUTH in Layout.ts.
+      props: [{ kind: 'caveRoof', corp: 'helion', x: -33, halfWidth: 3, y: -12 }],
     },
   },
   {
@@ -414,6 +432,10 @@ export const MISSIONS: Mission[] = [
     adds: {
       props: [pad('helion', 'helion-cavern', -33, 12)],
     },
+    // The crest deck stood directly over this cavern. Nothing lands on it again — every
+    // Helion run from here on is inside the wall — and leaving it up capped the only way
+    // down to a two-unit slot. See `decommissions`.
+    decommissions: ['helion-crest'],
   },
 
   // --------------------------------------------------- V. The Abyss (20-24)
@@ -426,7 +448,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-shaft',
     failDepth: -95,
     brief:
-      '<b>KESSLER DEEP</b><br/>We are sinking the main shaft. The hole you have spent five missions landing beside goes down another hundred and thirty metres tonight.<br/><br/><b>OBJECTIVE</b> Deliver pylons to KESSLER SHAFT.',
+      '<b>KESSLER DEEP</b><br/>We are sinking the main shaft. The hole you have spent five missions landing beside goes down another hundred and thirty metres tonight.<br/><br/>Pylons anchor the lining. If they are not seated, everything we put below them comes back up the hard way.<br/><br/><b>OBJECTIVE</b> Deliver pylons to KESSLER SHAFT.',
     adds: {
       // Headframe over the shaft, and the shaft itself driven far deeper. Later digs
       // at the same X win inside their half-width, so this simply extends it down.
@@ -446,7 +468,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-ledge',
     failDepth: -190,
     brief:
-      '<b>KESSLER DEEP</b><br/>First platform is bolted into the shaft wall, forty-six metres down. Line up over the mouth and descend straight — the shaft is barely wider than your gear, and there is no room to correct once you are in it.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER LEDGE.',
+      '<b>KESSLER DEEP</b><br/>First platform is bolted into the shaft wall, forty-six metres down.<br/><br/>Line up over the mouth and descend straight. The shaft is barely wider than your gear and there is no room to correct once you are inside it. Get it wrong above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER LEDGE.',
     // Held against the east wall rather than centred in the shaft. Centred, its 19-unit
     // apron left two 7.5-unit slots either side of it — both passable, neither obviously
     // the way through, and every descent to the pads below became a guess. Against the
@@ -487,7 +509,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-ledge',
     failDepth: -190,
     brief:
-      '<b>KESSLER DEEP</b><br/>Heavy rig, and the ledge is narrow. This is the run that separates pilots from cargo.<br/><br/><b>OBJECTIVE</b> Deliver the rig to KESSLER LEDGE.',
+      '<b>KESSLER DEEP</b><br/>Heavy rig, and the ledge is narrow.<br/><br/>This is the run that sorts the good units from scrap, tin can. Better ones than you have come apart on that ledge.<br/><br/><b>OBJECTIVE</b> Deliver the rig to KESSLER LEDGE.',
     adds: {
       props: [{ kind: 'tower', corp: 'kessler', x: 78, width: 12, topY: 150 }],
     },
@@ -501,7 +523,7 @@ export const MISSIONS: Mission[] = [
     target: 'outpost-main',
     failDepth: -190,
     brief:
-      '<b>IXION OUTPOST</b><br/>Both charters have hit the same seam from opposite sides. We have recommended evacuation. Nobody has acknowledged it.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.',
+      '<b>IXION OUTPOST</b><br/>Both charters have hit the same seam from opposite sides. We have recommended evacuation. Nobody has acknowledged it.<br/><br/>We are aware you fly for them as well, navigator. It has never been held against you. You go where the contract sends you, which is a thing we have in common.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.',
     adds: {
       props: [{ kind: 'gantry', corp: 'helion', x1: -54, x2: -43, y: 88, thickness: 2.4 }],
     },
@@ -517,7 +539,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-deep',
     failDepth: -320,
     brief:
-      '<b>KESSLER DEEP</b><br/>Second platform, a hundred and forty-two metres down. Below the ledge the shaft squeezes and the fog goes black. Trust the altimeter, not your eyes.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER DEEP.',
+      '<b>KESSLER DEEP</b><br/>Second platform, a hundred and forty-two metres down. Below the ledge the shaft squeezes and the fog goes black.<br/><br/>Trust the altimeter, not the optical feed. Down there the two will disagree, and the altimeter will be the one that is right.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER DEEP.',
     // Bare pad on the centreline, for the same reasons as kessler-ledge.
     adds: { props: [pad('kessler', 'kessler-deep', 10, 11, -141)] },
   },
@@ -544,7 +566,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-deep',
     failDepth: -320,
     brief:
-      '<b>KESSLER DEEP</b><br/>Heaviest object anyone has flown in this canyon. West wall to the bottom of the shaft, through everything both charters have built.<br/><br/><b>OBJECTIVE</b> Deliver the shell to KESSLER DEEP.',
+      '<b>KESSLER DEEP</b><br/>Heaviest object anyone has flown in this canyon. West wall to the bottom of the shaft, through everything both charters have built.<br/><br/>I would not hand this run to anyone else. Take the weight down slowly and do not let it get ahead of you.<br/><br/><b>OBJECTIVE</b> Deliver the shell to KESSLER DEEP.',
     adds: {
       props: [{ kind: 'mast', corp: 'helion', x: -29, topY: 148 }],
     },
@@ -558,7 +580,7 @@ export const MISSIONS: Mission[] = [
     target: 'outpost-main',
     failDepth: -320,
     brief:
-      '<b>IXION OUTPOST</b><br/>We are shutting down. Everything the outpost learned about this canyon is in that archive. Fly it home one last time.<br/><br/><b>OBJECTIVE</b> Return the archive to the outpost pad.',
+      '<b>IXION OUTPOST</b><br/>We are shutting down. Everything the outpost learned about this canyon is in that archive — every sounding, every core, the mast calibration, all of it.<br/><br/>Fly it home one last time, navigator.<br/><br/>The radar stays up. We are leaving it powered and the charters can use it or not. You will still have your bearings after we are gone, which seemed the least we could do.<br/><br/><b>OBJECTIVE</b> Return the archive to the outpost pad.',
     adds: {
       props: [{ kind: 'gantry', corp: 'kessler', x1: 7, x2: 18, y: 126, thickness: 2.2 }],
     },
@@ -586,7 +608,7 @@ export const MISSIONS: Mission[] = [
     target: 'kessler-deep',
     failDepth: -320,
     brief:
-      '<b>KESSLER DEEP</b><br/>Thirtieth run. West wall to the floor of the shaft, and every structure in between was put there by you.<br/><br/><b>OBJECTIVE</b> Deliver the charge to KESSLER DEEP.',
+      '<b>KESSLER DEEP</b><br/>Thirtieth run. West wall to the floor of the shaft, and every structure in between was put there by you.<br/><br/>Take it down, navigator.<br/><br/><b>OBJECTIVE</b> Deliver the charge to KESSLER DEEP.',
     adds: {
       props: [{ kind: 'mast', corp: 'kessler', x: 36, topY: 158 }],
     },
@@ -614,6 +636,39 @@ export function getMission(id: number): Mission | null {
  * down to one. Running it here rather than at the call sites means the colony, its
  * colliders and the layout check can never disagree about where a structure is.
  */
+/**
+ * Strikes a pad from the ledger in place, together with the platform it stands on.
+ *
+ * A pad and its deck are authored as a pair by `deck()` and are meaningless apart: a
+ * landing surface with no structure beneath it floats, and a bare platform is a slab
+ * nobody is cleared to touch. They are matched the same way `Layout.isOwnDeck` matches
+ * them — same x, and a deck sitting the authored one unit below its pad.
+ */
+function decommission(props: Prop[], padId: string): void {
+  const pad = props.find((p) => p.kind === 'pad' && p.id === padId);
+  if (!pad || pad.kind !== 'pad') return;
+
+  const padY = pad.y ?? 0;
+  for (let i = props.length - 1; i >= 0; i--) {
+    const p = props[i];
+    if (p === pad) {
+      props.splice(i, 1);
+      continue;
+    }
+    // A span that terminated at this deck went up to serve it and has nowhere to land
+    // now. Leaving it would also hang it over whatever replaced the deck — which, in
+    // Helion's case, is the mouth of the cavern that made the deck redundant.
+    if (p.kind === 'gantry') {
+      if (Math.abs(p.x1 - pad.x) < 0.001 || Math.abs(p.x2 - pad.x) < 0.001) props.splice(i, 1);
+      continue;
+    }
+    if (p.kind !== 'platform') continue;
+    if (Math.abs(p.x - pad.x) < 0.001 && Math.abs(p.y - (padY - 1)) < 2.5) {
+      props.splice(i, 1);
+    }
+  }
+}
+
 export function worldAt(
   id: number,
   mastX: number | null = null,
@@ -624,6 +679,9 @@ export function worldAt(
     if (mission.id > id) break;
     if (mission.adds?.props) props.push(...mission.adds.props);
     if (mission.adds?.digs) digs.push(...mission.adds.digs);
+    // Applied in mission order, so a pad can be built, used for a dozen runs and then
+    // struck — and a world rebuilt for any earlier mission still has it standing.
+    for (const id of mission.decommissions ?? []) decommission(props, id);
   }
   const resolved = resolveLayout(props, digs);
 

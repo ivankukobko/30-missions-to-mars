@@ -4,16 +4,37 @@
  * Handles synthesis of UI sound effects, thruster engine sound loops,
  * canyon wind noise, lander explosions, and touchdown success chimes.
  */
+/** One engine's voice: its own noise bed, sub rumble, gain and stereo position. */
+interface EngineVoice {
+  gain: GainNode;
+  filter: BiquadFilterNode;
+  panner: StereoPannerNode;
+}
+
+/**
+ * How far an engine's lateral offset is thrown across the stereo field.
+ *
+ * The hauler's nozzles sit at ±0.24, so this places them at about ±0.7 — wide enough
+ * that which one is burning is unmistakable, short of hard-panning, which loses the
+ * sound entirely on one ear. The lander's single engine is on the centreline and lands
+ * at 0, so it is unaffected.
+ *
+ * A true positional node was considered and is not worth it. The only thing this has to
+ * communicate is *which nozzle is lit*, and the vehicle that has two of them cannot
+ * rotate — so the mapping from engine to ear can never invert.
+ */
+const PAN_PER_UNIT = 3;
+
 export class SoundSynthesizer {
   private ctx: AudioContext | null = null;
   private destination: GainNode | null = null;
 
   // Engine sound state
-  private mainEngineGain: GainNode | null = null;
-  private mainEngineFilter: BiquadFilterNode | null = null;
-  private mainSubOsc: OscillatorNode | null = null;
+  private engines: EngineVoice[] = [];
+  private noiseBuffer: AudioBuffer | null = null;
   private sideEngineGain: GainNode | null = null;
   private sideEngineFilter: BiquadFilterNode | null = null;
+  private sidePanner: StereoPannerNode | null = null;
 
   // Wind sound state
   private windGain: GainNode | null = null;
@@ -180,41 +201,15 @@ export class SoundSynthesizer {
     if (!this.ctx || !this.destination) return;
 
     const bufferSize = this.ctx.sampleRate * 2;
-    const buffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
-    const data = buffer.getChannelData(0);
+    this.noiseBuffer = this.ctx.createBuffer(1, bufferSize, this.ctx.sampleRate);
+    const data = this.noiseBuffer.getChannelData(0);
     for (let i = 0; i < bufferSize; i++) {
       data[i] = Math.random() * 2 - 1;
     }
 
-    const noise = this.ctx.createBufferSource();
-    noise.buffer = buffer;
-    noise.loop = true;
-
-    this.mainEngineFilter = this.ctx.createBiquadFilter();
-    this.mainEngineFilter.type = 'lowpass';
-    this.mainEngineFilter.frequency.value = 180;
-
-    this.mainEngineGain = this.ctx.createGain();
-    this.mainEngineGain.gain.value = 0;
-
-    noise.connect(this.mainEngineFilter);
-    this.mainEngineFilter.connect(this.mainEngineGain);
-    this.mainEngineGain.connect(this.destination);
-    noise.start();
-
-    // Sub Rumble
-    this.mainSubOsc = this.ctx.createOscillator();
-    this.mainSubOsc.type = 'triangle';
-    this.mainSubOsc.frequency.value = 55;
-    const subGain = this.ctx.createGain();
-    subGain.gain.value = 0.5;
-    this.mainSubOsc.connect(subGain);
-    subGain.connect(this.mainEngineGain);
-    this.mainSubOsc.start();
-
-    // Side Thrusters (Softened high-frequency RCS burst)
+    // Side thrusters: a softened high-frequency hiss, panned per burst.
     const sideNoise = this.ctx.createBufferSource();
-    sideNoise.buffer = buffer;
+    sideNoise.buffer = this.noiseBuffer;
     sideNoise.loop = true;
 
     this.sideEngineFilter = this.ctx.createBiquadFilter();
@@ -224,24 +219,94 @@ export class SoundSynthesizer {
     this.sideEngineGain = this.ctx.createGain();
     this.sideEngineGain.gain.value = 0;
 
+    this.sidePanner = this.ctx.createStereoPanner();
+
     sideNoise.connect(this.sideEngineFilter);
     this.sideEngineFilter.connect(this.sideEngineGain);
-    this.sideEngineGain.connect(this.destination);
+    this.sideEngineGain.connect(this.sidePanner);
+    this.sidePanner.connect(this.destination);
     sideNoise.start();
   }
 
-  public updateEngineSound(mainThrust: number, sideThrust: number): void {
-    if (!this.ctx || !this.mainEngineGain || !this.sideEngineGain) return;
+  /**
+   * Builds one independent voice per engine, positioned by its offset from the
+   * centreline. Called when a mission loads, because the vehicle changes with the
+   * client — one engine on the lander, two on the hauler.
+   *
+   * The old synth had a single "main engine" channel, which was correct while there was
+   * only ever one nozzle. On a twin it collapsed both into one number, so running one
+   * engine and running both sounded identical — on the airframe where which engine is
+   * lit *is* the control scheme.
+   */
+  public setEngineLayout(offsets: number[]): void {
+    if (!this.ctx || !this.destination || !this.noiseBuffer) return;
+
+    for (const voice of this.engines) voice.gain.disconnect();
+    this.engines = [];
+
+    for (const offset of offsets) {
+      const noise = this.ctx.createBufferSource();
+      noise.buffer = this.noiseBuffer;
+      noise.loop = true;
+      // Offset the read head per engine so two voices are not the same noise twice,
+      // which would sum to a single correlated source sitting dead centre.
+      noise.loopStart = (this.engines.length * 0.37) % this.noiseBuffer.duration;
+
+      const filter = this.ctx.createBiquadFilter();
+      filter.type = 'lowpass';
+      filter.frequency.value = 180;
+
+      const gain = this.ctx.createGain();
+      gain.gain.value = 0;
+
+      const panner = this.ctx.createStereoPanner();
+      panner.pan.value = Math.max(-1, Math.min(1, offset * PAN_PER_UNIT));
+
+      noise.connect(filter);
+      filter.connect(gain);
+
+      // Sub rumble, the part you feel rather than hear, panned with its own engine.
+      const sub = this.ctx.createOscillator();
+      sub.type = 'triangle';
+      sub.frequency.value = 55;
+      const subGain = this.ctx.createGain();
+      subGain.gain.value = 0.5;
+      sub.connect(subGain);
+      subGain.connect(gain);
+
+      gain.connect(panner);
+      panner.connect(this.destination);
+
+      noise.start();
+      sub.start();
+      this.engines.push({ gain, filter, panner });
+    }
+  }
+
+  /**
+   * `lit` carries one flag per engine, in the airframe's own order. Level is shared out
+   * between them so a twin at full power is as loud as the single engine it replaces —
+   * two nozzles are a different *shape* of thrust, not more of it.
+   */
+  public updateEngineSound(lit: boolean[], side: number): void {
+    if (!this.ctx) return;
     const now = this.ctx.currentTime;
+    const share = this.engines.length > 0 ? 0.38 / this.engines.length : 0;
 
-    const targetMainGain = mainThrust > 0 ? 0.38 * mainThrust : 0;
-    const targetSideGain = sideThrust > 0 ? 0.07 * Math.min(1, sideThrust) : 0;
+    for (let i = 0; i < this.engines.length; i++) {
+      const on = lit[i] ?? false;
+      const voice = this.engines[i];
+      voice.gain.gain.setTargetAtTime(on ? share : 0, now, 0.03);
+      if (on) voice.filter.frequency.setTargetAtTime(460, now, 0.05);
+    }
 
-    this.mainEngineGain.gain.setTargetAtTime(targetMainGain, now, 0.03);
-    this.sideEngineGain.gain.setTargetAtTime(targetSideGain, now, 0.03);
-
-    if (this.mainEngineFilter && mainThrust > 0) {
-      this.mainEngineFilter.frequency.setTargetAtTime(180 + mainThrust * 280, now, 0.05);
+    if (this.sideEngineGain) {
+      this.sideEngineGain.gain.setTargetAtTime(side !== 0 ? 0.07 : 0, now, 0.03);
+    }
+    // Follows the visible nozzle rather than the key pressed: firing to rotate left
+    // lights the jet on the *starboard* flank, and the ear should agree with the eye.
+    if (this.sidePanner && side !== 0) {
+      this.sidePanner.pan.setTargetAtTime(Math.sign(side) * 0.6, now, 0.03);
     }
   }
 

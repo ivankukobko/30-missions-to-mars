@@ -1,41 +1,87 @@
 import type { CorpId } from '../world/CanyonSpec.ts';
 
-interface FactionChord {
-  freqs: [number, number, number, number, number];
+/** A triad as semitone offsets from the key's tonic. */
+type Chord = readonly [number, number, number];
+
+const I: Chord = [0, 4, 7];
+const iii: Chord = [4, 7, 11];
+const IV: Chord = [5, 9, 12];
+const iv: Chord = [5, 8, 12];
+
+interface Theme {
+  /** Tonic, in Hz. Low: these are pads, and the triad is voiced above it. */
+  root: number;
+  /** Four steps, held in turn. Deliberately mostly tonic — see below. */
+  progression: readonly [Chord, Chord, Chord, Chord];
 }
 
 /**
- * Unique procedural chord progressions for each corporate faction:
- * - Ixion Outpost: Melancholic, open, scientific C minor -> Eb -> Ab -> Fm
- * - Helion Extraction: High-tech, expansive D Dorian / Dm9 -> G/D -> Bbmaj7 -> A7sus
- * - Kessler Deep: Heavy industrial, deep subterranean F# minor -> C#m -> Bm -> D/F#
+ * A theme per client, and each is one chord plus a single step away from it.
+ *
+ * Four-chord progressions cycling every ten seconds are a *song*, and a song is the
+ * wrong thing to put under a game where the interesting sound is your own engine and the
+ * loudest event is silence before touchdown. Each of these sits on the tonic and makes
+ * one move, so the harmony reads as weather rather than as music with opinions.
+ *
+ * The step is chosen to say something about who is talking:
+ *
+ * - **Ixion — I I iii I.** Two bars of not moving, then the mediant: a minor chord
+ *   inside a major key, which lifts and saddens at once. They are not going anywhere
+ *   and they know it.
+ * - **Helion — I IV I IV.** Plagal, out and back, out and back. No tension and no
+ *   arrival — the sound of lateral expansion that never has to resolve anywhere.
+ * - **Kessler — I iv iv I.** The minor subdominant, borrowed from the parallel minor
+ *   and held for two steps. It is the darkest move available without changing key, and
+ *   it is the one that sounds like going down.
  */
-const FACTION_PROGRESSIONS: Record<CorpId, FactionChord[]> = {
-  outpost: [
-    { freqs: [32.70, 65.41, 98.00, 155.56, 196.00] }, // Cm
-    { freqs: [38.89, 77.78, 116.54, 155.56, 233.08] }, // Eb
-    { freqs: [51.91, 103.83, 155.56, 207.65, 261.63] }, // Ab
-    { freqs: [43.65, 87.31, 130.81, 174.61, 261.63] }, // Fm
-  ],
-  helion: [
-    { freqs: [36.71, 73.42, 110.00, 174.61, 261.63] }, // Dm9
-    { freqs: [36.71, 73.42, 123.47, 146.83, 246.94] }, // G/D
-    { freqs: [58.27, 116.54, 146.83, 220.00, 261.63] }, // Bbmaj7
-    { freqs: [55.00, 110.00, 174.61, 220.00, 293.66] }, // A7sus
-  ],
-  kessler: [
-    { freqs: [46.25, 92.50, 138.59, 185.00, 277.18] }, // F#m
-    { freqs: [34.65, 69.30, 103.83, 164.81, 277.18] }, // C#m
-    { freqs: [30.87, 61.74, 92.50, 146.83, 246.94] }, // Bm
-    { freqs: [46.25, 92.50, 146.83, 220.00, 293.66] }, // D/F#
-  ],
+const THEMES: Record<CorpId, Theme> = {
+  outpost: { root: 55.0, progression: [I, I, iii, I] }, // A
+  helion: { root: 61.74, progression: [I, IV, I, IV] }, // B
+  kessler: { root: 46.25, progression: [I, iv, iv, I] }, // F#
 };
 
+/** Semitones above a root, in Hz. */
+function step(root: number, semitones: number): number {
+  return root * Math.pow(2, semitones / 12);
+}
+
 /**
- * Procedural Music Composer
+ * How long one step is held, so a full cycle runs about forty seconds. Slow enough that
+ * a change reads as an event rather than a beat, quick enough that a run which goes
+ * badly is not spent entirely on one chord.
+ */
+const STEP_SECONDS = 10.5;
+
+/**
+ * Glide between steps, as a `setTargetAtTime` time constant — so the move is about
+ * three times this before it has effectively arrived. At 0.7 that is roughly two
+ * seconds against a ten-second step: quick enough to land as a change, slow enough that
+ * it is still a slide rather than a cut. The earlier 1.9 took most of six seconds and
+ * the chord spent more of its life arriving than being itself.
+ */
+const GLIDE = 0.7;
+
+/**
+ * Bits in a mission ident. Thirty missions need five, and `11110` is the last one.
+ */
+const IDENT_BITS = 5;
+/** Time per bit. Quick — this is a machine transmitting, not a phrase being played. */
+const IDENT_BIT = 0.26;
+
+/**
+ * The score: one five-voice pad, one theme per client, and the mission's own callsign.
  *
- * Generates faction-specific synth pad chord progressions, campaign overtone evolution,
- * and procedural sci-fi arpeggiated melodies.
+ * There was a procedural melody here once — a note every few seconds, pitch and timbre
+ * picked at random. That was wrong in a specific way: a randomised line meant a mission
+ * never sounded the same twice, in a campaign whose entire foundation is that a retry
+ * gives you the identical run.
+ *
+ * What replaced it keeps the melodic interest and throws away the randomness. The figure
+ * is the **mission number in binary**, most significant bit first, one chord tone per set
+ * bit and silence per clear one. It is a callsign, which is what a machine would actually
+ * transmit, and it makes every mission audibly itself — mission 16 is a single stroke and
+ * nothing else, mission 30 is four and a rest. Because higher numbers carry more set bits,
+ * the ident thickens as the canyon does, which nobody had to author.
  */
 export class MusicComposer {
   private ctx: AudioContext | null = null;
@@ -50,10 +96,10 @@ export class MusicComposer {
   private isPlaying = false;
 
   private activeCorp: CorpId = 'outpost';
+  /** Read back only to sound the ident — the figure *is* this number. */
   private missionId = 1;
   private currentChordIdx = 0;
   private chordTimer: number | null = null;
-  private melodyTimer: number | null = null;
 
   public get isActive(): boolean {
     return this.isPlaying;
@@ -105,14 +151,66 @@ export class MusicComposer {
     this.ambientFilter.connect(this.ambientGain);
     this.ambientGain.connect(this.destination);
 
-    // Start Chord Progression Timer (Cycles chord every 10 seconds)
-    this.chordTimer = window.setInterval(() => {
-      this.currentChordIdx = (this.currentChordIdx + 1) % 4;
-      this.applyCurrentChord();
-    }, 10000);
+    /**
+     * Which step is live is *derived* from the audio clock rather than counted by the
+     * timer, and the timer only exists to sample it. A counter driven by `setInterval`
+     * drifts and — worse — is throttled in a background tab, so a player who alts away
+     * for a minute comes back to a progression that has silently fallen behind. This
+     * cannot: whatever the tab did, the chord is a pure function of elapsed audio time.
+     */
+    this.chordTimer = window.setInterval(() => this.followClock(), 500);
+  }
 
-    // Start Procedural Sci-Fi Melody Loop
-    this.scheduleMelodyLoop();
+  /** Snaps to whichever step the audio clock says should be sounding. */
+  private followClock(): void {
+    if (!this.ctx) return;
+    const idx = Math.floor(this.ctx.currentTime / STEP_SECONDS) % 4;
+    if (idx === this.currentChordIdx) return;
+    this.currentChordIdx = idx;
+    this.applyCurrentChord();
+    // Once per cycle, at the top. Roughly forty seconds apart, so it reads as a station
+    // identifying itself rather than as a hook.
+    if (idx === 0) this.emitIdent();
+  }
+
+  /**
+   * Sounds the mission number, most significant bit first: a chord tone for a set bit,
+   * silence for a clear one.
+   *
+   * Pitches come from the live chord, so the figure is consonant whatever step it lands
+   * on and never has to know what key it is in. It climbs an octave halfway through so
+   * five even strokes do not read as a flat line, and every note is scheduled at an
+   * absolute time off the audio clock — no timers, nothing to drift.
+   */
+  private emitIdent(): void {
+    if (!this.ctx || !this.destination || this.isMuted || !this.isPlaying) return;
+
+    const theme = THEMES[this.activeCorp] ?? THEMES.outpost;
+    const chord = theme.progression[this.currentChordIdx];
+    const start = this.ctx.currentTime + 0.4;
+
+    for (let i = 0; i < IDENT_BITS; i++) {
+      // MSB first, so the figure reads left to right the way the number is written.
+      const bit = (this.missionId >> (IDENT_BITS - 1 - i)) & 1;
+      if (!bit) continue;
+
+      const at = start + i * IDENT_BIT;
+      const semitones = chord[i % 3] + 24 + (i >= 3 ? 12 : 0);
+
+      const osc = this.ctx.createOscillator();
+      const gain = this.ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(step(theme.root, semitones), at);
+
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(0.045, at + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.0004, at + 0.42);
+
+      osc.connect(gain);
+      gain.connect(this.destination);
+      osc.start(at);
+      osc.stop(at + 0.45);
+    }
   }
 
   public setMuted(muted: boolean): void {
@@ -139,66 +237,44 @@ export class MusicComposer {
     }
 
     this.applyCurrentChord();
-    this.scheduleMelodyLoop();
+    // Sound the new callsign immediately rather than waiting out a cycle — this is the
+    // moment the mission identifies itself.
+    this.emitIdent();
   }
 
+  /**
+   * Voices the live step across the five oscillators: the triad, with the tonic doubled
+   * an octave below as a sub and an octave above as air. Absolute frequencies are built
+   * from the theme's root rather than tabulated, so a progression is written as degrees
+   * — `I iv iv I` — and stays readable as the thing it actually is.
+   */
   private applyCurrentChord(): void {
     if (!this.ctx || this.ambientOscs.length < 5) return;
-    const progression = FACTION_PROGRESSIONS[this.activeCorp] || FACTION_PROGRESSIONS.outpost;
-    const chord = progression[this.currentChordIdx];
+    const theme = THEMES[this.activeCorp] ?? THEMES.outpost;
+    const [a, b, c] = theme.progression[this.currentChordIdx];
+    const voicing = [a - 12, a, b, c, a + 12];
 
     const now = this.ctx.currentTime;
-    chord.freqs.forEach((freq, idx) => {
-      if (this.ambientOscs[idx]) {
-        this.ambientOscs[idx].frequency.setTargetAtTime(freq, now, 1.6);
-      }
+    voicing.forEach((semitones, idx) => {
+      this.ambientOscs[idx]?.frequency.setTargetAtTime(
+        step(theme.root, semitones),
+        now,
+        GLIDE,
+      );
     });
   }
 
-  private scheduleMelodyLoop(): void {
-    if (this.melodyTimer !== null) window.clearInterval(this.melodyTimer);
 
-    const progress = Math.min(1, Math.max(0, (this.missionId - 1) / 29));
-    const intervalMs = Math.max(2200, 4500 - progress * 2300);
-
-    this.melodyTimer = window.setInterval(() => {
-      if (!this.isPlaying || this.isMuted || !this.ctx) return;
-      this.triggerMelodyNote(progress);
-    }, intervalMs);
-  }
-
-  private triggerMelodyNote(progress: number): void {
-    if (!this.ctx || !this.destination) return;
-    const now = this.ctx.currentTime;
-
-    const progression = FACTION_PROGRESSIONS[this.activeCorp] || FACTION_PROGRESSIONS.outpost;
-    const currentChord = progression[this.currentChordIdx];
-
-    const baseFreq = currentChord.freqs[2 + Math.floor(Math.random() * 3)];
-    const octaveMult = Math.random() > 0.4 ? 2 : 4;
-    const freq = baseFreq * octaveMult;
-
-    const osc = this.ctx.createOscillator();
-    const gain = this.ctx.createGain();
-
-    osc.type = Math.random() > 0.3 ? 'sine' : 'triangle';
-    osc.frequency.setValueAtTime(freq, now);
-
-    const gainVal = 0.02 + progress * 0.05;
-    gain.gain.setValueAtTime(0, now);
-    gain.gain.linearRampToValueAtTime(gainVal, now + 0.08);
-    gain.gain.exponentialRampToValueAtTime(0.0005, now + 1.8);
-
-    osc.connect(gain);
-    gain.connect(this.destination);
-
-    osc.start(now);
-    osc.stop(now + 1.85);
-  }
 
   public start(): void {
+    // Edge-triggered, so the callsign lands once as the mission opens rather than again
+    // on every resume. It matters on a cold load: the context does not exist until the
+    // player's first gesture, so `setMissionContext` has nothing to sound through and
+    // this is the first moment the ident can actually be heard.
+    const wasSilent = !this.isPlaying;
     this.isPlaying = true;
     if (!this.ctx || !this.ambientGain || this.isMuted) return;
+    if (wasSilent) this.emitIdent();
     const now = this.ctx.currentTime;
     this.ambientGain.gain.cancelScheduledValues(now);
     this.ambientGain.gain.setValueAtTime(this.ambientGain.gain.value, now);
@@ -210,10 +286,6 @@ export class MusicComposer {
     if (this.chordTimer !== null) {
       window.clearInterval(this.chordTimer);
       this.chordTimer = null;
-    }
-    if (this.melodyTimer !== null) {
-      window.clearInterval(this.melodyTimer);
-      this.melodyTimer = null;
     }
     if (!this.ctx || !this.ambientGain) return;
     const now = this.ctx.currentTime;

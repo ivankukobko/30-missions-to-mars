@@ -223,6 +223,119 @@ function ceilingOver(pad: Extract<Prop, { kind: 'pad' }>, props: Prop[]): number
  * Checks one accumulated world. `owner` maps a prop back to the mission that added
  * it, so a failure names the line to edit.
  */
+/**
+ * Narrowest channel down into an excavation that still counts as a way in.
+ *
+ * The hull is 1.24 across, so this is not about fitting — it is the same argument as
+ * `CORE_HALF`, which reserves ten units over a pad because a vehicle needs room to be
+ * wrong and still correct. A hole you can only enter by being exactly right is not a
+ * difficult approach, it is a locked door.
+ *
+ * Five rather than ten because this is measured against the *authored* dig span, and
+ * terrain opens a real mouth wider than that — the excavation at x −33 spans 20 by the
+ * numbers and about 23.5 on the ground. Five here is closer to seven in the air.
+ */
+const MIN_MOUTH = 5;
+
+/**
+ * Excavations whose opening has been built over.
+ *
+ * The lane check above keeps the two *lips* of a dig clear, which stops a tower being
+ * planted on the edge — but it says nothing about the span between them, and it only
+ * ever looked at towers and masts. Helion drove its cavern directly beneath its own
+ * crest deck and the deck, being a platform, was not a kind the rule considered: the
+ * mouth measured twenty-three units across with a two-unit gap to fly through, and the
+ * campaign shipped it on every seed.
+ *
+ * So this measures instead of enumerating. Subtract every colliding prop above the floor
+ * from the width of the opening and ask what is left; if the widest surviving channel is
+ * under `MIN_MOUTH`, the excavation is capped no matter what kind of thing capped it.
+ *
+ * A cave roof counts, and that is the deliberate part. Everywhere else in this module a
+ * roof is exempt, because a pad under a ceiling is the level design rather than a
+ * mistake — but the ceiling still has to leave you a way past it. Helion's was authored
+ * at half-width 9 inside a dig of 10, which is a one-unit slot for a hull of 1.24: not a
+ * roofed approach, a lid.
+ *
+ * Reported rather than resolved, like a tower. What is standing over the hole is usually
+ * load-bearing, and choosing between moving it, narrowing it and striking it from the
+ * ledger is a level-design decision — not one a resolver should make silently.
+ */
+function cappedMouths(
+  props: Prop[],
+  digs: Excavation[],
+  owner?: Map<Prop, number>,
+): Violation[] {
+  const out: Violation[] = [];
+
+  for (const d of digs) {
+    const west = d.x - d.halfWidth;
+    const east = d.x + d.halfWidth;
+
+    /**
+     * Only worth asking once there is somewhere to land down there. A bore driven two
+     * missions before its pad arrives is a hole nobody is being sent into, and the lane
+     * rule above already keeps its lips clear for anyone flying past.
+     */
+    const occupants = props.filter(
+      (p): p is Extract<Prop, { kind: 'pad' }> =>
+        p.kind === 'pad' &&
+        p.x > west &&
+        p.x < east &&
+        // Down in the hole, not merely sharing its x. A pad resting on ground has no y
+        // of its own and inside an excavation that ground *is* the floor; anything with
+        // an authored height is only in the hole if that height is below the datum.
+        // Without this, Helion's crest deck sixty-seven units overhead counted as an
+        // occupant of the cavern beneath it.
+        (p.y === undefined || p.y < 0),
+    );
+    if (occupants.length === 0) continue;
+
+    /**
+     * Everything with a collider that sits over the opening, widened by the usual margin
+     * so grazing an edge does not read as passing it — except the pads inside the hole
+     * and the decks they stand on. Those are the destination. Counting a pad as its own
+     * obstruction is how the first draft of this rule decided the Kessler shaft was
+     * sealed by the very platform it exists to deliver to.
+     */
+    const blockers = props.filter(
+      (p) =>
+        hasCollider(p) &&
+        !occupants.some((pad) => pad === p || isOwnDeck(pad, p)) &&
+        overlaps(spanX(p, MARGIN), [west, east]),
+    );
+
+    let widest = 0;
+    let cursor = west;
+    for (const [lo, hi] of blockers
+      .map((p) => spanX(p, MARGIN))
+      .sort((a, b) => a[0] - b[0])) {
+      if (lo > cursor) widest = Math.max(widest, lo - cursor);
+      cursor = Math.max(cursor, hi);
+    }
+    widest = Math.max(widest, east - cursor);
+
+    if (widest >= MIN_MOUTH || blockers.length === 0) continue;
+
+    // Name the widest offender: with several stacked over one hole, the biggest is the
+    // one worth arguing about.
+    const worst = blockers.reduce((a, b) => {
+      const wa = spanX(a, MARGIN), wb = spanX(b, MARGIN);
+      return wb[1] - wb[0] > wa[1] - wa[0] ? b : a;
+    });
+    out.push({
+      mission: owner?.get(worst),
+      rule: 'mouth',
+      pad: `dig ${west.toFixed(0)}..${east.toFixed(0)}`,
+      prop: label(worst),
+      detail:
+        `caps the excavation: widest way in is ${widest.toFixed(1)}, needs ${MIN_MOUTH}`,
+    });
+  }
+
+  return out;
+}
+
 export function checkLayout(
   props: Prop[],
   digs: Excavation[] = [],
@@ -246,6 +359,8 @@ export function checkLayout(
       });
     }
   }
+
+  out.push(...cappedMouths(props, digs, owner));
 
   for (const pad of pads) {
     const padY = pad.y ?? 0;

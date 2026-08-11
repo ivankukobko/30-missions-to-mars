@@ -118,13 +118,48 @@ describe('worldAt accumulation', () => {
     expect(worldAt(1).digs).toEqual([]);
   });
 
-  it('never loses a structure as the campaign advances', () => {
-    // Props are only ever appended; the corridor closes because of what you delivered.
+  it('only ever loses a structure a mission explicitly struck', () => {
+    /**
+     * The corridor closes because of what you delivered, so the ledger grows — with one
+     * exception. A mission may decommission a pad it authored, and then the count is
+     * allowed to fall by exactly that pad and the deck under it.
+     */
     let previous = 0;
     for (const id of IDS) {
       const count = worldAt(id, 0).props.length;
-      expect(count, `mission ${id}`).toBeGreaterThanOrEqual(previous);
+      const struck = getMission(id)?.decommissions?.length ?? 0;
+      if (struck === 0) {
+        expect(count, `mission ${id}`).toBeGreaterThanOrEqual(previous);
+      } else {
+        // A pad and its platform: never more than two props per id struck.
+        expect(previous - count, `mission ${id}`).toBeLessThanOrEqual(struck * 2);
+      }
       previous = count;
+    }
+  });
+
+  it('keeps a decommissioned pad standing for every mission that still lands on it', () => {
+    for (const m of MISSIONS) {
+      for (const id of m.decommissions ?? []) {
+        const before = worldAt(m.id - 1, 0).props;
+        const after = worldAt(m.id, 0).props;
+        expect(before.some((p) => p.kind === 'pad' && p.id === id), `${id} before`).toBe(true);
+        expect(after.some((p) => p.kind === 'pad' && p.id === id), `${id} after`).toBe(false);
+
+        // Nothing may be sent to an address that no longer exists.
+        for (const later of MISSIONS.filter((x) => x.id >= m.id)) {
+          expect(later.target, `mission ${later.id} targets struck pad`).not.toBe(id);
+        }
+      }
+    }
+  });
+
+  it('leaves a way into every excavation that has a pad in it', () => {
+    // The rule that was missing when Helion capped its own cavern with its crest deck.
+    for (const id of IDS) {
+      const w = worldAt(id, 0);
+      const capped = checkLayout(w.props, w.digs).filter((v) => v.rule === 'mouth');
+      expect(capped, `mission ${id}`).toEqual([]);
     }
   });
 
@@ -209,6 +244,58 @@ describe('resolved layout is legal for the whole campaign', () => {
 
       expect(violations, `mission ${id}`).toEqual([]);
     }
+  });
+});
+
+describe('who the briefs are talking to', () => {
+  const briefs = MISSIONS.map((m) => ({ id: m.id, client: m.client, text: m.brief }));
+
+  /**
+   * You are an autonomous guidance package, not a person in a seat. Briefs are prose and
+   * prose drifts, so the vocabulary that would quietly reintroduce a human pilot is
+   * asserted against rather than left to whoever writes the next mission.
+   */
+  it('never addresses a human pilot', () => {
+    const human = /\b(pilots?|stick|cockpit|panel|by hand|your (eyes|hands|gut))\b/i;
+    for (const b of briefs) {
+      expect(`M${b.id}: ${b.text}`).not.toMatch(human);
+    }
+  });
+
+  it('lets Ixion name you, and only after you have earned it', () => {
+    const ixion = briefs.filter((b) => b.client === 'outpost');
+    const first = ixion[0];
+
+    // Mission 1 is the run that plants the radar. The name is a consequence of it, so
+    // it cannot appear in the brief that sends you out to do it.
+    expect(first.id).toBe(1);
+    expect(first.text).not.toMatch(/navigator/i);
+    for (const b of ixion.slice(1)) expect(b.text).toMatch(/navigator/i);
+  });
+
+  it('has Kessler use the same name throughout, and drop it when it matters', () => {
+    const kessler = briefs.filter((b) => b.client === 'kessler');
+    const named = kessler.filter((b) => /tin can/i.test(b.text));
+
+    // One name, not a rotating thesaurus: repetition is what gives the last one weight.
+    expect(named.length).toBeGreaterThanOrEqual(5);
+    expect(named.length).toBeLessThan(kessler.length);
+    // Absent on the runs that can actually kill you — the tell is the omission.
+    for (const id of [21, 25, 27]) {
+      expect(briefs.find((b) => b.id === id)!.text).not.toMatch(/tin can/i);
+    }
+  });
+
+  it('gives the last word in the campaign to the name Ixion gave you', () => {
+    const last = briefs[briefs.length - 1];
+
+    expect(last.id).toBe(30);
+    expect(last.client).toBe('kessler');
+    // The single deviation in twelve runs, two missions after Ixion goes off the air.
+    expect(last.text).toMatch(/navigator/i);
+    expect(last.text).not.toMatch(/tin can/i);
+    const others = briefs.filter((b) => b.client === 'kessler' && b.id !== 30);
+    for (const b of others) expect(b.text).not.toMatch(/navigator/i);
   });
 });
 

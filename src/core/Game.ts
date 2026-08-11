@@ -228,6 +228,9 @@ export class Game {
       AIRFRAMES[airframeFor(mission)],
     );
     this.lander.invertThrusters = this.progress.invertThrusters;
+    // One audio voice per nozzle, placed across the stereo field by where that nozzle
+    // physically sits. The vehicle changes with the client, so this follows the load.
+    audio.setEngineLayout(this.lander.airframe.engines.map((e) => e.x));
     // A mission with no address is one where bare rock is a legitimate place to stop.
     this.lander.allowGround = mission.target === null;
     this.lander.x = mission.start.x;
@@ -293,14 +296,14 @@ export class Game {
       halfWidth,
     );
     audio.playSuccess(this.pendingScore.rank);
-    audio.updateEngineSound(0, 0);
+    audio.updateEngineSound([]);
     this.state = 'SETTLING';
     this.settleTimer = 1.15;
   }
 
   private fail(title: string, detail: string): void {
     if (this.state === 'FAILED') return;
-    audio.updateEngineSound(0, 0);
+    audio.updateEngineSound([]);
     this.state = 'FAILED';
     this.lander?.freeze();
     this.ui.setHudVisible(false);
@@ -309,7 +312,7 @@ export class Game {
 
   private crash(x: number, y: number, title: string, detail: string): void {
     audio.playExplosion();
-    audio.updateEngineSound(0, 0);
+    audio.updateEngineSound([]);
     this.spawnBlast(x, y);
     this.effects.burst(x, y);
     this.director.shake(2.4);
@@ -452,9 +455,12 @@ export class Game {
     this.wasThrusting = thrusting;
 
     if (this.state === 'PLAYING') {
-      const mainThrust = lander.thrusting ? 1 : 0;
-      const sideThrust = lander.firing.rcsLeft || lander.firing.rcsRight ? 1 : 0;
-      audio.updateEngineSound(mainThrust, sideThrust);
+      // Per engine, in airframe order, so a twin running one nozzle sounds like a
+      // twin running one nozzle. `rcsLeft` fires to rotate left, and the jet that does
+      // that sits to starboard — hence the sign, which matches the visible plume.
+      const jets = lander.firing;
+      const side = jets.rcsLeft ? 1 : jets.rcsRight ? -1 : 0;
+      audio.updateEngineSound(lander.firing.engines, side);
       audio.updateWind(this.heightAboveGround, Math.abs(lander.vx));
     }
 
