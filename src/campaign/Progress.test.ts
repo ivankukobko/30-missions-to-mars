@@ -1,0 +1,293 @@
+import { describe, it, expect } from 'vitest';
+import { Progress, scoreLanding, type ProgressStore, type Rank } from './Progress.ts';
+
+/** In-memory stand-in for localStorage. */
+function memoryStore(seed?: string): ProgressStore & { raw(): string | null } {
+  let value: string | null = seed ?? null;
+  return {
+    getItem: () => value,
+    setItem: (_key, next) => {
+      value = next;
+    },
+    raw: () => value,
+  };
+}
+
+/** A store that throws on every access, like Safari with storage blocked. */
+const hostileStore: ProgressStore = {
+  getItem() {
+    throw new Error('SecurityError');
+  },
+  setItem() {
+    throw new Error('QuotaExceededError');
+  },
+};
+
+describe('Progress persistence', () => {
+  it('rolls a seed and writes it before the first landing', () => {
+    const store = memoryStore();
+    const progress = new Progress(store);
+
+    // The whole colony ledger assumes a frozen canyon, so the seed has to survive a
+    // reload that happens before any mission completes.
+    expect(store.raw()).not.toBeNull();
+    expect(JSON.parse(store.raw()!).seed).toBe(progress.seed);
+  });
+
+  it('restores a saved campaign', () => {
+    const saved = JSON.stringify({
+      seed: 12345,
+      mastX: -7.5,
+      highestUnlocked: 9,
+      ranks: { '3': 'A' },
+    });
+    const progress = new Progress(memoryStore(saved));
+
+    expect(progress.seed).toBe(12345);
+    expect(progress.mastX).toBe(-7.5);
+    expect(progress.highestUnlocked).toBe(9);
+    expect(progress.rankFor(3)).toBe('A');
+    expect(progress.rankFor(4)).toBeNull();
+  });
+
+  it('falls back to a fresh campaign on unparseable data', () => {
+    const progress = new Progress(memoryStore('{ not json'));
+
+    expect(Number.isFinite(progress.seed)).toBe(true);
+    expect(progress.highestUnlocked).toBe(1);
+    expect(progress.mastX).toBeNull();
+  });
+
+  it('falls back to a fresh campaign when the seed is missing or the wrong type', () => {
+    expect(new Progress(memoryStore('{"highestUnlocked":12}')).highestUnlocked).toBe(1);
+    expect(new Progress(memoryStore('{"seed":"abc"}')).highestUnlocked).toBe(1);
+  });
+
+  it('defaults individual fields that are present but the wrong type', () => {
+    const progress = new Progress(
+      memoryStore('{"seed":7,"mastX":"nowhere","highestUnlocked":null}'),
+    );
+
+    expect(progress.seed).toBe(7);
+    expect(progress.mastX).toBeNull();
+    expect(progress.highestUnlocked).toBe(1);
+  });
+
+  it('still plays when storage throws on both read and write', () => {
+    // Private browsing or a full quota: the campaign forgets, it does not crash.
+    const progress = new Progress(hostileStore);
+
+    expect(() => progress.complete(1, 'A')).not.toThrow();
+    expect(progress.rankFor(1)).toBe('A');
+  });
+
+  it('works with no storage at all', () => {
+    const progress = new Progress(null);
+
+    expect(() => progress.complete(1, 'S')).not.toThrow();
+    expect(progress.highestUnlocked).toBe(2);
+  });
+});
+
+describe('Progress.setMastX', () => {
+  /**
+   * The mast is a parameter of the world from mission 2 onward. If replaying mission 1
+   * could move it, twenty-nine missions of layout would shift under a player who only
+   * wanted a better rank on the first one.
+   */
+  it('is write-once', () => {
+    const progress = new Progress(memoryStore());
+
+    progress.setMastX(-14);
+    progress.setMastX(60);
+
+    expect(progress.mastX).toBe(-14);
+  });
+
+  it('accepts a mast at exactly zero', () => {
+    const progress = new Progress(memoryStore());
+
+    progress.setMastX(0);
+
+    // Guarded on `!== null`, not on falsiness — landing at x=0 is a legal place to
+    // plant the radar and must not read as "not yet planted".
+    expect(progress.mastX).toBe(0);
+    progress.setMastX(25);
+    expect(progress.mastX).toBe(0);
+  });
+});
+
+describe('Progress.complete', () => {
+  it('keeps the best rank achieved, never a worse retry', () => {
+    const progress = new Progress(memoryStore());
+
+    progress.complete(4, 'B');
+    expect(progress.rankFor(4)).toBe('B');
+
+    progress.complete(4, 'S');
+    expect(progress.rankFor(4)).toBe('S');
+
+    progress.complete(4, 'C');
+    expect(progress.rankFor(4)).toBe('S');
+  });
+
+  it('unlocks the next mission and never walks the unlock backwards', () => {
+    const progress = new Progress(memoryStore());
+
+    progress.complete(1, 'C');
+    expect(progress.highestUnlocked).toBe(2);
+
+    progress.complete(7, 'A');
+    expect(progress.highestUnlocked).toBe(8);
+
+    progress.complete(2, 'S'); // replaying an earlier mission
+    expect(progress.highestUnlocked).toBe(8);
+  });
+
+  it('survives a round trip through storage', () => {
+    const store = memoryStore();
+    const first = new Progress(store);
+    first.setMastX(3.5);
+    first.complete(1, 'A');
+
+    const second = new Progress(store);
+
+    expect(second.seed).toBe(first.seed);
+    expect(second.mastX).toBe(3.5);
+    expect(second.rankFor(1)).toBe('A');
+    expect(second.highestUnlocked).toBe(2);
+  });
+});
+
+describe('Progress.useSeed', () => {
+  it('changes the canyon without wiping unlocks or ranks', () => {
+    const progress = new Progress(memoryStore());
+    progress.complete(5, 'S');
+
+    progress.useSeed(999);
+
+    expect(progress.seed).toBe(999);
+    expect(progress.rankFor(5)).toBe('S');
+    expect(progress.highestUnlocked).toBe(6);
+  });
+
+  it('coerces to a 32-bit integer, matching what Noise consumes', () => {
+    const progress = new Progress(memoryStore());
+
+    progress.useSeed(12.9);
+
+    expect(progress.seed).toBe(12);
+  });
+});
+
+describe('scoreLanding', () => {
+  const CAPACITY = 400;
+
+  /** A landing on a pad: full fuel, feather touchdown, dead centre = 100 points. */
+  it('awards a perfect pad landing every available point', () => {
+    const score = scoreLanding(CAPACITY, CAPACITY, 0, 0, 8);
+
+    expect(score.points).toBe(100);
+    expect(score.rank).toBe('S');
+  });
+
+  it('awards a perfect open-ground landing 100 as well', () => {
+    // The centring weight is redistributed, not given away — otherwise the one mission
+    // flown without a pad would be the easiest S in the campaign.
+    const score = scoreLanding(CAPACITY, CAPACITY, 0, 0, null);
+
+    expect(score.points).toBe(100);
+  });
+
+  it('scores fuel as the dominant term', () => {
+    const full = scoreLanding(CAPACITY, CAPACITY, 0, 0, 8).points;
+    const half = scoreLanding(CAPACITY / 2, CAPACITY, 0, 0, 8).points;
+
+    expect(full - half).toBe(30); // 60% weight, halved
+  });
+
+  it('treats anything under 0.6 u/s as a kiss', () => {
+    expect(scoreLanding(0, CAPACITY, 0, 0, 8).points).toBe(
+      scoreLanding(0, CAPACITY, 0.6, 0, 8).points,
+    );
+  });
+
+  it('gives no softness points at the outer edge of survivable', () => {
+    // 0.6 + 1.9 = 2.5, which is LANDER.MAX_LANDING_SPEED.
+    const score = scoreLanding(CAPACITY, CAPACITY, 2.5, 0, 8);
+
+    expect(score.points).toBe(75); // 60 fuel + 0 softness + 15 centring
+  });
+
+  it('gives no centring points at or beyond the pad edge', () => {
+    const centred = scoreLanding(0, CAPACITY, 0, 0, 8).points;
+    const atEdge = scoreLanding(0, CAPACITY, 0, 8, 8).points;
+    const wayOff = scoreLanding(0, CAPACITY, 0, 40, 8).points;
+
+    expect(centred - atEdge).toBe(15); // the whole centring weight
+    expect(wayOff).toBe(atEdge); // and it does not go negative past the edge
+  });
+
+  it('never returns a negative score however bad the landing', () => {
+    const score = scoreLanding(0, CAPACITY, 99, 999, 8);
+
+    expect(score.points).toBe(0);
+    expect(score.rank).toBe('C');
+  });
+
+  it('does not divide by zero on a zero-capacity tank', () => {
+    const score = scoreLanding(0, 0, 0, 0, 8);
+
+    expect(Number.isFinite(score.points)).toBe(true);
+    expect(score.fuelPct).toBe(0);
+  });
+
+  it('does not divide by zero on a zero-width pad', () => {
+    const score = scoreLanding(0, CAPACITY, 0, 0, 0);
+
+    expect(Number.isFinite(score.points)).toBe(true);
+  });
+
+  /**
+   * Builds a landing worth exactly `points`, using fuel as the dial.
+   *
+   * Fuel is the only continuous term (60 points over the tank). Softness and centring
+   * are pinned to either full or nothing, which brackets the dial into 40..100 or
+   * 0..60 — between them every score in range is reachable exactly.
+   */
+  const landingWorth = (points: number) => {
+    const perfect = points >= 40;
+    const fromFuel = perfect ? points - 40 : points;
+    return scoreLanding(
+      (fromFuel / 60) * CAPACITY,
+      CAPACITY,
+      perfect ? 0 : 2.5, // 2.5 u/s is exactly zero softness
+      perfect ? 0 : 8, // at the pad edge, exactly zero centring
+      8,
+    );
+  };
+
+  it.each([
+    [100, 'S'],
+    [82, 'S'],
+    [81, 'A'],
+    [66, 'A'],
+    [65, 'B'],
+    [45, 'B'],
+    [44, 'C'],
+    [0, 'C'],
+  ])('ranks %i points as %s', (points, rank) => {
+    const score = landingWorth(points);
+
+    expect(score.points).toBe(points);
+    expect(score.rank).toBe(rank as Rank);
+  });
+
+  it('reports back the inputs it was scored on', () => {
+    const score = scoreLanding(200, CAPACITY, 1.25, 3.5, 8);
+
+    expect(score.fuelPct).toBeCloseTo(0.5, 6);
+    expect(score.touchdownSpeed).toBe(1.25);
+    expect(score.offset).toBe(3.5);
+  });
+});

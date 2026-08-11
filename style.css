@@ -1,0 +1,566 @@
+:root {
+  --ink: #f6e6d8;
+  --ink-dim: #b89a83;
+  --danger: #ff5a4a;
+  --panel: rgba(18, 9, 5, 0.92);
+  --edge: rgba(255, 190, 140, 0.22);
+  --mono: ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: #1a0c05;
+  color: var(--ink);
+  font-family: var(--mono);
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+#app,
+#app canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#ui-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ----------------------------------------------------------------- HUD */
+
+.hud {
+  position: absolute;
+  inset: 0;
+  padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))
+    max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+}
+
+.hud-block {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  letter-spacing: 0.09em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.hud-left {
+  top: max(18px, env(safe-area-inset-top));
+  left: max(18px, env(safe-area-inset-left));
+}
+
+.hud-right {
+  top: max(18px, env(safe-area-inset-top));
+  right: max(18px, env(safe-area-inset-right));
+  align-items: flex-end;
+}
+
+.hud-mission {
+  color: var(--ink-dim);
+  font-size: 11px;
+}
+
+.hud-payload {
+  font-size: 14px;
+  letter-spacing: 0.06em;
+}
+
+.hud-target {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.hud-fuel {
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hud-label {
+  color: var(--ink-dim);
+  font-size: 10px;
+}
+
+.fuel-track {
+  width: 132px;
+  height: 9px;
+  border: 1px solid var(--edge);
+  background: rgba(0, 0, 0, 0.45);
+}
+
+.fuel-fill {
+  height: 100%;
+  background: #ffc06a;
+  transition: width 90ms linear;
+}
+
+.fuel-fill.low {
+  background: var(--danger);
+}
+
+.fuel-text {
+  font-size: 12px;
+  min-width: 3ch;
+}
+
+.readout {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.readout-label {
+  color: var(--ink-dim);
+  font-size: 10px;
+}
+
+.readout-value {
+  font-size: 19px;
+  min-width: 5ch;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.readout-value.danger {
+  color: var(--danger);
+}
+
+.tilt-dial {
+  margin-top: 10px;
+  width: 62px;
+  height: 32px;
+  border: 1px solid var(--edge);
+  border-bottom: none;
+  border-radius: 62px 62px 0 0;
+  position: relative;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.tilt-needle {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 2px;
+  height: 26px;
+  margin-left: -1px;
+  background: #ffc06a;
+  transform-origin: 50% 100%;
+}
+
+.tilt-dial.danger .tilt-needle {
+  background: var(--danger);
+}
+
+.tilt-label {
+  position: absolute;
+  bottom: -14px;
+  width: 100%;
+  text-align: center;
+  font-size: 9px;
+  color: var(--ink-dim);
+}
+
+.warning {
+  position: absolute;
+  left: 50%;
+  top: 16%;
+  transform: translateX(-50%);
+  font-size: 14px;
+  letter-spacing: 0.22em;
+  color: #ffc06a;
+  text-shadow: 0 0 18px rgba(255, 140, 60, 0.7);
+}
+
+.warning.critical {
+  color: var(--danger);
+  animation: pulse 0.75s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.25;
+  }
+}
+
+/* -------------------------------------------------------------- marker */
+
+.marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  color: var(--corp, #36f5a0);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.marker-arrow {
+  width: 0;
+  height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 15px solid currentColor;
+  filter: drop-shadow(0 0 6px currentColor);
+}
+
+.marker.on-screen .marker-arrow {
+  width: 30px;
+  height: 30px;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  background: transparent;
+  opacity: 0.75;
+}
+
+.marker-dist {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+/* --------------------------------------------------------------- panel */
+
+.panel {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at center, rgba(10, 5, 2, 0.55), rgba(6, 3, 1, 0.9));
+  pointer-events: auto;
+  backdrop-filter: blur(2px);
+}
+
+.card {
+  --corp: #36f5a0;
+  width: min(560px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--corp);
+  padding: 26px 28px;
+  animation: rise 220ms ease-out;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.card-eyebrow {
+  font-size: 11px;
+  letter-spacing: 0.28em;
+  color: var(--corp);
+  margin-bottom: 14px;
+}
+
+.card-body {
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+
+.card-body b {
+  color: var(--corp);
+  letter-spacing: 0.05em;
+}
+
+.card-fail {
+  --corp: var(--danger);
+}
+
+.fail-title {
+  font-size: 30px;
+  letter-spacing: 0.06em;
+  margin-bottom: 14px;
+  color: var(--corp);
+}
+
+.manifest {
+  margin: 20px 0 4px;
+  border-top: 1px solid var(--edge);
+}
+
+.manifest-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 190, 140, 0.1);
+  font-size: 12px;
+}
+
+.manifest-label {
+  color: var(--ink-dim);
+  letter-spacing: 0.12em;
+}
+
+.manifest-value {
+  text-align: right;
+}
+
+/* Control-scheme toggle. Only the twin-engine frame shows one. */
+.setting {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  justify-content: space-between;
+  margin: 14px 0 2px;
+}
+
+.setting-label {
+  color: var(--ink-dim);
+  letter-spacing: 0.12em;
+  font-size: 12px;
+}
+
+.setting-toggle {
+  flex: 1;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-align: right;
+  color: var(--ink-dim);
+  background: transparent;
+  border: 1px solid var(--edge);
+  cursor: pointer;
+}
+
+.setting-toggle:hover {
+  color: var(--ink);
+}
+
+.setting-toggle.on {
+  color: var(--corp);
+  border-color: var(--corp);
+}
+
+.rank {
+  font-size: 76px;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  color: var(--corp);
+  text-shadow: 0 0 32px color-mix(in srgb, var(--corp) 60%, transparent);
+}
+
+.rank-S {
+  --corp: #ffd166;
+}
+.rank-A {
+  --corp: #7ef2a8;
+}
+.rank-B {
+  --corp: #7ec8f2;
+}
+.rank-C {
+  --corp: #c0a99a;
+}
+
+.rank-points {
+  font-size: 13px;
+  color: var(--ink-dim);
+  letter-spacing: 0.18em;
+  margin-top: 4px;
+}
+
+button.primary {
+  margin-top: 22px;
+  width: 100%;
+  padding: 13px 18px;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.2em;
+  color: #120a05;
+  background: var(--corp);
+  border: none;
+  cursor: pointer;
+  transition: filter 120ms ease, transform 120ms ease;
+}
+
+button.primary:hover {
+  filter: brightness(1.12);
+}
+
+button.primary:active {
+  transform: translateY(1px);
+}
+
+button.primary:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+/* --------------------------------------------------------------- debug */
+
+/*
+ * Parked along the bottom edge. Centred at the top it sat exactly where the lander
+ * spends the first half of every descent, so the one thing you were inspecting was the
+ * one thing the panel covered. Full width in exchange, which buys enough room to put
+ * every control on a single line and keep the whole thing two rows tall.
+ */
+.debug-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: rgba(10, 5, 2, 0.9);
+  border-top: 1px solid var(--edge);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+}
+
+.debug-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+/*
+ * Readout left, key reminder right, on one line.
+ *
+ * `nowrap` is doing the work: the generic row wraps rather than shrinks, so with wrap
+ * inherited the help text drops onto a line of its own even when there is room beside
+ * the readout. Held on one line, the readout absorbs the squeeze by wrapping inside
+ * itself, which it is already laid out to do.
+ */
+.debug-foot {
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 16px;
+}
+
+/* Divider between the map controls and the camera controls. */
+.debug-sep {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 4px;
+  background: var(--edge);
+}
+
+/* Readout only; never swallow drags meant for the camera underneath. */
+.debug-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  color: var(--ink-dim);
+  pointer-events: none;
+}
+
+.debug-stats b {
+  color: var(--ink);
+  font-weight: normal;
+}
+
+.debug-stats .good {
+  color: #4fdc8b;
+}
+
+.debug-stats .bad {
+  color: #ff7a5c;
+}
+
+.debug-help {
+  color: var(--ink-dim);
+  opacity: 0.7;
+  pointer-events: none;
+  /* Pinned right. Left to shrink it wraps under the readout and the row costs a line
+     it does not need — the readout beside it already wraps internally. */
+  flex-shrink: 0;
+}
+
+.debug-panel input {
+  width: 58px;
+  background: #000;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  font-family: var(--mono);
+  padding: 3px 5px;
+}
+
+.debug-panel input#dbg-seed {
+  width: 112px;
+}
+
+.debug-panel button.debug-toggle.on {
+  background: #6b3a12;
+  color: #ffd9a8;
+}
+
+.debug-panel button,
+.debug-panel select {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 4px 9px;
+  background: #2a1509;
+  color: var(--ink);
+  border: 1px solid var(--edge);
+  cursor: pointer;
+}
+
+.debug-title,
+.debug-seed {
+  color: var(--ink-dim);
+}
+
+@media (max-width: 640px) {
+  .readout-value {
+    font-size: 16px;
+  }
+  .fuel-track {
+    width: 96px;
+  }
+  .card {
+    padding: 20px;
+  }
+  .rank {
+    font-size: 58px;
+  }
+}
+
+.hud-mute-btn {
+  background: rgba(18, 9, 5, 0.7);
+  border: 1px solid var(--edge);
+  color: var(--ink);
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-top: 8px;
+  width: fit-content;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.hud-mute-btn:hover {
+  background: rgba(40, 20, 10, 0.9);
+  border-color: rgba(255, 190, 140, 0.5);
+}
+
