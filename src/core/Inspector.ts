@@ -19,6 +19,8 @@ export interface InspectorHost {
   seed(): number;
   /** Where the player planted the navigation radar, or null before mission 1 is flown. */
   mastX(): number | null;
+  /** Its exact height. Paired with `mastX`; see `Progress.mastY`. */
+  mastY(): number | null;
   loadMission(id: number): void;
   /** Rebuilds the world on a different seed, keeping the current mission. */
   useSeed(seed: number): void;
@@ -310,10 +312,11 @@ export class Inspector {
     this.input('dbg-mission').value = String(id);
     this.input('dbg-seed').value = String(this.host.seed());
 
-    // Same arguments the game builds with. Called without `mastX` this quietly omits
-    // the radar, and a readout whose whole claim is that it reports what the campaign
-    // enforces cannot be counting a different set of props than the campaign built.
-    const world = worldAt(id, this.host.mastX());
+    // Same arguments the game builds with. Called without `mastY` this quietly falls
+    // back to the pre-fix terrain estimate, and a readout whose whole claim is that it
+    // reports what the campaign enforces cannot be building a different radar than the
+    // campaign actually placed.
+    const world = worldAt(id, this.host.mastX(), this.host.mastY());
     const counts = new Map<string, number>();
     for (const p of world.props) counts.set(p.kind, (counts.get(p.kind) ?? 0) + 1);
     const issues = checkLayout(world.props, world.digs);

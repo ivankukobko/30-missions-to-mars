@@ -74,7 +74,7 @@ export class CameraDirector {
    * the surface you are actually approaching, wherever that happens to be.
    */
   private phaseFor(altitude: number, heightAboveGround: number): Phase {
-    if (altitude < CANYON.FLOOR_Y - SHAFT_MOUTH) return 'shaft';
+    if (altitude < CANYON.FLOOR_Y) return 'shaft';
     if (heightAboveGround < LANDING_CEILING) return 'landing';
     if (altitude > SKY_FLOOR && heightAboveGround > 250) return 'sky';
     return 'flight';
@@ -105,36 +105,19 @@ export class CameraDirector {
 
     if (phase === 'shaft') {
       /**
-       * Down a hole, and the distance is dictated rather than chosen.
-       *
-       * An excavation is only open across a limited stretch of z — the Kessler shaft
-       * reaches its full -175 floor between z=0 and z=12, has ramped up to -39 by z=30
-       * and is closed by z=36. The camera has to be *inside* that opening or the ground
-       * clamp parks it on the rim: at the landing distance of 32 the terrain beneath it
-       * was -21, so it sat at -5 while the lander was at -120, a hundred and fourteen
-       * units below, and the only thing keeping the vehicle on screen was the framing
-       * clamp swinging the lens down to -59 degrees. That is the "camera stops
-       * following and just looks down" case, and no amount of pitch tuning fixes it —
-       * the camera simply cannot get down there from 32 units back.
-       *
-       * So: 14 units, inside the shaft throat. The lens goes wide to buy back some of
-       * the framing that closeness costs, and to keep both walls visible while
-       * threading between them. Follow is total, because in a shaft the camera wants to
-       * be dead on the vehicle's axis looking straight down the hole.
+       * Positioned on the back wall of the shaft opening, following the player closely
+       * down into the bore with wide FOV so side walls are clearly visible.
        */
       return {
-        distance: lerp(12, 17, pace),
-        offsetY: lerp(3, 7, pace),
-        pitch: -0.12,
-        // Wider than any other phase. At 14 units back a 74-degree lens shows about 21
-        // units across, which is a 24-wide shaft very nearly wall to wall — so both
-        // walls you are threading between stay in frame instead of being inferred.
-        fov: 74,
-        leadX: 0.1,
-        leadY: 0.08,
+        distance: lerp(10, 14, pace),
+        offsetY: lerp(3, 6, pace),
+        pitch: -0.15,
+        fov: 80,
+        leadX: 0.05,
+        leadY: 0.05,
         follow: 1,
-        posRate: 5.0,
-        rotRate: 4.0,
+        posRate: 5.5,
+        rotRate: 4.5,
       };
     }
 
@@ -213,7 +196,10 @@ export class CameraDirector {
     if (!this.groundAt) return;
     let floor =
       this.groundAt(this.camera.position.x, this.camera.position.z) + CANYON.CAMERA_CLEARANCE;
-    if (targetY !== null) floor = Math.min(floor, targetY + MAX_LIFT_ABOVE_TARGET);
+    if (targetY !== null) {
+      const maxLift = this.phase === 'shaft' ? this.now.offsetY + 4 : MAX_LIFT_ABOVE_TARGET;
+      floor = Math.min(floor, targetY + maxLift);
+    }
     if (this.camera.position.y < floor) this.camera.position.y = floor;
   }
 

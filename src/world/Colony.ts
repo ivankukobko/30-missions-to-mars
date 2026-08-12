@@ -42,8 +42,12 @@ export type Prop =
   /**
    * The navigation radar, standing wherever the player set it down in mission 1.
    * A landmark rather than an obstacle: no collider, ever. See `buildRadar`.
+   *
+   * `y` is the exact touchdown height when it is known — see `Progress.mastY` — and is
+   * absent for a save from before that was tracked, in which case `buildRadar` falls
+   * back to resampling terrain at the mast's own z, the old approximation.
    */
-  | { kind: 'radar'; corp: CorpId; x: number }
+  | { kind: 'radar'; corp: CorpId; x: number; y?: number }
   /**
    * Landing pad. `id` is what a mission names as its delivery target.
    * Omit `y` to rest on whatever ground is beneath — canyon floor, or the floor of
@@ -105,8 +109,8 @@ interface Radar {
 }
 
 const RADAR = {
-  /** Set back from the play plane. Far enough to never occlude, near enough to read. */
-  Z: -8,
+  /** Set back from the play plane into non-playable background area behind shafts. */
+  Z: -35,
   /**
    * Deliberately modest. This is one item off one lander's manifest, not a tower the
    * colony poured — at 120 it dwarfed the outpost's own comms mast and read as
@@ -358,8 +362,8 @@ export interface PadInfo {
 const DEPTH = {
   tower: 17,
   gantry: 11,
-  platform: 13,
-  pad: 12,
+  platform: 9,
+  pad: 8.5,
   caveRoof: 15,
 } as const;
 
@@ -1006,8 +1010,18 @@ export class Colony {
    */
   private buildRadar(prop: Extract<Prop, { kind: 'radar' }>, canyon: CanyonGenerator): void {
     const corp = CORPS[prop.corp];
-    // Sampled at the radar's own z. `floorAt` is the z=0 profile, which is a different
-    // cross-section — using it would leave the mast hovering or buried.
+    /**
+     * `prop.y` is the exact height the lander settled at in mission 1 — ground truth,
+     * not an estimate — and is used whenever it is known. Only a save written before
+     * `Progress.mastY` existed falls through to the old approximation: terrain resampled
+     * at the mast's own z, which is a different cross-section from where the touchdown
+     * actually happened. The canyon meanders, so that resample could disagree with the
+     * real ground by enough to bury the mast's base or leave it standing on air —
+     * `floorAt`, the z=0 profile, is not the fix either, since the mast is drawn at
+     * `RADAR.Z` and floorAt is a third cross-section again. There is no terrain sample
+     * that is exactly right except the one instant the vehicle was actually standing on
+     * the ground, which is exactly what `prop.y` now records.
+     */
     const baseY = canyon.heightAt(prop.x, RADAR.Z) - 1;
     const topY = baseY + RADAR.HEIGHT;
 

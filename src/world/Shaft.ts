@@ -205,7 +205,8 @@ export class Shaft {
     for (let r = 0; r < ys.length - 1; r++) {
       for (let c = 0; c < span; c++) {
         const a = r * (span + 1) + c;
-        indices.push(a, a + 1, a + span + 1, a + 1, a + span + 2, a + span + 1);
+        // Wound so normal points into the bore (+Z towards player)
+        indices.push(a, a + span + 1, a + 1, a + 1, a + span + 1, a + span + 2);
       }
     }
     this.addMesh(positions, colors, indices);
@@ -234,7 +235,8 @@ export class Shaft {
     for (let c = 0; c < zs.length - 1; c++) {
       for (let k = 0; k < span; k++) {
         const a = c * (span + 1) + k;
-        indices.push(a, a + span + 1, a + 1, a + 1, a + span + 1, a + span + 2);
+        // Wound so normal points upwards into the bore (+Y towards player)
+        indices.push(a, a + 1, a + span + 1, a + 1, a + span + 2, a + span + 1);
       }
     }
     this.addMesh(positions, colors, indices);
@@ -348,6 +350,7 @@ export class Shaft {
         roughness: 1,
         metalness: 0,
         flatShading: true,
+        side: THREE.DoubleSide,
       }),
     );
     this.scene.add(mesh);

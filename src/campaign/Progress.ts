@@ -12,13 +12,23 @@ interface Saved {
   /** The player's canyon. Rolled once, then frozen for the whole campaign. */
   seed: number;
   /**
-   * Where the navigation radar ended up: the x the player set down on in mission 1.
+   * Where the navigation radar ended up: exactly where the player set down in mission 1.
    *
    * This is a second seed value, rolled by flying instead of by RNG. It is written
    * once, never revised, and the world stays a pure function of (seed, mastX, mission)
    * — so a retry still rebuilds an identical canyon. Null until mission 1 is flown.
+   *
+   * `mastY` is the touchdown height itself rather than a height resampled from terrain,
+   * and that distinction is the whole reason it exists. The radar used to be drawn at
+   * `canyon.heightAt(mastX, RADAR.Z)` — the ground at the *mast's* z, not the lander's.
+   * The canyon meanders, so the two cross-sections disagree, and depending on the seed
+   * that gap buried the mast's base in rock or left it standing on air. Storing the
+   * settled `lander.y` from the actual landing removes the resample entirely: mission
+   * 1's brief promises "where you land is where it stays," and this is what makes that
+   * literally true rather than approximately true.
    */
   mastX: number | null;
+  mastY: number | null;
   highestUnlocked: number;
   ranks: Record<string, Rank>;
   /**
@@ -62,6 +72,7 @@ function fresh(): Saved {
   return {
     seed: (Math.random() * 0x7fffffff) | 0,
     mastX: null,
+    mastY: null,
     highestUnlocked: 1,
     ranks: {},
     invertThrusters: false,
@@ -95,6 +106,11 @@ export class Progress {
       return {
         seed: parsed.seed,
         mastX: typeof parsed.mastX === 'number' ? parsed.mastX : null,
+        // Absent in every save written before this fix, including ones with a mastX
+        // already set from a completed mission 1. Those fall back to null, and
+        // `buildRadar` keeps its old heightAt-based estimate for exactly that case —
+        // there is no landing to recover after the fact, only a future one to record.
+        mastY: typeof parsed.mastY === 'number' ? parsed.mastY : null,
         highestUnlocked: typeof parsed.highestUnlocked === 'number' ? parsed.highestUnlocked : 1,
         ranks: parsed.ranks ?? {},
         // Absent in saves written before the second airframe existed, which is every
@@ -128,13 +144,22 @@ export class Progress {
   }
 
   /**
+   * The exact height it was planted at, or null on a save from before this was tracked
+   * — see the field comment on `Saved.mastY` for what that null means downstream.
+   */
+  get mastY(): number | null {
+    return this.data.mastY;
+  }
+
+  /**
    * Plants the radar. Deliberately write-once: the mast is a fixture of the player's
    * canyon from mission 2 on, and replaying mission 1 must not move a structure that
    * twenty-nine later missions have been flown around.
    */
-  setMastX(x: number): void {
+  setMastPosition(x: number, y: number): void {
     if (this.data.mastX !== null) return;
     this.data.mastX = x;
+    this.data.mastY = y;
     this.save();
   }
 

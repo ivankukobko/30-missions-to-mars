@@ -188,7 +188,7 @@ export class Game {
     // The world is derived entirely from the mission index and the frozen radar
     // position, so a retry rebuilds an identical canyon and the colony ledger can
     // never drift out of sync.
-    const world = worldAt(id, this.progress.mastX);
+    const world = worldAt(id, this.progress.mastX, this.progress.mastY);
     this.physics.clear();
 
     // Pads without an explicit height rest on the ground, so the terrain needs a
@@ -285,7 +285,11 @@ export class Game {
   private succeed(speed: number, offset: number): void {
     if (!this.lander) return;
 
-    if (this.mission.target === null) this.progress.setMastX(this.lander.x);
+    // `this.lander.y` here is the settled touchdown height — `resolveContact` has
+    // already run — so this is ground truth, not a terrain estimate. See `Saved.mastY`.
+    if (this.mission.target === null) {
+      this.progress.setMastPosition(this.lander.x, this.lander.y);
+    }
 
     const halfWidth = this.targetPad ? this.targetPad.width / 2 : null;
     this.pendingScore = scoreLanding(
@@ -414,7 +418,7 @@ export class Game {
         return;
       }
 
-      if (lander.y < this.mission.failDepth) {
+      if (lander.y < this.mission.failDepth && this.heightAboveGround > 40) {
         this.fail(
           'SIGNAL LOST',
           'You passed the last depth the relay can reach. Nothing comes back up from there.',
@@ -702,6 +706,7 @@ export class Game {
       missionId: () => this.mission?.id ?? 1,
       seed: () => this.progress.seed,
       mastX: () => this.progress.mastX,
+      mastY: () => this.progress.mastY,
       loadMission: (id) => this.loadMission(id),
       useSeed: (seed) => this.useSeed(seed),
       setInspecting: (on) => {

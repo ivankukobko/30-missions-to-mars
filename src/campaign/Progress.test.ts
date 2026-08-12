@@ -38,6 +38,7 @@ describe('Progress persistence', () => {
     const saved = JSON.stringify({
       seed: 12345,
       mastX: -7.5,
+      mastY: 3.25,
       highestUnlocked: 9,
       ranks: { '3': 'A' },
     });
@@ -45,9 +46,21 @@ describe('Progress persistence', () => {
 
     expect(progress.seed).toBe(12345);
     expect(progress.mastX).toBe(-7.5);
+    expect(progress.mastY).toBe(3.25);
     expect(progress.highestUnlocked).toBe(9);
     expect(progress.rankFor(3)).toBe('A');
     expect(progress.rankFor(4)).toBeNull();
+  });
+
+  it('reads a mastX with no mastY as null, not a crash', () => {
+    // Every save written before this fix: mastX from a completed mission 1, and no
+    // recorded height because nothing recorded one yet. buildRadar's fallback is what
+    // makes this safe rather than merely non-throwing — see `Prop`'s radar variant.
+    const saved = JSON.stringify({ seed: 1, mastX: -7.5, highestUnlocked: 9, ranks: {} });
+    const progress = new Progress(memoryStore(saved));
+
+    expect(progress.mastX).toBe(-7.5);
+    expect(progress.mastY).toBeNull();
   });
 
   it('falls back to a fresh campaign on unparseable data', () => {
@@ -65,11 +78,12 @@ describe('Progress persistence', () => {
 
   it('defaults individual fields that are present but the wrong type', () => {
     const progress = new Progress(
-      memoryStore('{"seed":7,"mastX":"nowhere","highestUnlocked":null}'),
+      memoryStore('{"seed":7,"mastX":"nowhere","mastY":"nowhere","highestUnlocked":null}'),
     );
 
     expect(progress.seed).toBe(7);
     expect(progress.mastX).toBeNull();
+    expect(progress.mastY).toBeNull();
     expect(progress.highestUnlocked).toBe(1);
   });
 
@@ -89,7 +103,7 @@ describe('Progress persistence', () => {
   });
 });
 
-describe('Progress.setMastX', () => {
+describe('Progress.setMastPosition', () => {
   /**
    * The mast is a parameter of the world from mission 2 onward. If replaying mission 1
    * could move it, twenty-nine missions of layout would shift under a player who only
@@ -98,22 +112,25 @@ describe('Progress.setMastX', () => {
   it('is write-once', () => {
     const progress = new Progress(memoryStore());
 
-    progress.setMastX(-14);
-    progress.setMastX(60);
+    progress.setMastPosition(-14, 6.2);
+    progress.setMastPosition(60, -3);
 
     expect(progress.mastX).toBe(-14);
+    expect(progress.mastY).toBe(6.2);
   });
 
-  it('accepts a mast at exactly zero', () => {
+  it('accepts a mast at exactly zero, on either axis', () => {
     const progress = new Progress(memoryStore());
 
-    progress.setMastX(0);
+    progress.setMastPosition(0, 0);
 
-    // Guarded on `!== null`, not on falsiness — landing at x=0 is a legal place to
+    // Guarded on `!== null`, not on falsiness — landing at (0, 0) is a legal place to
     // plant the radar and must not read as "not yet planted".
     expect(progress.mastX).toBe(0);
-    progress.setMastX(25);
+    expect(progress.mastY).toBe(0);
+    progress.setMastPosition(25, 9);
     expect(progress.mastX).toBe(0);
+    expect(progress.mastY).toBe(0);
   });
 });
 
@@ -147,13 +164,14 @@ describe('Progress.complete', () => {
   it('survives a round trip through storage', () => {
     const store = memoryStore();
     const first = new Progress(store);
-    first.setMastX(3.5);
+    first.setMastPosition(3.5, -1.8);
     first.complete(1, 'A');
 
     const second = new Progress(store);
 
     expect(second.seed).toBe(first.seed);
     expect(second.mastX).toBe(3.5);
+    expect(second.mastY).toBe(-1.8);
     expect(second.rankFor(1)).toBe('A');
     expect(second.highestUnlocked).toBe(2);
   });

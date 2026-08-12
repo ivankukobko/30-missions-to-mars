@@ -446,7 +446,7 @@ export const MISSIONS: Mission[] = [
     fuel: 420,
     start: { x: 0, y: 1130 },
     target: 'kessler-shaft',
-    failDepth: -95,
+    failDepth: -190,
     brief:
       '<b>KESSLER DEEP</b><br/>We are sinking the main shaft. The hole you have spent five missions landing beside goes down another hundred and thirty metres tonight.<br/><br/>Pylons anchor the lining. If they are not seated, everything we put below them comes back up the hard way.<br/><br/><b>OBJECTIVE</b> Deliver pylons to KESSLER SHAFT.',
     adds: {
@@ -672,6 +672,7 @@ function decommission(props: Prop[], padId: string): void {
 export function worldAt(
   id: number,
   mastX: number | null = null,
+  mastY: number | null = null,
 ): { props: Prop[]; digs: Excavation[] } {
   const props: Prop[] = [];
   const digs: Excavation[] = [];
@@ -703,7 +704,12 @@ export function worldAt(
    * through: they overlap, and neither one changes how the canyon flies.
    */
   if (id >= 2 && mastX !== null) {
-    resolved.push({ kind: 'radar', corp: 'outpost', x: mastX });
+    resolved.push({
+      kind: 'radar',
+      corp: 'outpost',
+      x: mastX,
+      ...(mastY !== null ? { y: mastY } : {}),
+    });
   }
 
   return { props: resolved, digs };

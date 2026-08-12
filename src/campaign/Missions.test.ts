@@ -184,6 +184,20 @@ describe('worldAt accumulation', () => {
     const radars = worldAt(30, 0).props.filter((p) => p.kind === 'radar');
     expect(radars).toHaveLength(1);
   });
+
+  it('carries the exact touchdown height when it is known', () => {
+    const radar = worldAt(2, 12, -3.4).props.find((p) => p.kind === 'radar');
+    if (radar?.kind === 'radar') expect(radar.y).toBe(-3.4);
+    else throw new Error('radar missing');
+  });
+
+  it('omits y for a save from before the height was tracked, not a guess', () => {
+    // Distinct from y=0, which is a real height: `buildRadar` tells the two apart by
+    // whether the field exists at all, not by its value.
+    const radar = worldAt(2, 12).props.find((p) => p.kind === 'radar');
+    if (radar?.kind === 'radar') expect(radar.y).toBeUndefined();
+    else throw new Error('radar missing');
+  });
 });
 
 describe('delivery addresses', () => {
