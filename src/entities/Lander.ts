@@ -110,6 +110,137 @@ function mountHeight(cant: number, radius: number): number {
   return Math.max(HULL.POD_Y, -LANDER.RADIUS + HULL.POD_CLEARANCE + reach);
 }
 
+/**
+ * How long a plume gets, given how far its engine is canted.
+ *
+ * `HULL.FLAME_LEN` was tuned for a plume hanging *below* the hull — the lander's single
+ * engine and the hauler's pair, canted at most 30°. A length that reads as thrust in
+ * that orientation reads as a spike once the mount rotates it towards horizontal: at 90°
+ * of cant, the Sidewinder's lateral engines, the same 1.45 reached 1.6+ units outward
+ * from the hull centreline — more than double the hull's own half-width, a plume wider
+ * than the vehicle carrying it.
+ *
+ * `cos cant` is already the number the physics uses for how much of an engine's thrust
+ * is vertical — `applyDifferential` scales lift by exactly this — so reusing it here
+ * means a plume's *visible* length tracks the same quantity as its *effective* lift,
+ * which is the honest reading: an engine pointed mostly sideways is doing comparatively
+ * little of the vertical work a long tail implies. Raised to a shallow power (`0.25`) so
+ * the curve barely moves near the angles already shipped — 30° comes out 96% of the
+ * unscaled length, not a visible change — and only falls away as cant approaches 90°.
+ * Floored at 0.35 so a pure lateral thruster still reads as *something* rather than a
+ * puff too short to see it fire at all.
+ */
+function flameLength(cant: number): number {
+  const vertical = Math.max(0, Math.cos(cant));
+  return HULL.FLAME_LEN * Math.max(0.35, vertical ** 0.25);
+}
+
+/**
+ * A hull's silhouette: radius at a sequence of heights, base to the deck's underside.
+ *
+ * `y` is a fraction of the chassis span (0 at the belly, 1 flush against the deck), not
+ * a world coordinate — so a profile is written once and reads the same regardless of
+ * where `HULL.CHASSIS` happens to sit. `r` is a world-space radius and is not similarly
+ * normalised: the collider stays the fixed circle it always was, `LANDER.RADIUS`, so a
+ * profile's numbers are legible against that one constant rather than against each
+ * other. Deck half-width is 0.625, a hair over the collider, and every profile below
+ * stays under that near the top — the deck should read as sitting *on* the hull, not
+ * swallowed by it.
+ */
+interface HullProfile {
+  points: ReadonlyArray<readonly [y: number, r: number]>;
+  /**
+   * Radial facets. Low, to stay in the register everything else here is drawn in — the
+   * cargo pods are an icosahedron and a hexagonal drum, not a sphere and a tube.
+   */
+  segments: number;
+}
+
+/**
+ * One silhouette per airframe, so a client is recognisable by hull alone at a range
+ * where the trim colour has already fogged out.
+ *
+ * All three occupy the same vertical span as the box they replaced — only the radius
+ * curve differs — which is what lets this be a drop-in for `chassis` rather than a
+ * renegotiation of where the deck, the gear or the engines sit.
+ */
+const HULL_PROFILES: Record<Airframe['id'], HullProfile> = {
+  /**
+   * TD-4, Ixion: the rocket-truck. Narrow at the throat, swelling toward the deck and
+   * levelling off just under it — the "still a flatbed" part of the brief. A rounded
+   * hull reads as the vehicle a research outpost would fly: familiar, general-purpose,
+   * not built around one job the way the other two are.
+   */
+  lander: {
+    segments: 8,
+    points: [
+      [0, 0.26],
+      [0.2, 0.3],
+      [0.55, 0.44],
+      [0.85, 0.56],
+      [1, 0.56],
+    ],
+  },
+  /**
+   * KD-9, Kessler: a barrel. Shoulders wider than the deck it carries, tapering back in
+   * at both ends — an overbuilt pressure vessel, which is what a charter that measures
+   * itself in metres of bore would actually weld together, and the widest thing in the
+   * campaign's vehicle roster on purpose.
+   */
+  hauler: {
+    segments: 8,
+    points: [
+      [0, 0.34],
+      [0.18, 0.5],
+      [0.5, 0.6],
+      [0.82, 0.52],
+      [1, 0.44],
+    ],
+  },
+  /**
+   * HD-7, Helion: a flared saucer, wide at the belly and narrowing toward the deck — the
+   * taper runs the opposite way from the rocket on purpose, so the two are distinct in
+   * outline even in silhouette. The flare also gives the lateral engines, mounted at
+   * ±0.44, a hull that is actually wide there instead of pods hanging off a narrow spine.
+   */
+  helion: {
+    segments: 8,
+    points: [
+      [0, 0.58],
+      [0.3, 0.6],
+      [0.65, 0.48],
+      [1, 0.32],
+    ],
+  },
+};
+
+/**
+ * Revolves a profile into a capped solid: the shell three.js's `LatheGeometry` builds,
+ * plus a disc at each end, because a lathe has no caps of its own and an open hull reads
+ * as a hollow shell from any angle steep enough to see inside it — the free camera in
+ * `?debug=1` orbits, so that angle exists even if normal play never finds it.
+ */
+function buildHullBody(profile: HullProfile, material: THREE.Material): THREE.Object3D[] {
+  const bottom = HULL.CHASSIS.y - HULL.CHASSIS.h / 2;
+  const top = HULL.CHASSIS.y + HULL.CHASSIS.h / 2;
+  const span = top - bottom;
+
+  const points = profile.points.map(([y, r]) => new THREE.Vector2(r, bottom + y * span));
+  const shell = new THREE.Mesh(new THREE.LatheGeometry(points, profile.segments), material);
+  shell.castShadow = true;
+
+  const cap = (y: number, r: number, faceUp: boolean) => {
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(r, profile.segments), material);
+    disc.rotation.x = faceUp ? -Math.PI / 2 : Math.PI / 2;
+    disc.position.y = y;
+    return disc;
+  };
+
+  const [, baseR] = profile.points[0];
+  const [, topR] = profile.points[profile.points.length - 1];
+  return [shell, cap(bottom, baseR, false), cap(top, topR, true)];
+}
+
 /** Everything about the vehicle that is geometry rather than state. */
 class LanderView {
   group = new THREE.Group();
@@ -147,13 +278,12 @@ class LanderView {
       flatShading: true,
     });
 
-    const chassis = new THREE.Mesh(
-      new THREE.BoxGeometry(HULL.CHASSIS.w, HULL.CHASSIS.h, HULL.CHASSIS.d),
-      frameMat,
-    );
-    chassis.position.y = HULL.CHASSIS.y;
-    chassis.castShadow = true;
-    this.group.add(chassis);
+    // The hull: one silhouette per airframe, occupying exactly the vertical span the
+    // box it replaces did — see `HULL_PROFILES`. Only the radius curve differs, so
+    // nothing downstream (deck, gear, engines) needed to change to make room for it.
+    for (const part of buildHullBody(HULL_PROFILES[airframe.id], frameMat)) {
+      this.group.add(part);
+    }
 
     // Deck in the lighter grey against the dark chassis, so the flatbed line separates
     // by value rather than hue — it still has to read at a third of display resolution,
@@ -218,10 +348,17 @@ class LanderView {
       // itself. Only the mount knows where the vehicle's belly is.
       const nozzle = -HULL.POD_H / 2;
 
-      const flame = new THREE.Mesh(new THREE.ConeGeometry(radius, HULL.FLAME_LEN, 6), flameMat);
-      flame.position.y = nozzle - HULL.FLAME_LEN / 2;
+      // Length is cant-dependent — see `flameLength` — because the same 1.45 that reads
+      // as a plume hanging below the hull becomes a spike wider than the hull itself
+      // once the mount rotates it towards horizontal. Stashed on the mesh because the
+      // per-frame flicker in `update` needs the same figure and has no other way back
+      // to this engine's `cant`.
+      const len = flameLength(engine.cant);
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(radius, len, 6), flameMat);
+      flame.position.y = nozzle - len / 2;
       flame.rotation.z = Math.PI;
       flame.visible = false;
+      flame.userData.flameLen = len;
       mount.add(flame);
       this.flames.push(flame);
 
@@ -487,9 +624,10 @@ class LanderView {
       flame.visible = lit;
       if (!lit) continue;
       anyLit = true;
+      const len = (flame.userData.flameLen as number) ?? HULL.FLAME_LEN;
       const flicker = 0.82 + Math.random() * 0.36;
       flame.scale.set(1, flicker, 1);
-      flame.position.y = -HULL.POD_H / 2 - (HULL.FLAME_LEN / 2) * flicker;
+      flame.position.y = -HULL.POD_H / 2 - (len / 2) * flicker;
     }
     this.thrustLight.intensity = anyLit ? 150 : 0;
 

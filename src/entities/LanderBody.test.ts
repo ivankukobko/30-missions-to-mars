@@ -674,3 +674,29 @@ describe('high-speed entry', () => {
     }
   });
 });
+
+describe('helion translation scheme', () => {
+  function helion(overrides: Partial<LanderBody> = {}): LanderBody {
+    return Object.assign(new LanderBody(CARGO, 400, AIRFRAMES.helion), overrides);
+  }
+
+  it('shifts left and right without changing rotation', () => {
+    const b = helion();
+    const w = emptyWorld();
+
+    b.step(DT, LEFT, w);
+    expect(b.vx).toBeLessThan(0);
+    expect(b.rotation).toBe(0);
+
+    b.step(DT, RIGHT, w);
+    expect(b.rotation).toBe(0);
+  });
+
+  it('activates main lift when holding both left and right', () => {
+    const b = helion();
+    const w = emptyWorld();
+
+    b.step(DT, { left: true, right: true, main: false }, w);
+    expect(b.vy).toBeGreaterThan(GRAVITY * DT);
+  });
+});

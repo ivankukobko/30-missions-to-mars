@@ -181,6 +181,12 @@ export class Progress {
     return this.data.ranks[String(missionId)] ?? null;
   }
 
+  /** The full best-rank-per-mission record — for `worldAt`, which needs every rank a
+   *  corp has earned so far, not one mission's at a time. */
+  get ranks(): Readonly<Record<string, Rank>> {
+    return this.data.ranks;
+  }
+
   /** Records a completed mission, keeping the best rank achieved for it. */
   complete(missionId: number, rank: Rank): void {
     const existing = this.rankFor(missionId);

@@ -1,10 +1,10 @@
 # Lore & Factions
 
-## The Player: Guidance AI
+## The Player
 
-You are an autonomous flight guidance AI deployed in Coprates Chasma on Mars.
+There is no cockpit and no seat. You fly cargo lander airframes in Coprates Chasma on Mars over a real-time telemetry uplink — thrusters, vector angle, flight attitude, all remote — to corporate target platforms across the canyon.
 
-Rather than a human pilot sitting inside a cockpit, you interface with cargo lander airframes via real-time telemetry uplink. Your core program takes direct control over thrusters, vector angles, and flight attitude to guide uncrewed landers to corporate target platforms across the canyon.
+The game never names what's on the other end of that link. That's deliberate, not an omission: see "What They Call You" below.
 
 - **Uplink & Telemetry**: In Mission 1, your primary objective is to deploy Ixion's Navigation Radar onto open canyon ground. Once planted, your guidance algorithms slave all altitude, range, and target bearing calculations to this single radar mast.
 - **Airframe Interface**: Depending on contract requirements, your control system interfaces with two distinct vehicle control schemes—managing manual pitch and attitude on standard landers, or executing twin-engine vector translation on locked-attitude shaft haulers.

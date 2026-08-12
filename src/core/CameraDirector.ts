@@ -74,7 +74,12 @@ export class CameraDirector {
    * the surface you are actually approaching, wherever that happens to be.
    */
   private phaseFor(altitude: number, heightAboveGround: number): Phase {
-    if (altitude < CANYON.FLOOR_Y) return 'shaft';
+    // Buffered rather than triggered exactly at the floor line. A pad sits flush with
+    // the floor, so a lander settling onto one hovers within noise of `CANYON.FLOOR_Y`
+    // — without the buffer that thrashes the phase between 'landing' and 'shaft' on
+    // sub-unit altitude jitter, and the framing cuts with it. The 20 units of slack
+    // means the shaft phase only commits once the vehicle is unambiguously below grade.
+    if (altitude < CANYON.FLOOR_Y - SHAFT_MOUTH) return 'shaft';
     if (heightAboveGround < LANDING_CEILING) return 'landing';
     if (altitude > SKY_FLOOR && heightAboveGround > 250) return 'sky';
     return 'flight';

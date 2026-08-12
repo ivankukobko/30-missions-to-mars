@@ -1,8 +1,10 @@
 import type { Prop } from '../world/Colony.ts';
-import type { Excavation } from '../world/CanyonGenerator.ts';
-import type { CorpId } from '../world/CanyonSpec.ts';
+import { mergeDigs, type Excavation } from '../world/CanyonGenerator.ts';
+import { CORPS, type CorpId } from '../world/CanyonSpec.ts';
 import type { AirframeId } from '../entities/Airframe.ts';
-import { checkLayout, resolveLayout } from './Layout.ts';
+import type { Rank } from './Progress.ts';
+import { checkLayout, resolveLayout, reservedCellsFor } from './Layout.ts';
+import { growGrid } from '../world/ColonyGrowth.ts';
 
 /** What the cargo physically looks like strapped under the lander. */
 export type CargoShape = 'crate' | 'drum' | 'sphere' | 'rig';
@@ -88,7 +90,10 @@ export interface Mission {
  * vehicles, and the line that matters is who digs downward, not who signs the manifest.
  */
 export function airframeFor(mission: Mission): AirframeId {
-  return mission.airframe ?? (mission.client === 'kessler' ? 'hauler' : 'lander');
+  if (mission.airframe) return mission.airframe;
+  if (mission.id >= 6 && mission.client === 'helion') return 'helion';
+  if (mission.client === 'kessler') return 'hauler';
+  return 'lander';
 }
 
 /**
@@ -137,14 +142,14 @@ function deck(
  * Rounded to whole units so the authored proportions survive — the widest pad stays the
  * widest — and so the numbers stay legible next to a 24-wide bore.
  */
-const PAD_WIDTH_SCALE = 0.8;
+const PAD_WIDTH_SCALE = 0.72;
 
 function padWidth(authored: number): number {
   return Math.round(authored * PAD_WIDTH_SCALE);
 }
 
 /** A pad standing on its own, with no platform under it. */
-function pad(corp: CorpId, id: string, x: number, width: number, y?: number): Prop {
+export function pad(corp: CorpId, id: string, x: number, width: number, y?: number): Prop {
   return { kind: 'pad', id, corp, x, width: padWidth(width), ...(y === undefined ? {} : { y }) };
 }
 
@@ -669,10 +674,162 @@ function decommission(props: Prop[], padId: string): void {
   }
 }
 
+/** 0–3, so an average of several ranks is a plain number rather than a string compare. */
+const RANK_VALUE: Record<Rank, number> = { C: 0, B: 1, A: 2, S: 3 };
+
+/**
+ * Cell pitch and grid shape are fixed constants here, not per-corp authored data — see
+ * docs/plans/procedural_colony_growth.md: 8 rows is the "fully built" ceiling, checked
+ * against real tower `topY` values in this file; 5 columns is the same cap `?growth`'s
+ * canyon-fit logic already uses.
+ */
+const COLONY_CELL_SIZE = 12;
+/** Six columns, not five: at cellSize 12 a wall corp's reach is then 72 units — enough
+ *  to actually close on the canyon centre by full maturity, which is the whole lore. */
+const COLONY_COLS = 6;
+const COLONY_ROWS = 8;
+
+/** So three corps sharing one campaign seed don't roll identical grids at whatever
+ *  cells their quality/maturity happen to coincide on. Arbitrary, only needs to be
+ *  distinct per corp. */
+const COLONY_SEED_OFFSET: Record<CorpId, number> = { outpost: 0, helion: 4001, kessler: 8009 };
+
+/**
+ * Starting from a corp's natural anchor point, searches outward — alternating sides,
+ * since there's no reason to assume either direction has more open floor — for the
+ * nearest x where the anchor cell itself is not already reserved airspace.
+ *
+ * The claim edge (or midpoint, for Ixion) is a starting guess, not a guarantee: it is
+ * exactly where that corp's *own* hand-authored pads and towers already stand, since a
+ * corp obviously builds its real infrastructure inside its own claimed territory.
+ * `reservedCellsFor` only ever protects growth *beyond* the anchor — it can't rescue an
+ * anchor placed on top of existing structure, because the anchor cell is unconditionally
+ * a room. This is what actually keeps that from happening.
+ */
+function findAnchorX(
+  startX: number,
+  shape: { cols: number; rows: number; anchorCol: number },
+  context: Prop[],
+  digs: Excavation[],
+): number {
+  for (let attempt = 0; attempt < 30; attempt++) {
+    const offset = attempt === 0 ? 0 : (attempt % 2 === 1 ? 1 : -1) * Math.ceil(attempt / 2) * COLONY_CELL_SIZE;
+    const x = startX + offset;
+    const place = { x, y: 0, cellSize: COLONY_CELL_SIZE, direction: 1 as const };
+    if (!reservedCellsFor(place, shape, context, digs)(0, shape.anchorCol)) return x;
+  }
+  return startX; // exhausted the search — fall back rather than loop forever
+}
+
+/**
+ * One grown colony per corp, appended after the resolver — see `worldAt`. Existence,
+ * reach and solidity are all derived from the campaign itself (which corps are active
+ * as of `id`, how many of their missions have passed, how well they have gone) rather
+ * than hand-placed: there is no separate "turn it on" step for a new corp, it starts
+ * the moment their first mission does.
+ *
+ * Walls-to-centre growth mirrors the lore in `CanyonSpec.ts` — a corp west of the
+ * canyon's own centre roots near the outer edge of its claim and grows toward
+ * increasing x (toward the centre); one to the east grows toward decreasing x. Ixion is
+ * the exception: its claim straddles the centre, so it roots near its own claim's
+ * midpoint and grows outward both ways — `anchorCol` sitting mid-grid does that for
+ * free, the same way it already does in `growGrid` for any caller, not a special case
+ * added here.
+ */
+function synthesizeColonies(
+  id: number,
+  worldSoFar: Prop[],
+  ranks: Readonly<Record<string, Rank>>,
+  seed: number,
+  digs: Excavation[],
+): Prop[] {
+  const out: Prop[] = [];
+  // Grows as each corp's colony is added, so a later corp's reservation check sees
+  // an earlier corp's colony too — unlikely to matter given how far apart Helion,
+  // Kessler and Ixion's claims sit, but cheap to get right rather than assume.
+  const context = [...worldSoFar];
+
+  for (const corp of Object.keys(CORPS) as CorpId[]) {
+    const corpMissions = MISSIONS.filter((m) => m.client === corp);
+    const first = corpMissions[0];
+    if (!first || first.id > id) continue; // this corp hasn't started yet
+
+    const elapsed = corpMissions.filter((m) => m.id <= id);
+    const maturity = elapsed.length / corpMissions.length;
+
+    const graded = elapsed.map((m) => ranks[String(m.id)]).filter((r): r is Rank => r != null);
+    const quality =
+      graded.length === 0 ? 0 : graded.reduce((sum, r) => sum + RANK_VALUE[r], 0) / graded.length / 3;
+
+    const [lo, hi] = CORPS[corp].claim;
+    const isOutpost = corp === 'outpost';
+    const centre = (lo + hi) / 2;
+    const direction: 1 | -1 = centre < 0 ? 1 : -1;
+    const anchorCol = isOutpost ? Math.floor(COLONY_COLS / 2) : 0;
+    const shape = { cols: COLONY_COLS, rows: COLONY_ROWS, anchorCol };
+    const x = findAnchorX(isOutpost ? centre : centre < 0 ? lo : hi, shape, context, digs);
+
+    const place = { x, y: 0, cellSize: COLONY_CELL_SIZE, direction };
+    const reserved = reservedCellsFor(place, shape, context, digs);
+    const grid = growGrid(COLONY_COLS, COLONY_ROWS, anchorCol, seed + COLONY_SEED_OFFSET[corp], {
+      reserved,
+      maturity,
+      quality,
+    });
+
+    /**
+     * `footprintX`/`height` measure what the grid actually occupies, not its nominal
+     * cols/rows — an immature or unlucky-seed colony that only ever fills its anchor
+     * cell should report a footprint about that big, not the full 5×8 envelope it
+     * might eventually grow into. Wider-than-reality reads as conservative, but for a
+     * prop-level check that can't see individual cells, it means flagging conflicts
+     * with real structures the colony never actually reaches — the exact false
+     * positive a whole-campaign check exists to catch.
+     */
+    let minC = COLONY_COLS;
+    let maxC = -1;
+    let maxR = -1;
+    for (let r = 0; r < grid.rows; r++) {
+      for (let c = 0; c < grid.cols; c++) {
+        if (grid.cells[r][c] === 'empty') continue;
+        minC = Math.min(minC, c);
+        maxC = Math.max(maxC, c);
+        maxR = Math.max(maxR, r);
+      }
+    }
+    const half = COLONY_CELL_SIZE / 2;
+    const worldXAt = (c: number) => x + (c - anchorCol) * COLONY_CELL_SIZE * direction;
+    // `direction` can flip which of minC/maxC is smaller in world space, so the two
+    // endpoints are sorted rather than assumed.
+    const footprintX: [number, number] =
+      maxC >= minC
+        ? [Math.min(worldXAt(minC), worldXAt(maxC)) - half, Math.max(worldXAt(minC), worldXAt(maxC)) + half]
+        : [x - half, x + half]; // degenerate: only the anchor cell itself is occupied
+    const height = (Math.max(maxR, 0) + 1) * COLONY_CELL_SIZE;
+
+    const colony: Prop = {
+      kind: 'colony',
+      corp,
+      x,
+      cellSize: COLONY_CELL_SIZE,
+      direction,
+      grid,
+      footprintX,
+      height,
+    };
+    out.push(colony);
+    context.push(colony);
+  }
+
+  return out;
+}
+
 export function worldAt(
   id: number,
   mastX: number | null = null,
   mastY: number | null = null,
+  ranks: Readonly<Record<string, Rank>> = {},
+  seed = 0,
 ): { props: Prop[]; digs: Excavation[] } {
   const props: Prop[] = [];
   const digs: Excavation[] = [];
@@ -685,10 +842,16 @@ export function worldAt(
     for (const id of mission.decommissions ?? []) decommission(props, id);
   }
   const resolved = resolveLayout(props, digs);
+  // Digs go in merged, the same way the generator actually opens them — see
+  // `mergeDigs`: two records of one bore reserved separately would leave a phantom
+  // seam a colony could grow into.
+  resolved.push(...synthesizeColonies(id, resolved, ranks, seed, mergeDigs(digs)));
 
   // The resolver only moves what it can move — a platform is bolted to its tower and
   // stays put. If one of those ever ends up over a pad, nothing downstream will notice
   // and the mission just quietly becomes harder to land, so say so during development.
+  // Colonies are included here too — they're generated safe-by-construction rather than
+  // resolved, but this is still the same belt-and-suspenders net every other prop gets.
   if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
     for (const v of checkLayout(resolved, digs)) {
       console.warn(`[layout] mission ${id}: ${v.prop} ${v.detail} (pad ${v.pad})`);

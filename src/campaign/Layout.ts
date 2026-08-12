@@ -1,6 +1,7 @@
 import type { Prop } from '../world/Colony.ts';
 import type { Excavation } from '../world/CanyonGenerator.ts';
 import type { Offset } from '../physics/Kinematics.ts';
+import type { Reserved } from '../world/ColonyGrowth.ts';
 
 /**
  * Layout rules for the colony planner.
@@ -112,6 +113,12 @@ function spanX(p: Prop, m: number = MARGIN): [number, number] {
     case 'platform':
     case 'pad':
       return [p.x - p.width / 2 - m - swept, p.x + p.width / 2 + m + swept];
+    // Not centred on `x` the way a tower is on its own `x` — `x` is the anchor cell,
+    // and growth away from it is one-directional for a wall-rooted corp, so the
+    // occupied span is tracked explicitly rather than assumed symmetric. See the
+    // `colony` variant's doc comment in Colony.ts.
+    case 'colony':
+      return [p.footprintX[0] - m - swept, p.footprintX[1] + m + swept];
     case 'gantry':
       return [Math.min(p.x1, p.x2) - m - swept, Math.max(p.x1, p.x2) + m + swept];
     case 'mast':
@@ -167,6 +174,12 @@ function spanY(p: Prop): [number, number] {
     case 'tower':
     case 'mast':
       return [FLOOR_BASE, p.topY];
+    // Unlike a tower's `topY`, a colony has no author to hand-pick an absolute Y — see
+    // its doc comment in Colony.ts. `height` is the grid's nominal rows × cellSize,
+    // added to the same floor-with-relief estimate `FLOOR_BASE` already stands in for
+    // every other floor-anchored prop's unknown base.
+    case 'colony':
+      return [FLOOR_BASE, FLOOR_BASE + p.height];
     case 'gantry':
       return [
         p.y - (p.thickness ?? 2.4) / 2 - swept,
@@ -376,24 +389,35 @@ export function checkLayout(
       // A landmark cannot block anything — see `hasCollider`.
       if (!hasCollider(p)) continue;
 
-      const sx = spanX(p);
-      const sy = spanY(p);
+      /**
+       * A colony is judged column by column rather than by its whole-footprint box.
+       * The box is honest nowhere a colony matters: cells growing low *under* an
+       * elevated deck are legal, but one tall column elsewhere raises the box until it
+       * reads as planted through a deck nothing actually touches. See `colonyColumns`.
+       */
+      const extents =
+        p.kind === 'colony' ? colonyColumns(p) : [{ sx: spanX(p), sy: spanY(p) }];
 
       // Rule 1 — nothing standing on the landing surface. This is about a structure
       // passing *through* the deck plane, which is what "planted on the pad" means;
       // something merely hanging above it is a corridor question, judged by distance.
-      if (overlaps(sx, footprint) && sy[1] > padY - DECK_UNDER && sy[0] < padY + DECK_CLEAR) {
-        out.push({
-          mission: owner?.get(p),
-          rule: 'deck',
-          pad: pad.id,
-          prop: label(p),
-          detail:
-            `occupies the pad footprint ${footprint[0]}..${footprint[1]} ` +
-            `at y ${sy[0] === -Infinity ? '-inf' : sy[0].toFixed(1)}..${sy[1].toFixed(1)}`,
-        });
-        continue;
+      let onDeck = false;
+      for (const { sx, sy } of extents) {
+        if (overlaps(sx, footprint) && sy[1] > padY - DECK_UNDER && sy[0] < padY + DECK_CLEAR) {
+          out.push({
+            mission: owner?.get(p),
+            rule: 'deck',
+            pad: pad.id,
+            prop: label(p),
+            detail:
+              `occupies the pad footprint ${footprint[0]}..${footprint[1]} ` +
+              `at y ${sy[0] === -Infinity ? '-inf' : sy[0].toFixed(1)}..${sy[1].toFixed(1)}`,
+          });
+          onDeck = true;
+          break;
+        }
       }
+      if (onDeck) continue;
 
       // Rule 2 — the corridor over the pad's core stays clear up to any cave roof.
       //
@@ -402,17 +426,20 @@ export function checkLayout(
       // and each necessarily sits under the one above it.
       if (p.kind === 'pad' || p.kind === 'platform') continue;
       const top = Math.min(padY + CORRIDOR_HEIGHT, ceiling);
-      if (overlaps(sx, core) && sy[1] > padY && sy[0] < top) {
-        const intrusion = Math.min(sx[1], core[1]) - Math.max(sx[0], core[0]);
-        out.push({
-          mission: owner?.get(p),
-          rule: 'corridor',
-          pad: pad.id,
-          prop: label(p),
-          detail:
-            `blocks ${intrusion.toFixed(1)} of the ${CORE_HALF * 2}-wide approach ` +
-            `corridor at y=${sy[0] === -Infinity ? '-inf' : sy[0].toFixed(1)}`,
-        });
+      for (const { sx, sy } of extents) {
+        if (overlaps(sx, core) && sy[1] > padY && sy[0] < top) {
+          const intrusion = Math.min(sx[1], core[1]) - Math.max(sx[0], core[0]);
+          out.push({
+            mission: owner?.get(p),
+            rule: 'corridor',
+            pad: pad.id,
+            prop: label(p),
+            detail:
+              `blocks ${intrusion.toFixed(1)} of the ${CORE_HALF * 2}-wide approach ` +
+              `corridor at y=${sy[0] === -Infinity ? '-inf' : sy[0].toFixed(1)}`,
+          });
+          break;
+        }
       }
     }
   }
@@ -432,6 +459,92 @@ function padZones(props: Prop[]): PadZone[] {
       core: [pad.x - CORE_HALF, pad.x + CORE_HALF] as [number, number],
       ceiling: ceilingOver(pad, props),
     }));
+}
+
+/**
+ * Cells of a not-yet-generated colony grid that fall inside any pad's reserved
+ * airspace — the corridor-safety domain restriction `growGrid`'s `reserved` option
+ * exists for, given real data instead of a hand-picked demonstration row.
+ *
+ * Mirrors `intrudes`'s own deck/corridor tests exactly, just asked once per cell
+ * instead of once per whole prop — a cell is reserved by precisely the rule that would
+ * otherwise have flagged it after the fact, so growth stays safe by construction rather
+ * than needing a generate-then-reject pass. `props` should be the already-resolved
+ * world a colony is about to be added to, not including the colony itself.
+ *
+ * `place.y` is an estimate, not a real terrain sample — `Missions.ts` has no terrain
+ * access, so it stands in for the colony's unknown base the same way `FLOOR_BASE`
+ * already does for every other floor-anchored prop here. Being wrong small is the safe
+ * direction: it can only make a cell's reservation test slightly conservative, never
+ * miss one.
+ *
+ * `digs` reserves every cell over an excavation's opening, lips included, at *any*
+ * height — deliberately stricter than the mouth rules it stands in for. `cappedMouths`
+ * would tolerate structure over a hole as long as a `MIN_MOUTH` channel survives, but
+ * a growth algorithm negotiating for partial credit over a mineshaft is complexity
+ * with no upside: a colony simply does not build over a hole in the ground.
+ */
+export function reservedCellsFor(
+  place: { x: number; y: number; cellSize: number; direction: 1 | -1 },
+  shape: { cols: number; rows: number; anchorCol: number },
+  props: Prop[],
+  digs: Excavation[] = [],
+): Reserved {
+  const zones = padZones(props);
+  const half = place.cellSize / 2;
+  const holes: Array<[number, number]> = digs.map((d) => [
+    d.x - d.halfWidth - LANE_OUTSIDE,
+    d.x + d.halfWidth + LANE_OUTSIDE,
+  ]);
+
+  return (r: number, c: number): boolean => {
+    const cx = place.x + (c - shape.anchorCol) * place.cellSize * place.direction;
+    const cy = place.y + r * place.cellSize;
+    const cellX: [number, number] = [cx - half, cx + half];
+    const cellY: [number, number] = [cy - half, cy + half];
+
+    for (const h of holes) if (overlaps(cellX, h)) return true;
+
+    for (const z of zones) {
+      if (overlaps(cellX, z.footprint) && cellY[1] > z.y - DECK_UNDER && cellY[0] < z.y + DECK_CLEAR) {
+        return true;
+      }
+      const top = Math.min(z.y + CORRIDOR_HEIGHT, z.ceiling);
+      if (overlaps(cellX, z.core) && cellY[1] > z.y && cellY[0] < top) return true;
+    }
+    return false;
+  };
+}
+
+/**
+ * A colony's occupied columns as individual tower-like extents, for the deck and
+ * corridor rules.
+ *
+ * The single `footprintX`/`height` box lies as soon as a colony is big: growth under an
+ * elevated deck is legal (the cells stop well below it — reservation saw to that), but
+ * a *tall column elsewhere* raises the whole box, and the box then reads as standing
+ * through a deck no actual cell goes near. Per-column extents say what is really there.
+ * The coarse box remains what `spanX`/`spanY` report — conservative is the right answer
+ * everywhere else it is used.
+ */
+function colonyColumns(p: Extract<Prop, { kind: 'colony' }>, m: number = MARGIN): Array<{
+  sx: [number, number];
+  sy: [number, number];
+}> {
+  const out: Array<{ sx: [number, number]; sy: [number, number] }> = [];
+  for (let c = 0; c < p.grid.cols; c++) {
+    let topRow = -1;
+    for (let r = 0; r < p.grid.rows; r++) {
+      if (p.grid.cells[r][c] !== 'empty') topRow = r;
+    }
+    if (topRow < 0) continue;
+    const cx = p.x + (c - p.grid.anchorCol) * p.cellSize * p.direction;
+    out.push({
+      sx: [cx - p.cellSize / 2 - m, cx + p.cellSize / 2 + m],
+      sy: [FLOOR_BASE, FLOOR_BASE + (topRow + 1) * p.cellSize],
+    });
+  }
+  return out;
 }
 
 /** The two lanes at each dig's lips, which must stay clear of floor structures. */

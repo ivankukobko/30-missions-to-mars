@@ -10,6 +10,28 @@
  *     derivative discontinuity at every integer lattice line, which reads as
  *     grid-aligned creases across the terrain.
  */
+/**
+ * The same integer bit-mixing `Noise`'s own lattice hash uses, exposed standalone for
+ * callers that want a handful of independent values per integer cell — WFC-style
+ * decisions, not terrain — without paying for a `Noise` instance or its smoothstep
+ * interpolation. `salt` picks which of several independent values a given (a, b) gets,
+ * the same job `Colony.ts`'s per-module sin-hash used to do less reliably: that hash
+ * put a fourth term inside one `sin()` call, and two of its salts turned out correlated
+ * enough that a downstream probability gate driven by one salt never once fired across
+ * 400 real trials, despite the individual salts each looking uniform in isolation. Bit
+ * mixing does not have that failure mode.
+ */
+export function hash01(seed: number, a: number, b: number, salt = 0): number {
+  let h =
+    Math.imul(a, 374761393) +
+    Math.imul(b, 668265263) +
+    Math.imul(seed, 1274126177) +
+    Math.imul(salt, 2246822519);
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
 export class Noise {
   readonly seed: number;
 

@@ -3,6 +3,7 @@ import { CANYON } from '../world/CanyonSpec.ts';
 import type { PadInfo } from '../world/Colony.ts';
 import { MISSION_COUNT, worldAt } from '../campaign/Missions.ts';
 import { checkLayout } from '../campaign/Layout.ts';
+import type { Rank } from '../campaign/Progress.ts';
 
 /**
  * What the inspector needs from the game. Declared as an interface rather than
@@ -17,6 +18,9 @@ export interface InspectorHost {
   targetPad(): PadInfo | null;
   missionId(): number;
   seed(): number;
+  /** Best rank per mission so far — colonies grow denser the better a corp's missions
+   *  have gone, and the debug readout should reflect the same world a real run does. */
+  ranks(): Readonly<Record<string, Rank>>;
   /** Where the player planted the navigation radar, or null before mission 1 is flown. */
   mastX(): number | null;
   /** Its exact height. Paired with `mastX`; see `Progress.mastY`. */
@@ -316,7 +320,7 @@ export class Inspector {
     // back to the pre-fix terrain estimate, and a readout whose whole claim is that it
     // reports what the campaign enforces cannot be building a different radar than the
     // campaign actually placed.
-    const world = worldAt(id, this.host.mastX(), this.host.mastY());
+    const world = worldAt(id, this.host.mastX(), this.host.mastY(), this.host.ranks(), this.host.seed());
     const counts = new Map<string, number>();
     for (const p of world.props) counts.set(p.kind, (counts.get(p.kind) ?? 0) + 1);
     const issues = checkLayout(world.props, world.digs);

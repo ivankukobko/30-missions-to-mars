@@ -35,6 +35,29 @@ const gantry = (x1: number, x2: number, y: number): Prop => ({
   y,
 });
 
+/**
+ * A fully occupied cols×rows colony anchored at `x`, growing toward +x. The grid is
+ * real, not a stub — the deck/corridor rules judge a colony by its occupied columns
+ * (see `colonyColumns`), so a fixture whose `footprintX` claims ground its cells never
+ * reach would test nothing.
+ */
+const colony = (x: number, cols = 1, rows = 1): Prop => ({
+  kind: 'colony',
+  corp: 'kessler',
+  x,
+  cellSize: 12,
+  direction: 1,
+  grid: {
+    cols,
+    rows,
+    anchorCol: 0,
+    cells: Array.from({ length: rows }, () => Array(cols).fill('room' as const)),
+    tubes: [],
+  },
+  footprintX: [x - 6, x + (cols - 1) * 12 + 6],
+  height: rows * 12,
+});
+
 const xOf = (p: Prop): number => ('x' in p ? p.x : (p.x1 + p.x2) / 2);
 
 describe('checkLayout', () => {
@@ -66,6 +89,31 @@ describe('checkLayout', () => {
   it('allows a span far enough above to read as scenery', () => {
     // CORRIDOR_HEIGHT is 130.
     expect(checkLayout([pad('a', 0), gantry(-10, 10, 200)])).toEqual([]);
+  });
+
+  it('flags a colony with a column standing through a pad deck', () => {
+    // Two columns anchored at -20 put the second at -8; its 12-wide cell plus margin
+    // reaches over the pad slab (-8..8 for a 16-wide pad), and a ground colony always
+    // rises from the floor through the deck plane — the same rule a mast planted
+    // through the deck trips.
+    const violations = checkLayout([pad('a', 0), colony(-20, 2, 1)]);
+
+    expect(violations.some((v) => v.rule === 'deck' && v.prop.startsWith('colony'))).toBe(true);
+  });
+
+  it('flags a colony whose column reaches into a pad approach corridor', () => {
+    // An 8-wide pad's slab spans -4..4 while its core spans -5..5 (CORE_HALF). A
+    // single column at -12 ends at -4.8 with margin: clear of the slab, inside the
+    // core — the corridor rule alone has to catch it.
+    const violations = checkLayout([pad('a', 0, 8), colony(-12, 1, 1)]);
+
+    expect(violations.some((v) => v.rule === 'corridor' && v.prop.startsWith('colony'))).toBe(true);
+  });
+
+  it('clears a colony whose columns all stay outside every pad corridor', () => {
+    // Columns at 20 and 32 — the nearest edge sits at 12.8 with margin, comfortably
+    // clear of pad "a"'s core (-5..5).
+    expect(checkLayout([pad('a', 0), colony(20, 2, 3)])).toEqual([]);
   });
 
   it('exempts a pad from its own deck', () => {
@@ -388,6 +436,17 @@ describe('resolveLayout', () => {
     const resolved = resolveLayout([pad('a', 0, 16, 40), platform]);
 
     expect(resolved).toContain(platform);
+  });
+
+  it('reports rather than moves an intruding colony — there is no cheap way to slide a grown structure', () => {
+    // Not a scenario `Missions.synthesizeColonies` should ever produce (colonies are
+    // generated safe-by-construction against exactly this test), but the resolver's
+    // own contract still has to hold for whatever a colony prop happens to be: it
+    // falls into the same "report, don't move" bucket as a tower or a platform.
+    const c = colony(-20, 2, 1);
+    const resolved = resolveLayout([pad('a', 0), c]);
+
+    expect(resolved).toContain(c);
   });
 
   it('keeps masts out of excavation mouths', () => {

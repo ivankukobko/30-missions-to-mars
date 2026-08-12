@@ -16,7 +16,7 @@
  * envelope has to be reachable from a test.
  */
 
-export type AirframeId = 'lander' | 'hauler';
+export type AirframeId = 'lander' | 'hauler' | 'helion';
 
 /** Where an engine sits and which way it points, in the vehicle's model space. */
 export interface Engine {
@@ -67,6 +67,19 @@ export type Airframe =
       bankMax: number;
       /** How briskly the lean follows the engines. */
       bankRate: number;
+    })
+  | (Common & {
+      /**
+       * Decoupled horizontal translation. Up key fires main vertical lift engine (+Y).
+       * Left/Right keys fire lateral RCS jets to shift horizontal position (±X) without rotating.
+       * Holding Left+Right together fires the main UP thruster.
+       */
+      scheme: 'translation';
+      sideThrust: number;
+      mainBurn: number;
+      rcsBurn: number;
+      bankMax: number;
+      bankRate: number;
     });
 
 /**
@@ -102,12 +115,6 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
 
   /**
    * Two engines splayed off the centreline, no attitude control, rotation locked.
-   *
-   * Thrust is scaled so that both engines together match the lander's 36: at 30° of cant
-   * the pair must push `36 / cos 30°` to lift the same, and the burn rate is scaled by
-   * the same factor. That makes the cosine loss an honest running cost rather than a
-   * free upgrade — the hauler is about 15% thirstier per unit of lift — and `fuelScale`
-   * takes another tenth off the tank on top.
    */
   hauler: {
     id: 'hauler',
@@ -115,14 +122,6 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     scheme: 'differential',
     thrust: 36,
     fuelScale: 0.9,
-    /**
-     * Mounted well inboard, at ±0.24 rather than out on the chassis corners.
-     *
-     * A canted nozzle throws its plume outward as well as down, and the gear splays the
-     * same way — put the pods out near the legs and the exhaust washes the feet, which
-     * is not something a vehicle would be built to do. Tucking them toward the
-     * centreline gives the plumes the whole gap between the legs to spread into.
-     */
     engines: [
       { x: -0.24, cant: -HAULER_CANT },
       { x: 0.24, cant: HAULER_CANT },
@@ -130,6 +129,29 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     engineBurn: 11 / (2 * Math.cos(HAULER_CANT)),
     bankMax: 0.21,
     bankRate: 5,
+  },
+
+  /**
+   * Helion lateral craft: Decoupled translation.
+   * Up = Main vertical lift engine (+Y). Left/Right = Lateral RCS jets (±X).
+   * Left + Right = Main vertical lift engine (+Y).
+   */
+  helion: {
+    id: 'helion',
+    name: 'HD-7 SIDEWINDER',
+    scheme: 'translation',
+    thrust: 36,
+    sideThrust: 18,
+    fuelScale: 0.92,
+    engines: [
+      { x: 0, cant: 0 },
+      { x: -0.44, cant: -Math.PI / 2 },
+      { x: 0.44, cant: Math.PI / 2 },
+    ],
+    mainBurn: 11,
+    rcsBurn: 2.2,
+    bankMax: 0.14,
+    bankRate: 6,
   },
 };
 

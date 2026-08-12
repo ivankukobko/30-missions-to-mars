@@ -28,7 +28,7 @@ See [CLAUDE.md](CLAUDE.md) for development commands and rules.
 
 Detailed documentation is organized in the [`docs/`](docs/) directory:
 
-- **[Lore & Factions](docs/lore.md)**: Guidance AI player identity, the three corporate factions (Ixion, Helion, Kessler), and the 6 campaign narrative phases.
+- **[Lore & Factions](docs/lore.md)**: Player identity and the corp voice pattern, the three corporate factions (Ixion, Helion, Kessler), and the 6 campaign narrative phases.
 - **[Gameplay](docs/gameplay.md)**: Entry velocity mechanics, desktop & touch controls, payload mass & landing scoring, and seed persistence.
 - **[Environment](docs/environment.md)**: Canyon geometry & orientation, uniform lattice sampling, terracing, level shelves, and terrain noise generation.
 - **[Architecture](docs/architecture.md)**: 120 Hz fixed-timestep physics engine, fragment-bound rendering pipeline, codebase module layout, and automated tests.
@@ -39,3 +39,4 @@ Detailed documentation is organized in the [`docs/`](docs/) directory:
 
 - **[Telemetry Dialogue System](docs/plans/telemetry_dialogue_system.md)**: Multi-card Guidance AI pre-mission telemetry uplink system.
 - **[Campaign Narrative Enhancements](docs/plans/campaign_narrative_enhancements.md)**: Ixion shutdown visual shifts, AI corridor diagnostics, and shaft acoustic audio effects.
+- **[Procedural Colony Growth](docs/plans/procedural_colony_growth.md)**: Anchors-vs-grown-flesh model, wall/floor/tunnel mounts, voxel/WFC-lite growth around fixed pads, room/tube/scaffold tiles, and campaign-age maturation.

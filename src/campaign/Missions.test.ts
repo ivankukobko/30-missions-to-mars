@@ -113,9 +113,13 @@ describe('getMission', () => {
 
 describe('worldAt accumulation', () => {
   it('builds nothing but the ledger up to the given mission', () => {
-    // Mission 1 adds nothing, so the world before any delivery is bare canyon.
-    expect(worldAt(1).props).toEqual([]);
-    expect(worldAt(1).digs).toEqual([]);
+    // Mission 1's own `adds` are empty — the one prop in its world is Ixion's colony,
+    // which is not hand-authored by any mission: `synthesizeColonies` derives its
+    // existence from the campaign position alone, so mission 1 was never truly bare
+    // once that shipped. See docs/plans/procedural_colony_growth.md.
+    const world = worldAt(1);
+    expect(world.props).toEqual([expect.objectContaining({ kind: 'colony', corp: 'outpost' })]);
+    expect(world.digs).toEqual([]);
   });
 
   it('only ever loses a structure a mission explicitly struck', () => {
@@ -167,6 +171,58 @@ describe('worldAt accumulation', () => {
     // The invariant retrying after a crash depends on: same inputs, same canyon.
     for (const id of [1, 7, 16, 23, 30]) {
       expect(worldAt(id, 10)).toEqual(worldAt(id, 10));
+    }
+  });
+
+  it('grows one colony per active corp, near that corp side of the canyon', () => {
+    const colonies = (id: number) =>
+      worldAt(id, 0).props.filter((p): p is Extract<Prop, { kind: 'colony' }> => p.kind === 'colony');
+
+    // Ixion flies mission 1; Helion's and Kessler's first missions come later, and a
+    // corp that hasn't started yet has built nothing.
+    expect(colonies(1).map((c) => c.corp)).toEqual(['outpost']);
+    expect(colonies(30).map((c) => c.corp).sort()).toEqual(['helion', 'kessler', 'outpost']);
+
+    // Each corp roots on its own side — Helion west, Kessler east, Ixion nearer the
+    // centre than either wall. Not asserted against the exact claim bounds: the anchor
+    // search (`findAnchorX`) is allowed to walk a colony a couple of cells off its
+    // natural spot when the centre is crowded, which by mission 30 it genuinely is.
+    for (const c of colonies(30)) {
+      if (c.corp === 'helion') expect(c.x).toBeLessThan(-20);
+      if (c.corp === 'kessler') expect(c.x).toBeGreaterThan(20);
+      if (c.corp === 'outpost') expect(Math.abs(c.x)).toBeLessThan(45);
+    }
+
+    // And each grows toward the canyon centre, per the lore in CanyonSpec.ts.
+    expect(colonies(30).find((c) => c.corp === 'helion')?.direction).toBe(1);
+    expect(colonies(30).find((c) => c.corp === 'kessler')?.direction).toBe(-1);
+  });
+
+  it('builds a denser colony for a corp whose missions have gone well', () => {
+    // The rank record is monotonically best-so-far (`Progress.complete`), so this is
+    // the campaign-level face of ColonyGrowth's quality-monotonicity guarantee: an
+    // all-S history never produces fewer occupied cells than an ungraded one.
+    const occupied = (ranks: Record<string, 'S' | 'A' | 'B' | 'C'>) =>
+      worldAt(30, 0, null, ranks)
+        .props.filter((p): p is Extract<Prop, { kind: 'colony' }> => p.kind === 'colony')
+        .reduce((sum, c) => sum + c.grid.cells.flat().filter((cell) => cell !== 'empty').length, 0);
+
+    const allS = Object.fromEntries(MISSIONS.map((m) => [String(m.id), 'S' as const]));
+    expect(occupied(allS)).toBeGreaterThanOrEqual(occupied({}));
+  });
+
+  it('every colony in every mission at every mast position passes the layout check', () => {
+    // Colonies are generated safe-by-construction (reservedCellsFor), and this is the
+    // belt-and-suspenders proof: the same checkLayout net that guards every authored
+    // prop reports nothing for any generated one, campaign-wide.
+    for (const id of IDS) {
+      for (const mastX of MAST_POSITIONS) {
+        const world = worldAt(id, mastX);
+        const violations = checkLayout(world.props, world.digs).filter((v) =>
+          v.prop.startsWith('colony'),
+        );
+        expect(violations, `mission ${id}, mastX ${mastX}`).toEqual([]);
+      }
     }
   });
 
@@ -320,9 +376,17 @@ describe('airframe assignment', () => {
     }
   });
 
-  it('sends Kessler runs out on the twin and everyone else on the lander', () => {
+  it('sends clients out on their specific airframes after mission 5', () => {
     for (const m of MISSIONS) {
-      expect(airframeFor(m)).toBe(m.client === 'kessler' ? 'hauler' : 'lander');
+      const expected =
+        m.id < 6
+          ? 'lander'
+          : m.client === 'helion'
+            ? 'helion'
+            : m.client === 'kessler'
+              ? 'hauler'
+              : 'lander';
+      expect(airframeFor(m)).toBe(expected);
     }
   });
 
@@ -342,11 +406,14 @@ describe('airframe assignment', () => {
     expect(first.id).toBe(6);
   });
 
-  it('flies both frames often enough for each to be a skill', () => {
+  it('flies all frames often enough for each to be a skill', () => {
     const hauler = MISSIONS.filter((m) => airframeFor(m) === 'hauler').length;
+    const helion = MISSIONS.filter((m) => airframeFor(m) === 'helion').length;
+    const lander = MISSIONS.filter((m) => airframeFor(m) === 'lander').length;
 
-    expect(hauler).toBeGreaterThanOrEqual(8);
-    expect(MISSIONS.length - hauler).toBeGreaterThanOrEqual(8);
+    expect(hauler).toBeGreaterThanOrEqual(6);
+    expect(helion).toBeGreaterThanOrEqual(5);
+    expect(lander).toBeGreaterThanOrEqual(6);
   });
 
   it('lets a mission override the frame its client would imply', () => {

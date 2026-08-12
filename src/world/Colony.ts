@@ -4,6 +4,7 @@ import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { KinematicBody, KinematicWorld, type Motion } from '../physics/Kinematics.ts';
 import { CORPS, type CorpId } from './CanyonSpec.ts';
 import type { CanyonGenerator } from './CanyonGenerator.ts';
+import { buildColonyGrowth, buildGrowthGizmos, type ColonyGrid } from './ColonyGrowth.ts';
 
 /**
  * Everything the colony has built. These are authored props, not terrain — which is
@@ -54,7 +55,40 @@ export type Prop =
    * an excavation. The deck always sits slightly *above* the terrain, so touchdown
    * resolves against the pad collider and nothing else.
    */
-  | { kind: 'pad'; id: string; corp: CorpId; x: number; width: number; y?: number };
+  | { kind: 'pad'; id: string; corp: CorpId; x: number; width: number; y?: number }
+  /**
+   * A procedurally grown structure — see docs/plans/procedural_colony_growth.md. The
+   * grid arrives pre-computed (by `Missions.synthesizeColonies`, from that corp's own
+   * mission history and rank) rather than generated here; `Colony` only ever renders
+   * what it's given, the same as every other prop.
+   *
+   * `x` is the *anchor* cell's world position — what `Colony.ts` renders from, via the
+   * same `(column − anchorCol) × cellSize × direction` offset `growGrid`'s own caller
+   * uses. It is not necessarily the footprint's centre: growth away from the anchor is
+   * one-directional for a wall-rooted corp, so `footprintX` is tracked separately
+   * rather than assumed symmetric around `x` the way a tower's `width` is around its
+   * own `x`. Only `x` is authored, no `y` — matching `tower`: `Missions.ts` has no
+   * terrain access, so the base is resolved from `canyon.floorAt(x)` at render time,
+   * the same "sunk just enough to read as anchored" convention `buildTower` uses.
+   *
+   * `footprintX`/`height` exist purely for `Layout.ts` and measure what the grid
+   * actually occupies, not its nominal cols/rows — an immature or unlucky-seed colony
+   * that only fills its anchor cell reports a footprint about that big, not the full
+   * envelope it might eventually grow into. `height` is *not* an absolute Y the way a
+   * tower's `topY` is — a grown structure has no author to hand-pick one — `Layout.ts`
+   * adds it to `FLOOR_BASE` the same conservative way it already estimates a floor-
+   * anchored prop's unknown base.
+   */
+  | {
+      kind: 'colony';
+      corp: CorpId;
+      x: number;
+      cellSize: number;
+      direction: 1 | -1;
+      grid: ColonyGrid;
+      footprintX: [number, number];
+      height: number;
+    };
 
 /**
  * Depths at which the colony is echoed behind the play plane. These carry no
@@ -139,7 +173,7 @@ const RADAR = {
   WIDTH: 1.8,
 } as const;
 
-const LATTICE = {
+export const LATTICE = {
   /** Nominal bay height. Real bays are this divided evenly into the structure. */
   BAY: 5.5,
   /**
@@ -365,7 +399,61 @@ const DEPTH = {
   platform: 9,
   pad: 8.5,
   caveRoof: 15,
+  colony: 15,
 } as const;
+
+/**
+ * A stout pressure vessel: a barrel-profile revolve, capped and laid on its side.
+ *
+ * Kessler's towers hang rectangular modules in their lattice — the same box every
+ * corp's structures use, which is exactly the "steel-coloured boxes" the design record
+ * names as unfinished business. A charter that measures itself in metres of bore would
+ * not fabricate a flat-sided box to hold pressure against a shaft; it would weld a tank.
+ * This is the same technique the KD-9 hull uses — a five-point radius profile revolved
+ * with `LatheGeometry`, capped because a lathe has no ends of its own — scaled down and
+ * laid on its side, since the module it replaces already runs longer through depth than
+ * it is wide (a Kessler tower's `DEPTH.tower`, 17, dwarfs its own `width`, 11–12).
+ *
+ * `diameter` sets the barrel's cross-section, `length` how far it runs along whichever
+ * axis it is rotated onto — here `group.rotation.x` swaps that axis from the lathe's
+ * native Y to Z, so the tank's long axis matches the depth the box it replaces already
+ * had.
+ */
+function buildBarrel(
+  diameter: number,
+  length: number,
+  segments: number,
+  material: THREE.Material,
+): THREE.Group {
+  const r = diameter / 2;
+  const capR = r * 0.55;
+  const profile = [
+    [0, capR],
+    [0.1, r * 0.95],
+    [0.5, r],
+    [0.9, r * 0.95],
+    [1, capR],
+  ] as const;
+
+  const points = profile.map(([t, rad]) => new THREE.Vector2(rad, (t - 0.5) * length));
+  const shell = new THREE.Mesh(new THREE.LatheGeometry(points, segments), material);
+  shell.castShadow = true;
+  shell.receiveShadow = true;
+
+  const cap = (y: number, faceUp: boolean) => {
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(capR, segments), material);
+    disc.rotation.x = faceUp ? -Math.PI / 2 : Math.PI / 2;
+    disc.position.y = y;
+    return disc;
+  };
+
+  const group = new THREE.Group();
+  group.add(shell, cap(-length / 2, false), cap(length / 2, true));
+  // Lays the barrel down: its revolve axis (Y) becomes Z, so it runs front-to-back
+  // through the frame the way the box module it replaces always did.
+  group.rotation.x = Math.PI / 2;
+  return group;
+}
 
 /** How far the whole main row is drawn toward the camera from the play plane. */
 const ROW_SHIFT = 1;
@@ -592,6 +680,9 @@ export class Colony {
         case 'radar':
           this.buildRadar(prop, canyon);
           break;
+        case 'colony':
+          this.buildColonyStructure(prop, canyon);
+          break;
       }
     }
   }
@@ -633,15 +724,63 @@ export class Colony {
     const bays = bayCount(height);
     const bayH = height / bays;
     const modules = Math.max(1, Math.round(bays / 3.5));
+    /**
+     * Kessler hangs tanks; everyone else still hangs the box. One corp at a time, so
+     * this is the barrel's first outing rather than a repaint of every tower in the
+     * campaign sight unseen — Helion's own shape is a separate, not-yet-drawn pass.
+     */
+    const barreled = prop.corp === 'kessler';
     for (let i = 0; i < modules; i++) {
-      // Deterministic placement from the tower's own x, so retries rebuild it identically.
-      const r = Math.abs(Math.sin((prop.x * 12.9898 + i * 78.233) * 43758.5453) % 1);
+      // Deterministic placement from the tower's own x plus the campaign seed, so a
+      // retry rebuilds it identically but a fresh seed rearranges it — folding the seed
+      // in the same way `Shaft` already does (CanyonGenerator.seed, offset per feature)
+      // rather than carrying a second seed value. Previously this was `x`/`i` only, so
+      // every save saw the same module in the same bay regardless of seed.
+      const r = Math.abs(Math.sin((prop.x * 12.9898 + i * 78.233 + canyon.seed) * 43758.5453) % 1);
       const bay = Math.min(bays - 1, Math.floor(r * bays));
+      const cy = baseY + bayH * (bay + 0.5);
+
+      if (barreled) {
+        /**
+         * `diameter` becomes the tank's *vertical* extent too, once it is laid on its
+         * side — a lathe is radially symmetric, so the same number spans X and Y before
+         * rotation. Sizing it off `prop.width` (~10) the way the box's width once was
+         * sized would make it taller than a single bay (~5.5) and punch into the rings
+         * above and below. `bayH` is the number that actually bounds one bay, so the
+         * diameter is sized against that instead, with 0.85 rather than the box's 0.72
+         * because a circle reads smaller than a square sharing the same bound.
+         */
+        const diameter = bayH * 0.85;
+        const tank = buildBarrel(diameter, DEPTH.tower * 0.86, 8, hull);
+        tank.position.set(prop.x, cy, z);
+        this.scene.add(tank);
+        this.objects.push(tank);
+
+        // The lit band: a short open ring wrapped around the tank's waist rather than a
+        // flat strip laid across it, which on a barrel would either float clear of the
+        // curve or sink into it depending which side you're looking from.
+        const band = new THREE.Mesh(
+          new THREE.CylinderGeometry(diameter * 0.51, diameter * 0.51, bayH * 0.16, 8, 1, true),
+          new THREE.MeshStandardMaterial({
+            color: corp.color,
+            emissive: corp.color,
+            emissiveIntensity: 1.1,
+            roughness: 0.4,
+            side: THREE.DoubleSide,
+          }),
+        );
+        band.rotation.x = Math.PI / 2;
+        band.position.set(prop.x, cy, z);
+        this.scene.add(band);
+        this.objects.push(band);
+        continue;
+      }
+
       const module = new THREE.Mesh(
         new THREE.BoxGeometry(prop.width * 0.86, bayH * 0.72, DEPTH.tower * 0.86),
         hull,
       );
-      module.position.set(prop.x, baseY + bayH * (bay + 0.5), z);
+      module.position.set(prop.x, cy, z);
       module.castShadow = true;
       module.receiveShadow = true;
       this.scene.add(module);
@@ -657,7 +796,7 @@ export class Colony {
           roughness: 0.4,
         }),
       );
-      strip.position.set(prop.x, baseY + bayH * (bay + 0.5) - bayH * 0.36, z);
+      strip.position.set(prop.x, cy - bayH * 0.36, z);
       this.scene.add(strip);
       this.objects.push(strip);
     }
@@ -1012,17 +1151,21 @@ export class Colony {
     const corp = CORPS[prop.corp];
     /**
      * `prop.y` is the exact height the lander settled at in mission 1 — ground truth,
-     * not an estimate — and is used whenever it is known. Only a save written before
-     * `Progress.mastY` existed falls through to the old approximation: terrain resampled
-     * at the mast's own z, which is a different cross-section from where the touchdown
-     * actually happened. The canyon meanders, so that resample could disagree with the
-     * real ground by enough to bury the mast's base or leave it standing on air —
-     * `floorAt`, the z=0 profile, is not the fix either, since the mast is drawn at
-     * `RADAR.Z` and floorAt is a third cross-section again. There is no terrain sample
-     * that is exactly right except the one instant the vehicle was actually standing on
-     * the ground, which is exactly what `prop.y` now records.
+     * not an estimate — and is used whenever it is known.
+     *
+     * A save written before `Progress.mastY` existed has no `prop.y`, and falls back to
+     * `floorAt`, the z=0 profile: the actual cross-section the touchdown happened on.
+     * That used to be wrong for a subtler reason — the mast is drawn at `RADAR.Z` and
+     * floorAt samples a different slice, so a mast this exact would still be flush with
+     * ground that is not quite the ground under it — but it is now the far *better*
+     * wrong answer. `RADAR.Z` moved to −35 to sit the mast in the background behind the
+     * shaft, and sampling at −35 instead means asking the canyon's meander for a third,
+     * even more distant cross-section: on the seed this was reported against, that
+     * produced a height 8+ units off, which is what put the mast's base in open air over
+     * a shaft mouth. z=0 is never exactly right for a mast drawn at −35, but it is close,
+     * and it is the same number every other terrain-following prop in this file trusts.
      */
-    const baseY = canyon.heightAt(prop.x, RADAR.Z) - 1;
+    const baseY = (prop.y ?? canyon.floorAt(prop.x)) - 1;
     const topY = baseY + RADAR.HEIGHT;
 
     const hull = new THREE.MeshStandardMaterial({
@@ -1124,6 +1267,28 @@ export class Colony {
     add(beacon);
 
     this.radar = { dish: head, beacon, beaconY, x: prop.x, phase: 0 };
+  }
+
+  /**
+   * Thin wrapper, not a generator — the grid arrives pre-computed on the prop (see the
+   * `colony` variant's own doc comment), the same as every other prop's geometry arrives
+   * fully specified by the time it reaches `Colony`. Gizmos read the URL directly rather
+   * than threading a flag through `build()`'s signature, matching how `Game.ts` already
+   * gates its own debug-only paths — this is the one prop kind with a debug overlay, not
+   * a reason to add a parameter every other caller of `build()` would have to pass `false`
+   * for.
+   */
+  private buildColonyStructure(prop: Extract<Prop, { kind: 'colony' }>, canyon: CanyonGenerator): void {
+    // Sunk just enough to read as anchored — same convention `buildTower` uses, and
+    // for the same reason: `Missions.ts` has no terrain access, so only render time
+    // ever knows where the ground under `prop.x` actually is.
+    const y = canyon.floorAt(prop.x) - 2;
+    const z = zCentre(DEPTH.colony);
+    const place = { x: prop.x, y, z, cellSize: prop.cellSize, direction: prop.direction };
+    this.objects.push(...buildColonyGrowth(this.scene, prop.grid, place, prop.corp));
+    if (new URLSearchParams(window.location.search).has('gizmos')) {
+      this.objects.push(...buildGrowthGizmos(this.scene, prop.grid, place, prop.corp));
+    }
   }
 
   /**
@@ -1343,18 +1508,51 @@ export class Colony {
         this.scene.add(mast);
         this.objects.push(mast);
 
-        // Only the lamp glows, which is what makes it read as a marker at distance.
+        /**
+         * The lamp cap, sized to the mast rather than to itself. At 1.7 across on a
+         * 0.45 pole it read as a brick balanced on a wire — nearly four times the
+         * mast's own width — and at `emissiveIntensity: 2` it was past the point ACES
+         * clips a saturated colour to white, which is why a marker meant to carry
+         * Helion's orange or Kessler's cyan came out a washed-out beige regardless of
+         * corp. Both were the same mistake: reaching for *more* — bigger box, hotter
+         * value — for something that only needed to be *seen*, not sized like a room.
+         *
+         * Kept a hair over the mast's own 0.45 rather than exactly matching it, purely
+         * so the cap still reads as a fitting rather than a butt-joint the same width
+         * disappearing into.
+         */
         const lamp = new THREE.Mesh(
-          new THREE.BoxGeometry(1.7, 1.1, 1.7),
+          new THREE.BoxGeometry(0.55, 0.55, 0.55),
           new THREE.MeshStandardMaterial({
             color: corp.color,
             emissive: corp.color,
-            emissiveIntensity: 2,
+            emissiveIntensity: 1.3,
           }),
         );
         lamp.position.set(edge, baseY + height, z);
         this.scene.add(lamp);
         this.objects.push(lamp);
+
+        /**
+         * The actual "shine" is a glow sprite layered over the cap, not a hotter
+         * surface — the same split the radar beacon already draws on. A hot emissive
+         * value buys brightness by giving up saturation; a soft billboard behind the
+         * cap buys reach — visible from much further down the corridor — while the
+         * cap itself stays at a value that still reads as the corp's own colour.
+         */
+        const glow = new THREE.Sprite(
+          new THREE.SpriteMaterial({
+            color: corp.color,
+            map: this.glowTexture(),
+            transparent: true,
+            depthWrite: false,
+            fog: false,
+          }),
+        );
+        glow.position.set(edge, baseY + height, z);
+        glow.scale.setScalar(2.2);
+        this.scene.add(glow);
+        this.objects.push(glow);
       }
     }
   }

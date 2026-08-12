@@ -186,7 +186,8 @@ export class LanderBody {
     // cannot lose across the calls in between.
     const frame = this.airframe;
     if (frame.scheme === 'attitude') this.applyAttitude(dt, input, frame);
-    else this.applyDifferential(dt, input, frame);
+    else if (frame.scheme === 'differential') this.applyDifferential(dt, input, frame);
+    else this.applyTranslation(dt, input, frame);
 
     if (this.fuel < 0) this.fuel = 0;
 
@@ -292,6 +293,52 @@ export class LanderBody {
     // Lean into the push. Positive rotation is counter-clockwise — nose to port — and a
     // nozzle splayed to +x drives the hull to port, so the two already share a sign.
     this.bankTarget = Math.max(-1, Math.min(1, lean)) * frame.bankMax;
+  }
+
+  /**
+   * Decoupled horizontal translation scheme (Helion craft).
+   * Bottom main nozzle provides vertical lift (+Y).
+   * Lateral RCS thrusters shift horizontal position (±X) without tilting/rotating.
+   * Holding Left + Right together fires the main vertical thruster.
+   */
+  private applyTranslation(
+    dt: number,
+    input: InputState,
+    frame: Extract<Airframe, { scheme: 'translation' }>,
+  ): void {
+    const hasFuel = this.fuel > 0;
+    const bothSide = input.left && input.right;
+    const mainOn = hasFuel && (input.main || bothSide);
+    const leftOn = hasFuel && input.left && !bothSide;
+    const rightOn = hasFuel && input.right && !bothSide;
+
+    // Thruster state for view / audio: [mainBottom, portEngine (fires left to move right), starboardEngine (fires right to move left)]
+    this.thrusters = {
+      engines: [mainOn, rightOn, leftOn],
+      rcsLeft: leftOn,
+      rcsRight: rightOn,
+    };
+
+    if (mainOn) {
+      const a = this.thrustAccel;
+      this.vy += a * dt;
+      this.fuel -= frame.mainBurn * dt;
+    }
+
+    const sideAccel = (frame.sideThrust / this.mass);
+    let lean = 0;
+    if (leftOn) {
+      this.vx -= sideAccel * dt;
+      this.fuel -= frame.rcsBurn * dt;
+      lean = -1;
+    }
+    if (rightOn) {
+      this.vx += sideAccel * dt;
+      this.fuel -= frame.rcsBurn * dt;
+      lean = 1;
+    }
+
+    this.bankTarget = lean * frame.bankMax;
   }
 
   private resolveContact(hit: Hit): Contact {
