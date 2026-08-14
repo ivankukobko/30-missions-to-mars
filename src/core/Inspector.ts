@@ -5,8 +5,6 @@ import type { CanyonGenerator } from '../world/CanyonGenerator.ts';
 import { MISSION_COUNT } from '../campaign/Missions.ts';
 import { checkLayout } from '../campaign/Layout.ts';
 import { planColonies, missionWorlds } from '../campaign/ColonyPlan.ts';
-import type { Rank } from '../campaign/Progress.ts';
-
 /**
  * What the inspector needs from the game. Declared as an interface rather than
  * importing Game, because Game constructs the inspector — the dependency has to run
@@ -20,9 +18,10 @@ export interface InspectorHost {
   targetPad(): PadInfo | null;
   missionId(): number;
   seed(): number;
-  /** Best rank per mission so far — colonies grow denser the better a corp's missions
-   *  have gone, and the debug readout should reflect the same world a real run does. */
-  ranks(): Readonly<Record<string, Rank>>;
+  /** Best landing points per mission so far — colonies grow larger the better a corp's
+   *  missions have gone, and the debug readout should reflect the same world a real run
+   *  does. Points rather than ranks, because that is what the budget is paid in. */
+  scores(): Readonly<Record<string, number>>;
   /** Where the player planted the navigation radar, or null before mission 1 is flown. */
   mastX(): number | null;
   /** Its exact height. Paired with `mastX`; see `Progress.mastY`. */
@@ -33,6 +32,10 @@ export interface InspectorHost {
   loadMission(id: number): void;
   /** Rebuilds the world on a different seed, keeping the current mission. */
   useSeed(seed: number): void;
+  /** Whether the growth gizmos are currently drawn — see `ColonyRender.buildColonyGizmos`. */
+  gizmos(): boolean;
+  /** Turns them on or off. Rebuilds the world, since they are built with it. */
+  setGizmos(on: boolean): void;
   /** True while the inspector owns the camera and the simulation is held. */
   setInspecting(on: boolean): void;
 }
@@ -135,6 +138,7 @@ export class Inspector {
         <button id="dbg-random" title="random seed">Roll</button>
         <span class="debug-sep"></span>
         <button id="dbg-free" class="debug-toggle">Free camera: off</button>
+        <button id="dbg-gizmos" class="debug-toggle">Gizmos: off</button>
         <select id="dbg-view" title="preset vantage">
           ${VIEWS.map((v, i) => `<option value="${i}">${v.label}</option>`).join('')}
         </select>
@@ -188,6 +192,15 @@ export class Inspector {
     );
 
     this.panel.querySelector('#dbg-free')!.addEventListener('click', () => this.toggle());
+
+    // Reloads the mission, so the mission field can go stale if the host clamps the id —
+    // it does not, but `refresh` is cheap and keeps the panel honest either way.
+    this.panel.querySelector('#dbg-gizmos')!.addEventListener('click', () => {
+      this.host.setGizmos(!this.host.gizmos());
+      this.showGizmoState();
+      this.refresh();
+    });
+    this.showGizmoState();
 
     // Picking a vantage does not move the camera; Jump does. Six buttons cost a row of
     // width apiece, and the list only grows.
@@ -263,6 +276,15 @@ export class Inspector {
     if (this.active) this.place();
   }
 
+  /** The gizmo button reads its state from the host rather than from a field here, so
+   *  `?gizmos` in the URL shows as ON without the panel having to know about the flag. */
+  private showGizmoState(): void {
+    const on = this.host.gizmos();
+    const button = this.panel.querySelector('#dbg-gizmos')!;
+    button.textContent = `Gizmos: ${on ? 'ON' : 'off'}`;
+    button.classList.toggle('on', on);
+  }
+
   /** Orbit position from the current focus, angles and range. */
   private place(): void {
     const cam = this.host.camera;
@@ -336,7 +358,7 @@ export class Inspector {
     // The same growth pass `Game.loadMission` runs, off the same live canyon — a
     // readout whose whole claim is that it reports what the campaign enforces cannot be
     // growing a different colony than the campaign actually built.
-    const plan = planColonies(id, worlds, this.host.ranks(), this.host.seed(), terrain);
+    const plan = planColonies(id, worlds, this.host.scores(), this.host.seed(), terrain);
     const allProps = [...current.props, ...plan.colonies];
 
     const counts = new Map<string, number>();

@@ -5,6 +5,7 @@ import { KinematicWorld } from '../physics/Kinematics.ts';
 import { CORPS, type CorpId } from './CanyonSpec.ts';
 import type { CanyonGenerator } from './CanyonGenerator.ts';
 import { buildColonyCells, buildColonyGizmos } from './ColonyRender.ts';
+import { setLanderFocus } from './LanderFade.ts';
 import type { PlacedCell } from './ColonyOrganism.ts';
 import type { ColonyDebug } from './ColonyRender.ts';
 
@@ -446,6 +447,15 @@ export class Colony {
   /** Generated textures, which material disposal does not reach. */
   private textures: THREE.Texture[] = [];
 
+  /**
+   * Whether to draw the growth gizmos — channels, reserved cells, surface (`ColonyRender`).
+   *
+   * Seeded from `?gizmos` so a shared link still opens with them on, then owned by the
+   * debug panel's own toggle. They are built as part of `build`, so flipping this only
+   * shows up on the next one; `Game.setGizmos` is what rebuilds.
+   */
+  gizmos = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('gizmos');
+
   pads: PadInfo[] = [];
   /**
    * Every moving structure in the mission. Advanced by `Game` inside the fixed-step
@@ -481,9 +491,13 @@ export class Colony {
    * makes a pad read as *active* rather than as painted markings, and gives the eye
    * something to line up on during a final approach in a dark canyon.
    */
-  update(dt: number, camera?: THREE.Camera): void {
+  update(dt: number, camera?: THREE.Camera, lander?: { x: number; y: number }): void {
     this.updateRadar(dt, camera);
     if (camera) this.updateLattices(camera);
+    // Where the foreground layer thins out, so it never hides the vehicle. Left at its
+    // default — far above the canyon, so the layer stays solid — when there is no lander,
+    // which is every inspector view and the moment between missions.
+    if (lander) setLanderFocus(lander.x, lander.y);
 
     for (const ring of this.rings) {
       const isTarget = ring.padId === this.targetPadId;
@@ -608,7 +622,7 @@ export class Colony {
       }
     }
 
-    if (debug && new URLSearchParams(window.location.search).has('gizmos')) {
+    if (debug && this.gizmos) {
       this.objects.push(...buildColonyGizmos(this.scene, debug, zCentre(DEPTH.colony)));
     }
   }

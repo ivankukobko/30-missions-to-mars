@@ -32,6 +32,18 @@ interface Saved {
   highestUnlocked: number;
   ranks: Record<string, Rank>;
   /**
+   * Best landing points per mission, 0–100 — the same number `scoreLanding` already
+   * computes and used to discard once it had picked a rank from it.
+   *
+   * Kept alongside the rank rather than instead of it because the two answer different
+   * questions. A rank is what the player is told; points are what the colony is paid in,
+   * and a bucket is far too coarse for that: a 46-point landing and a 65-point landing are
+   * both a B, and under the old scheme they bought a charter exactly the same amount of
+   * building. Thirty missions of that is a campaign where flying materially better than
+   * "good enough for the bucket" changes nothing you can see.
+   */
+  points: Record<string, number>;
+  /**
    * Whether a direction input drives the engine on its own side. A preference rather
    * than campaign state, but it belongs to the player and there is exactly one place
    * that already survives a reload — see `invertThrusters`.
@@ -75,9 +87,14 @@ function fresh(): Saved {
     mastY: null,
     highestUnlocked: 1,
     ranks: {},
+    points: {},
     invertThrusters: false,
   };
 }
+
+/** The lowest score that still earns each rank — see `scoreLanding`'s own thresholds,
+ *  which this has to agree with. */
+const RANK_FLOOR: Record<Rank, number> = { S: 82, A: 66, B: 45, C: 0 };
 
 /**
  * Campaign state in localStorage. The seed lives here because the canyon layout is
@@ -113,6 +130,14 @@ export class Progress {
         mastY: typeof parsed.mastY === 'number' ? parsed.mastY : null,
         highestUnlocked: typeof parsed.highestUnlocked === 'number' ? parsed.highestUnlocked : 1,
         ranks: parsed.ranks ?? {},
+        /**
+         * Backfilled from ranks on any save written before points were kept, at the floor
+         * of the rank earned. Deliberately the floor and not the midpoint: it is the only
+         * figure the stored rank actually guarantees, so a returning player's colony can
+         * only grow when they re-fly a mission, never shrink because the estimate was
+         * generous. Every save this change lands on takes this path.
+         */
+        points: parsed.points ?? Object.fromEntries(Object.entries(parsed.ranks ?? {}).map(([id, r]) => [id, RANK_FLOOR[r]])),
         // Absent in saves written before the second airframe existed, which is every
         // save this change lands on. Default rather than discard the whole record.
         invertThrusters: parsed.invertThrusters === true,
@@ -181,17 +206,32 @@ export class Progress {
     return this.data.ranks[String(missionId)] ?? null;
   }
 
-  /** The full best-rank-per-mission record — for `worldAt`, which needs every rank a
-   *  corp has earned so far, not one mission's at a time. */
+  /** The full best-rank-per-mission record — for the UI, which reports a letter. */
   get ranks(): Readonly<Record<string, Rank>> {
     return this.data.ranks;
   }
 
-  /** Records a completed mission, keeping the best rank achieved for it. */
-  complete(missionId: number, rank: Rank): void {
+  /** The full best-points-per-mission record — for `planColonies`, which pays a charter
+   *  in cells and needs the real figure rather than its bucket. */
+  get points(): Readonly<Record<string, number>> {
+    return this.data.points;
+  }
+
+  /**
+   * Records a completed mission, keeping the best of each measure.
+   *
+   * Rank and points are kept independently rather than one derived from the other. They
+   * cannot disagree in a way that matters — the thresholds are monotonic in points — and
+   * writing both means neither has to be reconstructed from the other later.
+   */
+  complete(missionId: number, rank: Rank, points: number): void {
     const existing = this.rankFor(missionId);
     if (!existing || RANK_ORDER[rank] > RANK_ORDER[existing]) {
       this.data.ranks[String(missionId)] = rank;
+    }
+    const best = this.data.points[String(missionId)];
+    if (best === undefined || points > best) {
+      this.data.points[String(missionId)] = points;
     }
     if (missionId + 1 > this.data.highestUnlocked) {
       this.data.highestUnlocked = missionId + 1;

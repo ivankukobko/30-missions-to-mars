@@ -247,6 +247,23 @@ const TIP_LIFE = 22;
 /** Chance a tip splits after a move. Branching and dead-ending are where every bit of
  *  shape variety now comes from. */
 const BRANCH_CHANCE = 0.3;
+
+/**
+ * Of those splits, the share that sends the new front into depth rather than sideways.
+ *
+ * This is the knob that decides whether a colony reads as a wall or as a building. Depth
+ * is otherwise a last resort — a tip goes backwards only once its own layer is finished or
+ * fenced — which is right for the *leading* tip, because the face is the silhouette, but
+ * it means the layers do not start filling until a colony is essentially complete. Late,
+ * all at once, and only for whoever happened to be boxed in.
+ *
+ * Spending branches on it instead costs the face nothing: a branch is a second front by
+ * definition, and the leading tip carries on across the face regardless. So this can be
+ * raised without reproducing the failure that `W_DEPTH` caused at 0.45 — a face collapsing
+ * from about 40 cells to 12, on 121 of 441 corp-missions — because that came from depth
+ * *competing* with face moves rather than running beside them.
+ */
+const DEPTH_BRANCH_CHANCE = 0.25;
 /** Live tips per corp. A crew is finite, and this is what keeps a step cheap. */
 const MAX_TIPS = 12;
 /** Tips a colony carried over from the previous mission restarts with. More than one so
@@ -289,6 +306,10 @@ interface Move {
   back: number;
   score: number;
   reach: number;
+  /** Touches a cell belonging to another corp. Not a veto — a seam has to be built from
+   *  both sides by somebody — but it is what stops a move counting as *free ground* when
+   *  deciding whether the colony still has room to spread. See `candidates`. */
+  encroach: boolean;
 }
 
 export function growColony(input: GrowthInput): Map<number, OrganismCell> {
@@ -401,6 +422,29 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     return next <= MAX_CANTILEVER ? next : null;
   }
 
+  /**
+   * Whether a cell could be built in at all. Rejected outright — never merely penalised —
+   * so no weight tuning can ever talk the organism into a channel.
+   */
+  function openAt(col: number, row: number, layer: number): boolean {
+    // The layer bound is checked *here* and not left to `at`, which answers "is this cell
+    // taken" with `undefined` for a layer that does not exist — indistinguishable from
+    // "free". Without this a tip walks off the back of the lattice, and because `key`
+    // packs the layer into a fixed number of slots per column, a cell at layer 2 collides
+    // with a real cell in the next column: growth order stopped being a prefix of itself,
+    // reach reported cells three bays from load, and a colony climbed to the rim through
+    // keys that were never really there.
+    if (!LAYERS.includes(layer as Layer)) return false;
+    if (!lattice.inBounds(col, row)) return false;
+    if (substrate.isSolid(col, row, layer)) return false;
+    // **The play plane only.** A flight channel is airspace at z=0; the layers in front of
+    // and behind it are not in anyone's way, and letting them build past a corridor is
+    // most of what depth is for — a route becomes a slot cut through a deep mass rather
+    // than a gap the settlement grew around.
+    if (layer === 0 && forbidden(col, row)) return false;
+    return !at(col, row, layer);
+  }
+
   function rivals(corp: CorpId, col: number, row: number, layer: number): number {
     let n = 0;
     for (const d of DIRS) {
@@ -435,31 +479,10 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     const homeward = Math.min(1, here / 6);
     const scored: Move[] = [];
 
-    /** Legal at all? Rejected outright — never merely penalised — so no weight tuning can
-     *  ever talk the organism into a channel. */
-    const open = (col: number, row: number, layer: number): boolean => {
-      // The layer bound is checked *here* and not left to `at`, which answers "is this
-      // cell taken" with `undefined` for a layer that does not exist — indistinguishable
-      // from "free". Without this a tip walks off the back of the lattice, and because
-      // `key` packs the layer into a fixed number of slots per column, a cell at layer 2
-      // collides with a real cell in the next column: growth order stopped being a prefix
-      // of itself, reach walks reported cells three bays from load, and a colony climbed
-      // to the rim through keys that were never really there.
-      if (!LAYERS.includes(layer as Layer)) return false;
-      if (!lattice.inBounds(col, row)) return false;
-      if (substrate.isSolid(col, row, layer)) return false;
-      // **The play plane only.** A flight channel is airspace at z=0; the layers in front
-      // of and behind it are not in anyone's way, and letting them build past a corridor
-      // is most of what depth is for — a route becomes a slot cut through a deep mass
-      // rather than a gap the settlement grew around.
-      if (layer === 0 && forbidden(col, row)) return false;
-      return !at(col, row, layer);
-    };
-
     for (const d of DIRS) {
       const col = tip.col + d.dc;
       const row = tip.row + d.dr;
-      if (!open(col, row, tip.layer)) continue;
+      if (!openAt(col, row, tip.layer)) continue;
       const cellReach = reachOf(tip.corp, col, row, tip.layer);
       if (cellReach === null) continue;
       // Rock *or its own roof*: adding a storey to what it already built is ordinary
@@ -468,18 +491,28 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       // sits in the middle of the canyon surrounded by them — has no scoring move left
       // anywhere and stops at a handful of cells.
       const footing = substrate.at(col, row, tip.layer) === "surface" || at(col, row - 1, tip.layer)?.corp === tip.corp;
+      const adjacentRivals = rivals(tip.corp, col, row, tip.layer);
       const score =
         W_SURFACE * (footing ? 1 : 0) +
         W_ATTRACT * homeward * (here - pull(tip.corp, col, row)) +
         W_LATERAL * (shape[tip.corp]?.lateral ?? 1) * (d.dr === 0 ? 1 : 0) +
         W_STRAIGHT * (d.link === tip.lastDir ? 1 : 0) -
         W_HEIGHT * (shape[tip.corp]?.height ?? 1) * (row / lattice.rows) ** 2 -
-        W_RIVAL * rivals(tip.corp, col, row, tip.layer) +
+        W_RIVAL * adjacentRivals +
         W_APEX *
           (shape[tip.corp]?.gravity ?? 1) *
           ((apexPull(tip.corp, tip.col, tip.row) - apexPull(tip.corp, col, row)) / lattice.cellSize) +
         W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(col, row, tip.layer), step, 1);
-      scored.push({ col, row, layer: tip.layer, link: d.link, back: d.back, score, reach: cellReach });
+      scored.push({
+        col,
+        row,
+        layer: tip.layer,
+        link: d.link,
+        back: d.back,
+        score,
+        reach: cellReach,
+        encroach: adjacentRivals > 0,
+      });
     }
 
     /**
@@ -495,34 +528,61 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
      * it to 0.05 only moved the number (66).
      *
      * The real requirement was never a preference, it was an order: fill the face, then
-     * thicken. Gating on `viable` says exactly that and needs no constant to hold the line
+     * thicken. Gating on viability says exactly that and needs no constant to hold the line
      * — a tip goes backwards when it is finished or fenced, which is precisely where the
      * canyon has no width left to give it.
+     *
+     * **A rival's seam counts as fenced.** "Nowhere worth going" originally meant no legal
+     * move scoring above `MIN_SCORE`, and a move onto ground a competitor is already
+     * standing on clears that bar easily — `W_RIVAL` docks it 0.7 and a surface bonus pays
+     * that straight back. So a colony boxed in by *neighbours* rather than by rock never
+     * discovered it had a third dimension: on seed 631729407 Ixion spent mission after
+     * mission pushing east into Kessler along a seam, with the whole depth of the canyon
+     * behind it untouched. Free ground now means free of rivals too, so the choice a hemmed
+     * colony faces is between the seam and the layer behind — and both stay on the table,
+     * scored against each other, because a seam does have to get built by somebody.
      */
-    // `viable` reads the *first* option, so the sort has to happen before the question is
-    // asked rather than once at the end.
+    // The questions below read the *first* option, so the sort has to happen before they
+    // are asked rather than once at the end.
     scored.sort((a, b) => b.score - a.score);
-    if (!allowDepth || viable(scored)) return scored;
+    if (!allowDepth || viableFace(scored)) return scored;
 
+    scored.push(...depthMoves(tip, step));
+    return scored.sort((a, b) => b.score - a.score);
+  }
+
+  /** The one or two cells directly in front of and behind a tip, scored. Separate from
+   *  `candidates` because a branch may take one of these while the face still has room —
+   *  see the branch step, and `DEPTH_BRANCH_CHANCE`. */
+  function depthMoves(tip: Tip, step: number): Move[] {
+    const out: Move[] = [];
     for (const d of DEPTH_DIRS) {
       const layer = tip.layer + d.dl;
-      if (!open(tip.col, tip.row, layer)) continue;
+      if (!openAt(tip.col, tip.row, layer)) continue;
       const cellReach = reachOf(tip.corp, tip.col, tip.row, layer);
       if (cellReach === null) continue;
       const score =
         W_DEPTH * (shape[tip.corp]?.depth ?? 1) +
-        W_SURFACE * (substrate.at(tip.col, tip.row, layer) === "surface" ? 1 : 0) -
+        W_SURFACE * (substrate.at(tip.col, tip.row, layer) === 'surface' ? 1 : 0) -
         W_HEIGHT * (shape[tip.corp]?.height ?? 1) * (tip.row / lattice.rows) ** 2 +
         W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(tip.col, tip.row, layer), step, 3);
-      scored.push({ col: tip.col, row: tip.row, layer, link: 0, back: 0, score, reach: cellReach });
+      // Depth never encroaches: the cell in front of or behind your own is your own
+      // building's other side, and no rival has a claim on it.
+      out.push({ col: tip.col, row: tip.row, layer, link: 0, back: 0, score, reach: cellReach, encroach: false });
     }
-
-    return scored.sort((a, b) => b.score - a.score);
+    return out.sort((a, b) => b.score - a.score);
   }
 
-  /** Whether a tip has anywhere worth going, as opposed to merely somewhere legal. */
+  /** Whether a tip has anywhere worth going, as opposed to merely somewhere legal. Reads
+   *  the best option, so callers must pass a sorted list. */
   const viable = (options: Array<{ score: number }>): boolean =>
     options.length > 0 && options[0].score >= MIN_SCORE;
+
+  /** Whether a tip has anywhere worth going *on unclaimed ground* — the question that
+   *  decides whether a colony still has room to spread or should start thickening
+   *  instead. See the depth gate in `candidates`. */
+  const viableFace = (options: Move[]): boolean =>
+    options.some((o) => !o.encroach && o.score >= MIN_SCORE);
 
   /**
    * A corp whose tips have all died starts a new one from somewhere it already stands —
@@ -541,9 +601,11 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       const col = lattice.keyCol(key);
       const row = lattice.keyRow(key);
       const layer = lattice.keyLayer(key);
-      if (!viable(candidates({ col, row, layer, corp, life: 1, lastDir: 0, depth: allowDepth }, step, allowDepth))) {
-        continue;
-      }
+      const options = candidates({ col, row, layer, corp, life: 1, lastDir: 0, depth: allowDepth }, step, allowDepth);
+      // The face-first pass asks for *unclaimed* ground, matching the depth gate in
+      // `candidates`. Accepting a cell whose only prospects are a rival's seam would let
+      // this pass always succeed, and the depth pass below it would never be reached.
+      if (!(allowDepth ? viable(options) : viableFace(options))) continue;
       viableCells.push({ key, order: cell.order });
     }
     viableCells.sort((a, b) => b.order - a.order);
@@ -659,9 +721,22 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
         const room = next.length + 1 <= MAX_TIPS;
         const branch =
           hash01(seed + CORP_SALT[corp], lattice.key(move.col, move.row, move.layer), step, 2) < BRANCH_CHANCE;
-        if (room && branch && options.length > 1 && (built.get(corp) ?? 0) < budget[corp]) {
-          const side = options[1];
-          if (!at(side.col, side.row, side.layer)) {
+        if (room && branch && (built.get(corp) ?? 0) < budget[corp]) {
+          /**
+           * **A branch may go backwards even when the face still has room.**
+           *
+           * The leading tip never does — it fills the face first, and the whole reason for
+           * that order is that the silhouette is what the player reads. But a branch is a
+           * second front by definition, and sending it into depth costs the face nothing
+           * while giving the layers somewhere to start. Without this, depth waits until a
+           * colony is completely finished or fenced, so it appears late, all at once, and
+           * only for whichever corp happened to be hemmed in.
+           */
+          const backwards =
+            hash01(seed + CORP_SALT[corp], lattice.key(move.col, move.row, move.layer), step, 4) <
+            DEPTH_BRANCH_CHANCE;
+          const side = (backwards ? depthMoves(tip, step)[0] : undefined) ?? options[1];
+          if (side && !at(side.col, side.row, side.layer)) {
             claim(corp, side.col, side.row, side.layer, side.reach);
             next.push({
               col: side.col,

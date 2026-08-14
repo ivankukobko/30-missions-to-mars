@@ -91,14 +91,14 @@ describe('Progress persistence', () => {
     // Private browsing or a full quota: the campaign forgets, it does not crash.
     const progress = new Progress(hostileStore);
 
-    expect(() => progress.complete(1, 'A')).not.toThrow();
+    expect(() => progress.complete(1, 'A', 70)).not.toThrow();
     expect(progress.rankFor(1)).toBe('A');
   });
 
   it('works with no storage at all', () => {
     const progress = new Progress(null);
 
-    expect(() => progress.complete(1, 'S')).not.toThrow();
+    expect(() => progress.complete(1, 'S', 90)).not.toThrow();
     expect(progress.highestUnlocked).toBe(2);
   });
 });
@@ -138,26 +138,26 @@ describe('Progress.complete', () => {
   it('keeps the best rank achieved, never a worse retry', () => {
     const progress = new Progress(memoryStore());
 
-    progress.complete(4, 'B');
+    progress.complete(4, 'B', 50);
     expect(progress.rankFor(4)).toBe('B');
 
-    progress.complete(4, 'S');
+    progress.complete(4, 'S', 90);
     expect(progress.rankFor(4)).toBe('S');
 
-    progress.complete(4, 'C');
+    progress.complete(4, 'C', 20);
     expect(progress.rankFor(4)).toBe('S');
   });
 
   it('unlocks the next mission and never walks the unlock backwards', () => {
     const progress = new Progress(memoryStore());
 
-    progress.complete(1, 'C');
+    progress.complete(1, 'C', 20);
     expect(progress.highestUnlocked).toBe(2);
 
-    progress.complete(7, 'A');
+    progress.complete(7, 'A', 70);
     expect(progress.highestUnlocked).toBe(8);
 
-    progress.complete(2, 'S'); // replaying an earlier mission
+    progress.complete(2, 'S', 90); // replaying an earlier mission
     expect(progress.highestUnlocked).toBe(8);
   });
 
@@ -165,7 +165,7 @@ describe('Progress.complete', () => {
     const store = memoryStore();
     const first = new Progress(store);
     first.setMastPosition(3.5, -1.8);
-    first.complete(1, 'A');
+    first.complete(1, 'A', 70);
 
     const second = new Progress(store);
 
@@ -180,7 +180,7 @@ describe('Progress.complete', () => {
 describe('Progress.useSeed', () => {
   it('changes the canyon without wiping unlocks or ranks', () => {
     const progress = new Progress(memoryStore());
-    progress.complete(5, 'S');
+    progress.complete(5, 'S', 90);
 
     progress.useSeed(999);
 

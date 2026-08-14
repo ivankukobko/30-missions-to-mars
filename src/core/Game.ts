@@ -6,6 +6,7 @@ import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { maxSafeSpeed } from '../physics/Kinematics.ts';
 import { CanyonGenerator } from '../world/CanyonGenerator.ts';
 import { Colony, type PadInfo } from '../world/Colony.ts';
+import { forgetFadedMaterials } from '../world/LanderFade.ts';
 import { CANYON, CORPS, PALETTE } from '../world/CanyonSpec.ts';
 import { Lander, LANDER } from '../entities/Lander.ts';
 import { Effects } from '../entities/Effects.ts';
@@ -212,12 +213,16 @@ export class Game {
     // Every pad the campaign will ever set on the ground, not just this mission's — see
     // `campaignPadSites`. Grading the site once is what keeps the ground a colony was
     // grown on from moving underneath it as later pads arrive.
+    // Before the terrain, because the terrain registers the first faded material of the
+    // rebuild. Clearing this inside either builder would be wrong — the canyon and the
+    // colony both contribute, and whichever ran second would forget the other's.
+    forgetFadedMaterials();
     this.canyon.build(current.digs, campaignPadSites(worlds));
 
     // Growth runs here, after `canyon.build()`, because the whole design depends on the
     // order: generate the landscape, fit a lattice to it, reserve every live pad's
     // flight route, then grow on what is left. See docs/plans/mycelial_colony_growth.md.
-    const plan = planColonies(id, worlds, this.progress.ranks, this.progress.seed, this.canyon);
+    const plan = planColonies(id, worlds, this.progress.points, this.progress.seed, this.canyon);
     const allProps = [...current.props, ...plan.colonies];
 
     // The resolver only moves what it can move — a platform is bolted to its tower and
@@ -417,7 +422,7 @@ export class Game {
         this.heightAboveGround,
       );
     }
-    this.colony.update(elapsed, this.director.camera);
+    this.colony.update(elapsed, this.director.camera, this.lander ?? undefined);
     if (this.lander) {
       this.effects.update(elapsed, this.lander.x, this.lander.y, this.lander.vx, this.lander.vy);
     }
@@ -564,7 +569,7 @@ export class Game {
 
     if (this.pendingScore) {
       const score = this.pendingScore;
-      this.progress.complete(this.mission.id, score.rank);
+      this.progress.complete(this.mission.id, score.rank, score.points);
       this.state = 'RESULT';
       this.ui.setHudVisible(false);
       this.ui.showResult(this.mission, score, () => {
@@ -759,12 +764,21 @@ export class Game {
       targetPad: () => this.targetPad,
       missionId: () => this.mission?.id ?? 1,
       seed: () => this.progress.seed,
-      ranks: () => this.progress.ranks,
+      scores: () => this.progress.points,
       mastX: () => this.progress.mastX,
       mastY: () => this.progress.mastY,
       terrain: () => this.canyon,
       loadMission: (id) => this.loadMission(id),
       useSeed: (seed) => this.useSeed(seed),
+      gizmos: () => this.colony.gizmos,
+      // Gizmos are built inside `Colony.build`, so the flag alone changes nothing until
+      // the world is rebuilt. Reloading the current mission is the honest way to do that
+      // — it is the same path the mission stepper uses, so there is no second rebuild
+      // route that could drift from it.
+      setGizmos: (on) => {
+        this.colony.gizmos = on;
+        this.loadMission(this.mission?.id ?? 1);
+      },
       setInspecting: (on) => {
         this.inspecting = on;
         // Held rather than paused: PAUSED is a player-facing state with its own overlay,

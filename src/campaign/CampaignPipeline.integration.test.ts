@@ -24,7 +24,14 @@ import type { Prop } from '../world/Colony.ts';
  * just rebuild the same terrain repeatedly for no new coverage.
  */
 const IDS = [1, 15, 19, 20, 30];
-const SEEDS = [0, 12345];
+/**
+ * 631729407 is here for a specific reason: it is a narrow canyon whose wall rises 12 units
+ * clear of Helion's mouth band at the front edge of the cavern's own z-extent. That row
+ * used to make `wallHoleBoundary` bail for the *whole* dig, so the cavern rendered as a
+ * raw hole with no collar bridging it to the terrain — visible on screen, invisible to a
+ * suite that only checked seeds where every row happened to be in band.
+ */
+const SEEDS = [0, 12345, 631729407];
 
 function runPipeline(
   id: number,
@@ -224,20 +231,33 @@ describe("a wall mount's hole boundary lines up with the bore's own mouth ring",
       // private `shafts` list exposed just for the test to reach one.
       const shaft = new Shaft(new THREE.Scene(), dig, mouthY, seed);
       const { neg, pos } = shaft.mouthEdges();
-      const negIsLow = neg[0].x <= pos[0].x;
-      const lowRing = negIsLow ? neg : pos;
-      const highRing = negIsLow ? pos : neg;
+      // Both rings run the same z stations, so either serves to measure the span.
+      const lowRing = neg[0].x <= pos[0].x ? neg : pos;
 
-      // Both curves are built on the same `CANYON.CELL` z-lattice by construction — the
-      // structural assumption `buildCollar`'s z-matching depends on — checked here
-      // rather than assumed.
-      for (const ringPt of lowRing) {
-        const nearestZ = Math.min(...hole!.low.points.map((p) => Math.abs(p.z - ringPt.z)));
-        expect(nearestZ, `seed ${seed} low ring z=${ringPt.z}`).toBeLessThanOrEqual(CANYON.CELL);
-      }
-      for (const ringPt of highRing) {
-        const nearestZ = Math.min(...hole!.high.points.map((p) => Math.abs(p.z - ringPt.z)));
-        expect(nearestZ, `seed ${seed} high ring z=${ringPt.z}`).toBeLessThanOrEqual(CANYON.CELL);
+      /**
+       * **Every hole row is spanned by the ring** — the direction `buildEdgeStrip` needs.
+       *
+       * It walks the *ring* and interpolates the hole edge at each ring z, so a hole row
+       * outside the ring's own span would be left with nothing bridging it: a strip of
+       * open terrain edge with the canyon showing through. The converse is fine and is
+       * now normal — the ring runs the bore's full `lengthZ` while the hole is only the
+       * rows where the mouth is genuinely open (see `wallHoleBoundary`), and a ring row
+       * past the hole's end is buried in the rock the terrain kept.
+       *
+       * This used to assert the opposite, which held only while every row of every
+       * checked seed happened to be in band.
+       */
+      const ringZs = lowRing.map((p) => p.z);
+      const ringSpan: [number, number] = [Math.min(...ringZs), Math.max(...ringZs)];
+      for (const edge of [hole!.low, hole!.high]) {
+        for (const p of edge.points) {
+          expect(p.z, `seed ${seed} hole row z=${p.z} is outside the ring`).toBeGreaterThanOrEqual(
+            ringSpan[0] - CANYON.CELL,
+          );
+          expect(p.z, `seed ${seed} hole row z=${p.z} is outside the ring`).toBeLessThanOrEqual(
+            ringSpan[1] + CANYON.CELL,
+          );
+        }
       }
     }
   });

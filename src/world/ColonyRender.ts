@@ -2,9 +2,10 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CORPS, type CorpId } from './CanyonSpec.ts';
 import { LINK, type PlacedCell } from './ColonyOrganism.ts';
-import type { Lattice } from './ColonyLattice.ts';
+import { COLONY_LAYER_SPACING, type Lattice } from './ColonyLattice.ts';
 import type { SubstrateField } from './ColonySubstrate.ts';
 import type { ChannelNetwork } from '../campaign/ColonyChannels.ts';
+import { fadeNearLander } from './LanderFade.ts';
 
 /**
  * Draws a grown colony.
@@ -40,6 +41,34 @@ function moduleScale(links: number): number {
   return 0.54; // an end pod
 }
 
+/**
+ * How much deeper than wide a module is, and the reason the colony stopped reading as
+ * tile-work.
+ *
+ * Modules used to be cubes: `moduleScale` gives 0.54–0.78 of a cell in x and y, and the
+ * depth was `min(s, DEPTH.colony)` — a clamp at 15 that a 9-unit module never reached. So
+ * every room was as deep as it was wide, the camera saw essentially one face of each, and
+ * a settlement six cells across came out as flat as the wall behind it. A player has to be
+ * able to tell the maze from the backdrop at a glance, and at flight distance the only
+ * cues that survive the fog are silhouette and the different angle a *side* face catches
+ * the light at. A cube seen head-on has neither.
+ *
+ * Elongating along z gives both.
+ *
+ * **A layer's modules must never reach into the next layer's**, which is why the cap is
+ * derived from `COLONY_LAYER_SPACING` rather than written down beside it. Two constants
+ * that have to agree, agreeing by coincidence, is how a later change to either one quietly
+ * fuses the three layers into a slab — and the failure is not obvious, it just looks
+ * slightly wrong. `LAYER_GAP` is the clear air left between them, which is what the
+ * depth-dimming and the fog need somewhere to land.
+ */
+const MODULE_STRETCH = 1.6;
+const LAYER_GAP = 5;
+
+function moduleDepth(size: number, limit: number): number {
+  return Math.min(size * MODULE_STRETCH, COLONY_LAYER_SPACING - LAYER_GAP, limit);
+}
+
 function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
   const geo = new THREE.BoxGeometry(w, h, d);
   geo.translate(x, y, z);
@@ -69,27 +98,33 @@ function frameMembers(cell: PlacedCell, size: number, z: number): THREE.BufferGe
 }
 
 /**
- * How much a layer is dimmed and shrunk per cell-size of depth away from the play plane.
+ * How much a layer *behind* the play plane is darkened, per layer of distance.
  *
- * Aerial perspective doing the work a fog shader would: the layers are only twelve units
- * apart, which the camera's own perspective barely separates at flight distance, so
+ * Aerial perspective doing the work a fog shader would: the layers are close enough
+ * together that the camera's own perspective barely separates them at flight distance, so
  * without this the three read as one crowded plane and the play plane stops being legible.
- * Darkening the back and lightening nothing is deliberate — the canyon's fog already
- * lifts distant surfaces, and a back layer that both dims *and* narrows looks further away
- * than twelve units has any right to.
+ *
+ * **Behind only, and tone only.** Two things used to happen here that no longer do, and
+ * both were the same mistake in different clothes — faking distance that the scene already
+ * expresses honestly.
+ *
+ * The first was applying this to `|layerZ|`, which treats the foreground layer as though it
+ * were as far away as the background one: the layer nearest the camera came out darkened
+ * while perspective drew it *larger* than everything else, because it sits two cells
+ * closer. A near thing lit like a far thing reads as a separate object rather than as the
+ * front of the same building.
+ *
+ * The second was shrinking the outer layers. A module is a module — the colony builds one
+ * size of room, and drawing the back ones at 88% says the charter built smaller rooms
+ * further back, which is not true and is visible the moment two layers meet at a corner.
+ * Perspective already makes a further module smaller by exactly the right amount, and it
+ * is the only source of that cue that stays correct as the camera moves.
+ *
+ * Tone survives because it is not faking geometry: fog and falling light genuinely darken
+ * what is further into the canyon, and the renderer's own fog is too weak across a
+ * two-cell gap to do it alone.
  */
 const LAYER_DIM = 0.34;
-const LAYER_SHRINK = 0.12;
-
-/**
- * The layer between the camera and the lander, faded so it cannot hide the vehicle.
- *
- * The one thing depth genuinely costs: a module at z = +cellSize sits in front of the play
- * plane and would occlude the thing the player is flying. Transparency rather than culling,
- * because a hole where a building should be is worse than a translucent building — the
- * colony still reads as solid mass, the lander still reads as in front of it.
- */
-const FRONT_OPACITY = 0.22;
 
 export function buildColonyCells(
   scene: THREE.Scene,
@@ -118,9 +153,14 @@ export function buildColonyCells(
   }
 
   for (const [layerZ, layerCells] of [...layers].sort((a, b) => a[0] - b[0])) {
-    const away = Math.abs(layerZ) / cellSize;
     const front = layerZ > 0;
-    const shrink = 1 - LAYER_SHRINK * away;
+    /**
+     * How far *behind* the play plane this layer sits, in layers. Zero for the play plane
+     * and for anything in front of it — see `LAYER_DIM`. Measured in layers rather than
+     * cell-widths because the spacing is two cells, and dividing by the cell size would
+     * make the back layer twice as dim as intended.
+     */
+    const behind = Math.max(0, -layerZ) / COLONY_LAYER_SPACING;
     const hulls: THREE.BufferGeometry[] = [];
     const frames: THREE.BufferGeometry[] = [];
     const walks: THREE.BufferGeometry[] = [];
@@ -128,31 +168,39 @@ export function buildColonyCells(
 
     for (const cell of layerCells) {
       if (cell.scaffold) {
-        frames.push(...frameMembers(cell, cellSize * shrink, at));
+        frames.push(...frameMembers(cell, cellSize, at));
       } else {
-        const s = moduleScale(cell.links) * cellSize * shrink;
-        hulls.push(box(s, s, Math.min(s, depth), cell.x, cell.y, at));
+        const s = moduleScale(cell.links) * cellSize;
+        const deep = moduleDepth(s, depth);
+        hulls.push(box(s, s, deep, cell.x, cell.y, at));
         // A collar on the roof so a module isn't a bare cube — cheap, and it is what makes
-        // a run of cans read as pressurised hardware rather than massing.
-        hulls.push(box(s * 0.42, s * 0.18, s * 0.42, cell.x, cell.y + s * 0.56, at));
+        // a run of cans read as pressurised hardware rather than massing. Its own depth
+        // follows the module's, or it reads as a fin stuck on the front of a long can.
+        hulls.push(box(s * 0.42, s * 0.18, deep * 0.42, cell.x, cell.y + s * 0.56, at));
       }
 
       // Walkways, drawn once per edge: only the +x and +y halves of each link pair. Links
       // are within a layer by construction (`LINK` has no depth members), so a walkway
       // never spans front to back — there is nothing to draw there that would read.
-      const t = cellSize * 0.16 * shrink;
+      const t = cellSize * 0.16;
       if (cell.links & LINK.east) walks.push(box(cellSize, t, t, cell.x + cellSize / 2, cell.y, at));
       if (cell.links & LINK.up) walks.push(box(t, cellSize, t, cell.x, cell.y + cellSize / 2, at));
     }
 
-    const shade = (hex: number): THREE.Color => new THREE.Color(hex).multiplyScalar(1 - LAYER_DIM * away);
-    const fade = front ? { transparent: true, opacity: FRONT_OPACITY, depthWrite: false } : {};
+    const shade = (hex: number): THREE.Color => new THREE.Color(hex).multiplyScalar(1 - LAYER_DIM * behind);
+    // `transparent` has to be set at construction even though the material is opaque
+    // almost everywhere: three.js decides the render queue from it, and flipping it later
+    // forces a shader recompile mid-flight.
+    const fade = front ? { transparent: true, depthWrite: false } : {};
 
-    const add = (parts: THREE.BufferGeometry[], material: THREE.Material): void => {
+    const add = (parts: THREE.BufferGeometry[], material: THREE.MeshStandardMaterial): void => {
       if (parts.length === 0) return;
       const merged = mergeGeometries(parts, false);
       for (const part of parts) part.dispose();
       if (!merged) return;
+      // Fades around the vehicle so it can never hide it — see `LanderFade`. Every cell
+      // in this layer sits in front of the play plane, so the depth gate is a formality.
+      if (front) fadeNearLander(material, 0);
       const mesh = new THREE.Mesh(merged, material);
       // Only the play plane casts: a shadow from a layer the player cannot see lands on
       // the canyon floor with nothing above it to explain it.

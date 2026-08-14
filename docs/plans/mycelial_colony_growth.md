@@ -141,6 +141,62 @@ silhouette a mission.
 y, so one profile for all three would put a module inside the wall on one layer and
 floating clear of it on another — invisible in a test, obvious on screen.
 
+**Branches seed the layers; the leading tip never does.** Depth as a pure last resort is
+right for the tip drawing the silhouette and wrong for the colony as a whole — the layers
+only start filling once a colony is essentially finished, so they arrive late, all at once,
+and only for whoever happened to be boxed in. A quarter of branches now go backwards
+instead of sideways (`DEPTH_BRANCH_CHANCE`), which costs the face nothing because a branch
+is a second front by definition. Measured across seven seeds: single-layer colonies fell
+from 37% of corp-missions to 1%, and the three layers came out 838 / 732 / 578 cells with
+the play plane still the plurality. The face pays for it in size — median 51 → 34 at a
+fixed budget — and that is the real trade: at 0.5 the split is even thirds but the face
+drops to 29 and five corp-missions fall under ten cells.
+
+**Modules are elongated along z, and the layers moved apart to suit.** A module used to be
+a cube — `moduleScale` gives 0.54–0.78 of a cell in x and y, and the depth clamp of 15 that
+a 9-unit module never reached — so the camera saw one face of each and a settlement six
+cells across came out as flat as the wall behind it. At flight distance the only cues that
+survive the fog are silhouette and the different angle a *side* face catches light at, and
+a cube seen head-on has neither. Stretching depth to 1.6× the cross-section gives both.
+
+That forced the layer spacing: at one cell apart, modules a full cell deep abut face to
+face and fuse the three layers into a slab. Spacing is now two cells, and the depth cap is
+*derived* from it (`COLONY_LAYER_SPACING − LAYER_GAP`) rather than written down beside it —
+two constants that have to agree, agreeing by coincidence, is how a later edit to either
+quietly fuses the layers again, and the failure does not look like a bug, it just looks
+slightly wrong.
+
+**Aerial perspective applies behind the play plane only.** The dimming and shrinking that
+separate the layers were keyed on `|layerZ|`, so the *foreground* layer was treated as
+though it were as distant as the background one — darkened 34% and shrunk to 88% while
+perspective drew it larger than everything else, since it sits two cells nearer the camera.
+A near thing lit like a far thing and sized like neither reads as a separate, wrongly-scaled
+object rather than as the front of the same building. Front and play-plane modules are now
+identical in all three dimensions; only what is behind is dimmed and narrowed. The front
+layer needs no help to read as nearer — perspective, its own lit side faces and the fade
+around the lander already say so.
+
+**The foreground layer is faded only where it is in the way.** A module at z = +cellSize
+sits between the camera and the vehicle. The first version made the whole front layer
+translucent for the entire mission, which solves the occlusion and throws away what the
+layer was for — a colony you can see through everywhere reads as a diagram rather than as
+mass. It now keeps a soft hole around the lander (`FRONT_FADE_RADIUS`), the same trick a
+third-person camera uses on a wall, driven by a world-space distance term patched into the
+stock standard material through `onBeforeCompile`. Away from the vehicle the layer is fully
+opaque and the settlement looks deep.
+
+**A rival's seam counts as fenced.** The depth gate asks whether the colony has anywhere
+worth going on *unclaimed* ground, not merely anywhere legal — a move onto a competitor's
+edge clears `MIN_SCORE` easily, since `W_RIVAL` docks it 0.7 and a surface bonus pays that
+straight back, so a colony boxed in by neighbours rather than rock never discovered it had
+a third dimension. Both options stay on the table once the gate opens, scored against each
+other, because a seam does have to get built by somebody.
+
+It is a smaller effect than it sounds, and the reason is worth recording: on seed
+631729407 Ixion takes the eastern floor during missions 1–4, *before Kessler exists*. No
+rule about rivals can prevent an invasion that happens before there is anyone to invade —
+what governs there is the four-mission head start the outpost has by construction.
+
 **Depth is where flying well becomes visible, and this was not designed — it fell out.**
 A budget is `4 + 66·maturity + 16·quality`, and depth only unlocks once the face is full,
 so the sixteen cells that landing ranks are worth are almost exactly the cells that spill

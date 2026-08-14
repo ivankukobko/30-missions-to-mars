@@ -12,7 +12,6 @@ import {
 import { buildSubstrate, type SubstrateField, type SubstrateTerrain } from '../world/ColonySubstrate.ts';
 import { growColony, type OrganismCell, type PlacedCell, type Spore } from '../world/ColonyOrganism.ts';
 import { buildChannels, type ChannelNetwork, type ChannelTerrain } from './ColonyChannels.ts';
-import type { Rank } from './Progress.ts';
 import { MISSIONS, worldAt } from './Missions.ts';
 import { resolveTerrainAnchoredDigs, applyDigAttachments } from './TerrainDigs.ts';
 
@@ -28,9 +27,6 @@ import { resolveTerrainAnchoredDigs, applyDigAttachments } from './TerrainDigs.t
 
 type ColonyProp = Extract<Prop, { kind: 'colony' }>;
 
-/** 0–3, so an average of several ranks is a plain number rather than a string compare. */
-const RANK_VALUE: Record<Rank, number> = { C: 0, B: 1, A: 2, S: 3 };
-
 /**
  * How many cells a corp has built, from where it stands in its own mission sequence and
  * how well those missions went. Both terms only ever rise as the campaign progresses and
@@ -38,10 +34,59 @@ const RANK_VALUE: Record<Rank, number> = { C: 0, B: 1, A: 2, S: 3 };
  * so a later mission runs the same sequence further and a colony can only ever be
  * *older*, never a different shape. That is the entire maturity model.
  */
-function cellBudget(maturity: number, quality: number, isFirstMission: boolean): number {
-  if (isFirstMission) return 3;
-  return Math.round(4 + 66 * maturity + 16 * quality);
+function cellBudget(flown: number, points: number, isFirstMission: boolean): number {
+  if (isFirstMission) return FIRST_MISSION_CELLS;
+  return Math.round(BASE_CELLS + PER_MISSION_CELLS * flown + PER_POINT_CELLS * points);
 }
+
+/**
+ * What a charter's colony is worth: a base, plus what each run you fly for them buys, plus
+ * what flying it well buys on top.
+ *
+ * **Points per mission rather than a fraction of the campaign**, and the difference is not
+ * cosmetic. The old form was `66 · elapsed / thisCorpsTotalMissions`, which normalises the
+ * three charters against each other: whoever commissions eight runs and whoever commissions
+ * twelve both arrive at exactly the same size by mission 30, and a run you fly for a corp
+ * moves its colony by a different amount depending on how many *other* runs that corp
+ * happens to have in the ledger. Adding missions to a charter made each of its existing
+ * ones count for less. Points make the relationship the obvious one — a delivery is worth a
+ * fixed number of rooms, and a charter you fly more for builds more.
+ *
+ * **Sized against the canyon's volume, not its cross-section**, which is the correction the
+ * layers forced. A single plane's face holds forty to seventy cells depending on the seed,
+ * and the old numbers ran out at about the moment it filled — so depth, which only unlocks
+ * *past* a full face, could never be more than leftovers. Measured before the change, a
+ * colony was budget-bound rather than space-bound for the whole campaign: 35 cells at
+ * mission 16 on seed 631729407 against a face that could hold 68. Mid-campaign colonies
+ * were flat by arithmetic, not by choice.
+ *
+ * There is no runaway risk in raising them, because the budget is not the only limit — it
+ * is capped by `standing + reachableGround`, so a corp still cannot be granted cells it has
+ * nowhere to put. Raising these changes *which* of the two limits binds, and that is the
+ * whole intent: space should decide a colony's size, not a coefficient.
+ */
+const BASE_CELLS = 10;
+const PER_MISSION_CELLS = 10;
+/**
+ * Per landing point, where a landing is scored 0–100 (`scoreLanding`).
+ *
+ * **The real score, not the rank it falls into.** Ranks are four buckets, so a 46-point
+ * landing and a 65-point landing were both a B and bought a charter exactly the same
+ * amount of building — thirty missions of that is a campaign where flying materially
+ * better than "good enough for the bucket" changes nothing anybody can see. Points are
+ * continuous, so every unit of fuel saved and every centimetre off the pad centre shows up
+ * in the canyon.
+ *
+ * At 0.03 a flawless run is worth three cells on top of the ten the delivery itself buys,
+ * so a perfect campaign runs about a third larger than a scraped one. Chosen to match what
+ * the rank-bucket scheme paid at its maximum, so this is a refinement in *resolution*
+ * rather than a change in what a good campaign is worth.
+ */
+const PER_POINT_CELLS = 0.03;
+
+/** Mission 1 is the outpost's first landing and there is nothing there yet. Held at three
+ *  cells so the canyon the player first sees is empty enough to read as unclaimed. */
+const FIRST_MISSION_CELLS = 3;
 
 /** How much of a colony's own growing edge reads as bare scaffold rather than built
  *  hull. The promise this makes to the player: the scaffold you flew past last mission
@@ -402,7 +447,9 @@ export function campaignPadSites(worldFor: (missionId: number) => MissionWorld):
 export function planColonies(
   id: number,
   worldFor: (missionId: number) => MissionWorld,
-  ranks: Readonly<Record<string, Rank>>,
+  /** Best landing points per mission id, 0–100 — `Progress.points`. A mission not yet
+   *  flown is simply absent, which is the same thing as having earned nothing for it. */
+  scores: Readonly<Record<string, number>>,
   seed: number,
   terrain: PlanTerrain,
 ): ColonyPlan {
@@ -481,14 +528,11 @@ export function planColonies(
       if (!first || first.id > m) continue; // this corp hasn't started yet
 
       const elapsed = corpMissions.filter((x) => x.id <= m);
-      const maturity = elapsed.length / corpMissions.length;
-      const graded = elapsed.map((x) => ranks[String(x.id)]).filter((r): r is Rank => r != null);
-      const quality =
-        graded.length === 0 ? 0 : graded.reduce((sum, r) => sum + RANK_VALUE[r], 0) / graded.length / RANK_VALUE.S;
+      const earnedPoints = elapsed.reduce((sum, x) => sum + (scores[String(x.id)] ?? 0), 0);
 
       const currentMission = MISSIONS.find((x) => x.id === m);
       const overrideBudget = currentMission?.colonyBudget?.[corp];
-      const earned = overrideBudget ?? cellBudget(maturity, quality, elapsed.length === 1);
+      const earned = overrideBudget ?? cellBudget(elapsed.length, earnedPoints, elapsed.length === 1);
       /**
        * What the campaign has earned this corp, capped by what it can actually build on.
        *

@@ -68,6 +68,22 @@ export const COLONY_LAYERS = [-1, 0, 1] as const;
 
 export type Layer = (typeof COLONY_LAYERS)[number];
 
+/**
+ * World distance between one layer and the next — **wider than a cell, deliberately.**
+ *
+ * It was exactly `COLONY_CELL_SIZE`, back when a module was a cube of 6–9 units and the
+ * gap between layers was most of the spacing. Modules are now elongated along z to stop
+ * the colony reading as tile-work (`MODULE_STRETCH`), and a full cell of depth against a
+ * full cell of spacing leaves nothing between them: the three layers abut face to face and
+ * fuse into one slab, which throws away the separation they exist to provide.
+ *
+ * At two cells the layers are unmistakably separate objects at flight distance, with a
+ * clear band of canyon between them for the depth-dimming and the fog to land in. 1.5 was
+ * tried first and reads as one crowded mass — the gap is there in the geometry but the
+ * camera's own perspective closes it up again.
+ */
+export const COLONY_LAYER_SPACING = COLONY_CELL_SIZE * 2;
+
 export interface Lattice {
   cellSize: number;
   colLo: number;
@@ -127,7 +143,9 @@ export function buildLattice(
     baseY,
     worldX: (col) => col * cellSize,
     worldY: (row) => baseY + cellSize / 2 + row * cellSize,
-    worldZ: (layer) => layer * cellSize,
+    // Not `cellSize` — layers sit further apart than cells do, so an elongated module can
+    // never reach the next layer. See `COLONY_LAYER_SPACING`.
+    worldZ: (layer) => layer * COLONY_LAYER_SPACING,
     colAt: (x) => Math.round(x / cellSize),
     rowAt: (y) => Math.floor((y - baseY) / cellSize),
     inBounds: (col, row) => col >= colLo && col <= colHi && row >= 0 && row < rows,

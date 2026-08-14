@@ -3,6 +3,8 @@ import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { Noise, clamp01, lerp, smoothstep } from './Noise.ts';
 import { CANYON, FACET_CELL, PALETTE } from './CanyonSpec.ts';
 import { Shaft, boreDirection, isFloorMounted, type Vec2 } from './Shaft.ts';
+import { fadeNearLander } from './LanderFade.ts';
+import { buildRubble, rubbleAlong, type RubbleSite } from './Rubble.ts';
 
 /**
  * How far a wall-mouth search may drift in x from the dig's own x while still counting
@@ -672,11 +674,14 @@ export class CanyonGenerator {
    * or the `WALL_MOUTH_RUN` window itself.
    *
    * Returns `null` — skip the collar for this dig, not fabricate one — only if `dig.x`
-   * itself isn't in the height band at some row (the one case this walk can't recover
-   * a sensible boundary from). Walking outward from `dig.x` and stopping at the first
-   * exit also makes a fragmented, multi-interval band impossible to return by
-   * construction: the result is always the single contiguous in-band run containing
-   * `dig.x`, never a second, disconnected one further out.
+   * isn't in the height band on the play plane itself, which means there is no mouth
+   * there to bridge. Out-of-band rows *elsewhere* in the extent are skipped rather than
+   * fatal; see the z walk below for why that distinction cost this cavern its collar.
+   *
+   * Walking outward and stopping at the first exit — on both axes — also makes a
+   * fragmented, multi-interval result impossible by construction: what comes back is
+   * always the single contiguous in-band run containing `dig.x` at z=0, never a second,
+   * disconnected one further out.
    *
    * Public so `CampaignPipeline.integration.test.ts` can verify it resolves cleanly
    * against real terrain — the same "public because a second caller needs it" reason
@@ -689,11 +694,37 @@ export class CanyonGenerator {
     const fine = CANYON.CELL / 8; // matches colliderProfile's own fine pitch near a mouth
     const inBand = (x: number, z: number) => Math.abs(this.heightAt(x, z) - mouthY) <= half;
 
+    /**
+     * The contiguous run of z-rows around the play plane where the mouth is genuinely
+     * open — **the same rule the x walks below use, for the same reason.**
+     *
+     * This used to bail on the first out-of-band row and return null for the whole dig, so
+     * one bad slice at the edge of the extent cost the collar *everywhere* and the opening
+     * rendered as a raw hole with nothing bridging it. It is not a rare seed: the canyon
+     * meanders in z, so at the front or back of a mouth's own extent the wall has often
+     * risen clear of the band. Measured on seed 631729407, Helion's cavern is in band at
+     * z=+3 and z=−9 and 12.2 units out of it at z=+15 — one row of fifteen, and the
+     * cavern had no collar at all.
+     *
+     * `overShaft` cuts the hole per row, so a row out of band has no hole to bridge and
+     * simply does not need a collar. Taking the run containing z=0 keeps the strip
+     * contiguous — it can never bridge across a row that was left solid — while `null`
+     * now means only what it should: the mouth is not open on the play plane at all.
+     */
+    const zs: number[] = [];
+    for (let z = 0; z <= extent + 1e-6; z += CANYON.CELL) {
+      if (!inBand(dig.x, z)) break;
+      zs.unshift(z);
+    }
+    if (zs.length === 0) return null;
+    for (let z = -CANYON.CELL; z >= -extent - 1e-6; z -= CANYON.CELL) {
+      if (!inBand(dig.x, z)) break;
+      zs.push(z);
+    }
+
     const low: WallHoleEdge = { points: [], colors: [] };
     const high: WallHoleEdge = { points: [], colors: [] };
-    for (let z = extent; z >= -extent - 1e-6; z -= CANYON.CELL) {
-      if (!inBand(dig.x, z)) return null;
-
+    for (const z of zs) {
       let lowX = dig.x - WALL_MOUTH_RUN;
       for (let x = dig.x; x >= dig.x - WALL_MOUTH_RUN; x -= fine) {
         if (!inBand(x, z)) {
@@ -888,6 +919,7 @@ export class CanyonGenerator {
      * from — `heightAt` at its x is already the natural, un-carved wall surface, which
      * *is* the mouth, so `dig.depth` is not added a second time.
      */
+    const spoil: RubbleSite[] = [];
     for (const dig of this.excavations) {
       const natural = this.heightAt(dig.x, 0);
       const floorMounted = isFloorMounted(boreDirection(dig).dir);
@@ -897,9 +929,70 @@ export class CanyonGenerator {
       // Bridges the terrain's own cut hole to the bore's own mouth ring — see
       // `wallHoleBoundary`'s doc comment for why floor mounts don't need this (they
       // already meet within `RELIEF`, by construction) and wall mounts do.
-      if (!floorMounted) shaft.buildCollar(this.wallHoleBoundary(dig));
+      if (!floorMounted) {
+        const hole = this.wallHoleBoundary(dig);
+        shaft.buildCollar(hole);
+        if (hole) spoil.push(...this.mouthSpoil(dig, hole));
+      } else {
+        spoil.push(...this.pitSpoil(dig, mouthY));
+      }
       this.shafts.push(shaft);
     }
+
+    /**
+     * All of it in one mesh, after the loop rather than per dig.
+     *
+     * A stone is a dozen triangles and a mature canyon has a few hundred of them; one
+     * merged batch is the difference between that and a few hundred draw calls for
+     * scenery nobody is looking at directly.
+     */
+    const rubble = buildRubble(this.scene, spoil, this.seed);
+    if (rubble) this.disposables.push(rubble);
+  }
+
+  /**
+   * Broken stone banked along a wall mouth's join with the terrain.
+   *
+   * The collar bridges a hole the terrain cut by one rule to a ring the bore built by
+   * another, and on a shallow wall those two are very different sizes — so the strip that
+   * spans them creases, and no amount of shading hides a crease. Spoil along the join is
+   * what an excavation actually leaves there, and it breaks the line so the eye stops
+   * following it. The seam is still underneath; it is simply no longer the thing you see.
+   *
+   * Both edges get it, and the sizes differ: the low edge is the cut face above the mouth
+   * where bigger slabs calve, the high edge is the run-out below where the spoil finishes
+   * finer.
+   */
+  private mouthSpoil(dig: Excavation, hole: WallHoleBoundary): RubbleSite[] {
+    // Sized off the bore, so a wider cavern calves bigger blocks. At 0.45 of the
+    // half-width the largest of them are a third the height of the mouth — big enough to
+    // read as rock at flight distance, which the first, far smaller pass was not.
+    const size = dig.halfWidth * 0.45;
+    return [
+      ...rubbleAlong(hole.low.points, this.seed, { size, spread: size * 1.5, per: 2, salt: 11 }),
+      ...rubbleAlong(hole.high.points, this.seed, { size: size * 0.75, spread: size * 1.8, per: 2, salt: 23 }),
+    ];
+  }
+
+  /**
+   * The same, ringing a floor pit's lip.
+   *
+   * A floor mouth has no collar to hide — the heightfield's own dip meets the bore within
+   * `RELIEF` by construction — so this is the second job rather than the first: it says a
+   * shaft was *dug*, which a clean circular hole in flat ground does not. Placed on the
+   * natural floor either side of the opening, never over it, so nothing overhangs the
+   * descent the player has to fly down.
+   */
+  private pitSpoil(dig: Excavation, mouthY: number): RubbleSite[] {
+    const extent = (dig.lengthZ ?? dig.halfWidth * 3) / 2;
+    const lip: Array<{ x: number; y: number; z: number }> = [];
+    for (let z = -extent; z <= extent; z += CANYON.CELL) {
+      for (const side of [-1, 1] as const) {
+        const x = dig.x + side * (dig.halfWidth + dig.halfWidth * 0.35);
+        lip.push({ x, y: mouthY, z });
+      }
+    }
+    return rubbleAlong(lip, this.seed, { size: dig.halfWidth * 0.32, spread: dig.halfWidth * 0.4, per: 1, salt: 37 });
   }
 
   /*
@@ -984,15 +1077,34 @@ export class CanyonGenerator {
     }
     geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-    const mesh = new THREE.Mesh(
-      geo,
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 0.95,
-        metalness: 0.02,
-        flatShading: true,
-      }),
-    );
+    /**
+     * The near wall thins out around the vehicle — see `LanderFade`.
+     *
+     * One mesh spans the whole canyon in z, so this is the case the fade's depth gate
+     * exists for: fragments in front of the play plane take part, everything at or behind
+     * it is untouched. Without it the west approach is flown blind, because the wall the
+     * camera is looking across is between it and the lander for most of the descent.
+     *
+     * `transparent` has to be declared here even though the surface is opaque almost
+     * everywhere — three.js picks the render queue from it, and setting it later forces a
+     * recompile mid-flight. `depthWrite` stays on, unlike the colony's foreground layer:
+     * this same mesh is also the *far* wall, and a near face that stopped writing depth
+     * would let the far one draw straight through it.
+     */
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      // Rock is a dielectric. Metalness on a PBR material is not a shininess dial — above
+      // zero it starts tinting the specular response by the base colour and killing the
+      // diffuse term, which on a red wall reads as a faint metallic sheen that has no
+      // business being there. It was 0.02, which is imperceptible but still wrong in kind;
+      // the shaft lining next door has always been 0.
+      roughness: 0.95,
+      metalness: 0,
+      flatShading: true,
+      transparent: true,
+    });
+    fadeNearLander(material, 0);
+    const mesh = new THREE.Mesh(geo, material);
     mesh.receiveShadow = true;
     // Terrain receives but never casts: with a low sun a 240-unit wall shadows the
     // entire canyon and everything in it goes flat. Casting is for structures.

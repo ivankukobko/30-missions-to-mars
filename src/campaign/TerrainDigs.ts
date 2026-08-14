@@ -17,24 +17,22 @@ import { snapToColumn } from '../world/ColonyLattice.ts';
 export interface WallAnchoredDig {
   anchorToWall: 'west' | 'east';
   /**
-   * `'wall'` (default) opens a mouth partway up the wall face, direction resolved from
-   * the wall's own local slope — see `wallNormalInward`. `'floor'` keeps the dig on the
-   * canyon floor, direction left at `Excavation`'s own straight-down default; only `x`
-   * moves, pulled back *toward centre* from the wall edge by its own half-width plus
-   * clearance, so it never straddles the floor-to-wall blend (`CANYON.WALL_RUN`) —
+   * `'wall'` (default) opens a mouth partway up the wall face and drives **horizontally**
+   * into the rock. `'floor'` keeps the dig on the canyon floor and drives straight down;
+   * only `x` moves, pulled back *toward centre* from the wall edge by its own half-width
+   * plus clearance, so it never straddles the floor-to-wall blend (`CANYON.WALL_RUN`) —
    * the opposite direction from `'wall'`'s own inset, which pushes *past* the edge.
    *
-   * Kessler's shaft is the first `'floor'` consumer, and it needs its own mode rather
-   * than reusing `'wall'` unmodified: `wallNormalInward` always returns a direction with
-   * `dir.y` well clear of `isFloorMounted`'s threshold (its real-slope branch reads the
-   * wall's own rise, and its shallow-slope fallback is a fixed 60°-off-vertical, neither
-   * ever close to straight down — see that function's own doc comment), so anchoring
-   * Kessler to the wall with `'wall'`'s existing direction math would silently turn its
-   * shaft diagonal. The campaign text won't allow that: *"Come down slow and come down
-   * straight, tin can"* (mission 16), *"Line up over the mouth and descend
-   * straight... barely wider than your gear"* (mission 23) — explicitly a vertical
-   * descent, contrasted against Helion's own wall-mounted cavern in the same ledger
-   * (*"Kessler dug a hole. We are digging a room."*, mission 19).
+   * So the two modes are the two axes and nothing between them. A wall bore used to
+   * follow the wall's own local slope, which drove it diagonally downward and put a
+   * horizontal pad in the upper half of a tube whose floor had fallen away — see
+   * `resolveTerrainAnchoredDigs`.
+   *
+   * The campaign text is what fixes each mode to its axis. Kessler: *"Come down slow and
+   * come down straight, tin can"* (mission 16), *"Line up over the mouth and descend
+   * straight... barely wider than your gear"* (mission 23). Helion, in the same ledger:
+   * *"Kessler dug a hole. We are digging a room."* (mission 19) — a room you fly into,
+   * level, which is why its own airframe cannot rotate (`airframeFor`).
    */
   mount?: 'wall' | 'floor';
   halfWidth: number;
@@ -82,54 +80,28 @@ const FLOOR_CLEARANCE = 20;
 const DIG_PAD_LIFT = 3;
 
 /**
- * How far *further* into the wall (past the mouth itself) to sample for the bore's own
- * direction. Deliberately not sampled right at the mouth: the mouth sits close to
- * `floorEdgeAt`'s own boundary, right where the floor-to-wall blend and the wall's own
- * terracing benches are least representative of the wall's overall rise — a probe that
- * happened to land on a near-flat tread there would read as barely sloped at all.
- * Probing further in averages across at least one terrace's worth of the real slope.
- */
-const SLOPE_PROBE = 20;
-/** Half-span of the two heightAt samples the local slope is estimated from. */
-const SLOPE_DELTA = 10;
-
-/**
- * The unit direction orthogonal to the wall's local surface at `x`, pointing *into* the
- * rock (never into open air — a bore has to go somewhere solid).
+ * The wall's own inward normal used to set a wall bore's direction, sampled either side of
+ * the mouth. It is gone, along with `SLOPE_PROBE`/`SLOPE_DELTA` and a fallback for probes
+ * that landed on a terrace tread and read as nearly flat.
  *
- * For a heightfield `y = f(x)`, the outward/up normal is `(-f'(x), 1)` (verified against
- * the flat-floor case: `f'(x) = 0` gives straight up, which is correct), so the inward
- * one — the direction this returns — is its opposite, `(f'(x), -1)`, normalised. This
- * formula needs no wall-side branch: it comes out pointing the right way for both walls
- * from the sign of the sampled slope alone.
- *
- * `includeDigs: false` on both samples — probing across an *existing* dig's own carved
- * pit would read that pit's slope, not the wall's, which is exactly wrong for a mouth
- * being anchored to virgin rock.
+ * What it produced was a bore driven at whatever angle the rock happened to slope at —
+ * about 17° below horizontal for Helion's cavern — and both things that live in a bore
+ * want it level. A horizontal deck in a descending tube ends up in the upper half of it
+ * with the floor fallen away beneath, and an approach that has to be flown in level
+ * (`airframeFor`) should not also be a descent inside a tube whose far end the player
+ * cannot see. `resolveTerrainAnchoredDigs` now drives straight in, and a floor mount
+ * straight down; there is no third case.
  */
-function wallNormalInward(terrain: WallTerrain, x: number): { x: number; y: number } {
-  const y0 = terrain.heightAt(x - SLOPE_DELTA, 0, false);
-  const y1 = terrain.heightAt(x + SLOPE_DELTA, 0, false);
-  const slope = (y1 - y0) / (2 * SLOPE_DELTA);
-  const mag = Math.hypot(slope, 1);
-
-  // A slope this shallow means the probe landed somewhere that reads as nearly flat
-  // (a terrace tread, or still inside the floor-to-wall blend) — trusting it would
-  // produce a direction close enough to straight down that `isFloorMounted` (Shaft.ts,
-  // `dir.y < -0.9`) would silently reclassify this as a floor mount. A fixed 60°-off-
-  // vertical fallback, angled toward the wall the probe was sampling, stays honestly
-  // "roughly orthogonal to a wall that's here somewhere" rather than shipping a bore
-  // that reads as boring straight down.
-  if (1 / mag > 0.85) {
-    const side = Math.sign(slope) || 1;
-    return { x: side * Math.sin((60 * Math.PI) / 180), y: -Math.cos((60 * Math.PI) / 180) };
-  }
-  return { x: slope / mag, y: -1 / mag };
-}
 
 export interface DigEndpoint {
+  /** The bore's *axis* at its far end. A pad is set down on the floor below this, not
+   *  here — see `applyDigAttachments`. */
   x: number;
   y: number;
+  halfWidth: number;
+  /** Vertical distance from the axis to the tube's floor, per unit of half-width: 1 for a
+   *  level bore, 0 for a vertical one whose endpoint already *is* its floor. */
+  floorPerHalfWidth: number;
 }
 
 export interface ResolvedDigs {
@@ -175,16 +147,43 @@ export function resolveTerrainAnchoredDigs(digs: DigEntry[], terrain: WallTerrai
      */
     const raw = onFloor ? wallX - side * (d.halfWidth + FLOOR_CLEARANCE) : wallX + side * WALL_INSET;
     const x = onFloor ? snapToColumn(raw) : raw;
-    // A floor mount keeps `Excavation`'s own straight-down default explicitly (not
-    // omitted) so the endpoint formula below is one expression for both branches,
-    // rather than a floor-mount special case that has to agree with it by hand.
-    const direction = onFloor ? { x: 0, y: -1 } : wallNormalInward(terrain, x + side * SLOPE_PROBE);
+    /**
+     * Straight down, or straight in — **never a diagonal.**
+     *
+     * A wall bore used to follow the wall's own inward normal (`wallNormalInward`), which
+     * on a sloped face carries a real downward component: Helion's cavern came out driven
+     * at about 17° below horizontal. That is a nice idea and it is wrong for the two things
+     * that actually have to happen inside it.
+     *
+     * A pad in a bore is a horizontal deck, and a bore that descends puts its far end
+     * below its mouth by a third of its own width — so the deck ends up in the upper half
+     * of a tube whose floor has dropped away beneath it, which is what a platform floating
+     * near the roof of the cavern looked like. And the approach is a pitch-over-and-fly-in
+     * problem by design (see `airframeFor`); a lane that also sinks as it goes asks the
+     * player to hold a descent rate inside a tube they cannot see the far end of.
+     *
+     * Level, both of those are ordinary: the deck sits at the height of the mouth you flew
+     * through, and the flight is fly in, stop, land. A floor mount keeps the straight-down
+     * default explicitly, not omitted, so the endpoint formula below is one expression for
+     * both branches rather than a special case that has to agree with it by hand.
+     */
+    const direction = onFloor ? { x: 0, y: -1 } : { x: side, y: 0 };
     // Natural (un-carved) height at the mouth — the same quantity `CanyonGenerator`'s
     // own `wallMouthY` measures post-build; computed the same way here, pre-build,
     // since this dig's own bore doesn't exist yet to be included either way.
     const mouthY = terrain.heightAt(x, 0, false);
     if (d.id) {
-      endpoints.set(d.id, { x: x + direction.x * d.depth, y: mouthY + direction.y * d.depth });
+      endpoints.set(d.id, {
+        x: x + direction.x * d.depth,
+        y: mouthY + direction.y * d.depth,
+        halfWidth: d.halfWidth,
+        /**
+         * How far the bore's floor lies below its axis, per unit of half-width — the
+         * vertical drop to the tube wall, which is the full half-width for a level bore
+         * and nothing at all for a vertical one (a shaft's endpoint *is* its floor).
+         */
+        floorPerHalfWidth: Math.sqrt(1 - direction.y * direction.y),
+      });
     }
     return { x, halfWidth: d.halfWidth, depth: d.depth, lengthZ: d.lengthZ, direction };
   });
@@ -216,12 +215,31 @@ export function applyDigAttachments(props: Prop[], endpoints: Map<string, DigEnd
       console.warn(`Prop attached to unknown dig "${p.attachToDig}"`);
       return p;
     }
-    // A pad stands *on* the bore's end, not in it. Landing flush with the floor it rests
-    // on is the same mistake a ground pad avoids with its own 1.3 of lift (`buildPad`) —
-    // deck and rock end up coplanar, the platform loses its own shadow and silhouette, and
-    // at the bottom of a dark shaft it stops reading as a structure at all. A little more
-    // than the ground case, because down a bore there is no horizon behind it to separate
-    // the two. A roof gets none of this: it hangs from the far end, it does not rest on it.
-    return { ...p, x: end.x, y: p.kind === 'pad' ? end.y + DIG_PAD_LIFT : end.y };
+    if (p.kind !== 'pad') {
+      // A roof hangs from the far end, it does not rest on it — the axis is where it goes.
+      return { ...p, x: end.x, y: end.y };
+    }
+    /**
+     * **A pad goes on the bore's floor, not on its axis.**
+     *
+     * The endpoint is the centre of the tube's far end, which for a shaft driven straight
+     * down is also its floor — so this was invisible for as long as every bore was
+     * vertical. A level bore's floor is a full half-width below its axis, and Helion's
+     * cavern pad sat at the axis: measured on seed 631729407, a deck at y −13.8 in a tube
+     * whose floor was at −26.4, a platform hanging twelve units clear of the ground in the
+     * upper half of the cavern.
+     *
+     * Dropped by the tube's own geometry rather than by its full half-width, so the deck's
+     * *corners* land on the wall instead of its centre landing on the lowest point and its
+     * edges burying themselves in rock: in a circular section of radius `R`, a deck of
+     * half-width `w` meets the wall `sqrt(R² − w²)` below the axis.
+     *
+     * Then lifted clear, the same mistake a ground pad avoids with its own 1.3 in
+     * `buildPad` — deck and rock coplanar means the platform loses its shadow and its
+     * silhouette, and at the end of a dark bore it stops reading as a structure at all.
+     */
+    const halfDeck = Math.min(p.width / 2, end.halfWidth);
+    const drop = end.floorPerHalfWidth * Math.sqrt(end.halfWidth ** 2 - halfDeck ** 2);
+    return { ...p, x: end.x, y: end.y - drop + DIG_PAD_LIFT };
   });
 }
