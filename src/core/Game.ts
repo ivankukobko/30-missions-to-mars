@@ -5,7 +5,7 @@ import { Inspector } from './Inspector.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { maxSafeSpeed } from '../physics/Kinematics.ts';
 import { CanyonGenerator } from '../world/CanyonGenerator.ts';
-import { Colony, type PadInfo, type Prop } from '../world/Colony.ts';
+import { Colony, type PadInfo } from '../world/Colony.ts';
 import { CANYON, CORPS, PALETTE } from '../world/CanyonSpec.ts';
 import { Lander, LANDER } from '../entities/Lander.ts';
 import { Effects } from '../entities/Effects.ts';
@@ -13,9 +13,7 @@ import { Interface } from '../ui/Interface.ts';
 import { Progress, scoreLanding } from '../campaign/Progress.ts';
 import {
   getMission,
-  worldAt,
   airframeFor,
-  pad,
   MISSION_COUNT,
   ENTRY_VELOCITY,
   type Mission,
@@ -24,8 +22,8 @@ import { AIRFRAMES } from '../entities/Airframe.ts';
 import { clamp01, damp, lerp } from '../world/Noise.ts';
 import { audio } from '../audio/AudioManager.ts';
 import { VolumetricFog } from '../world/VolumetricFog.ts';
-import { growGrid, buildColonyGrowth, buildGrowthGizmos } from '../world/ColonyGrowth.ts';
-import { reservedCellsFor } from '../campaign/Layout.ts';
+import { checkLayout } from '../campaign/Layout.ts';
+import { planColonies, missionWorlds, campaignPadSites } from '../campaign/ColonyPlan.ts';
 
 /** Mars-like but tuned for a readable descent rather than realism. */
 const GRAVITY = -6.0;
@@ -91,19 +89,6 @@ export class Game {
    */
   private missionTime = 0;
 
-  /**
-   * True while `loadGrowthDemo` owns the loop. Its mission (`id: 0`) is never a real
-   * entry in `MISSIONS`, so every place that would otherwise persist progress or
-   * advance to another campaign mission has to check this first — see
-   * `resolveSettle` and `fail`.
-   */
-  private demoMode = false;
-  /** Objects `loadGrowthDemo` adds outside the canyon/colony lifecycle, so a retry can
-   *  clear them before rebuilding instead of layering a second structure on top. */
-  private demoObjects: THREE.Object3D[] = [];
-  /** Cell-boundary wireframes, only ever populated when `?gizmos` is on the URL. */
-  private gizmoObjects: THREE.Object3D[] = [];
-
   constructor(container: HTMLElement, uiLayer: HTMLElement) {
     this.container = container;
     this.ui = new Interface(uiLayer);
@@ -165,11 +150,7 @@ export class Game {
 
     // Mission first: the inspector reads the loaded mission to build its readout, so
     // constructing it earlier hands it an undefined mission.
-    if (new URLSearchParams(window.location.search).has('growth')) {
-      this.loadGrowthDemo();
-    } else {
-      this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT));
-    }
+    this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT));
     this.setupDebug();
 
     this.frame = this.frame.bind(this);
@@ -179,10 +160,6 @@ export class Game {
   // ------------------------------------------------------------- mission flow
 
   private loadMission(id: number): void {
-    // Any real mission load exits the demo scene, including a debug jump away from it
-    // — otherwise resolveSettle/fail would keep treating a genuine campaign run as the
-    // demo's and silently drop its progress.
-    this.demoMode = false;
     const mission = getMission(id);
     if (!mission) {
       this.state = 'VICTORY';
@@ -212,30 +189,66 @@ export class Game {
     // The world is derived entirely from the mission index, the frozen radar
     // position, the best rank earned so far and the campaign seed, so a retry rebuilds
     // an identical canyon and the colony ledger can never drift out of sync.
-    const world = worldAt(id, this.progress.mastX, this.progress.mastY, this.progress.ranks, this.progress.seed);
+    //
+    // `worldAt` only assembles the authored ledger now — pads, digs (some possibly
+    // still wall-*anchored* rather than positioned), decommissions, the radar. Colony
+    // growth and any terrain-anchored dig used to happen inside it, before any terrain
+    // existed for this mission; both now happen here instead, in the order the design
+    // actually needs: real terrain first, then fit a grid to it, then grow on what's
+    // available. See docs/plans/procedural_colony_growth.md and `TerrainDigs.ts`.
+    // Every mission's resolved world, memoised — this mission's for the terrain build
+    // below, and every earlier mission's for the campaign walk `planColonies` makes.
+    const worlds = missionWorlds(this.progress.mastX, this.progress.mastY, this.canyon);
     this.physics.clear();
+
+    // Resolved *before* `canyon.build()` — a wall-anchored dig's real x/direction come
+    // from terrain queries that are safe to call pre-build (see `WallTerrain`'s doc
+    // comment in `TerrainDigs.ts`), and `canyon.build()` needs the resolved digs to
+    // carve the right hole in the first place, not the unresolved placeholder.
+    const current = worlds(id);
 
     // Pads without an explicit height rest on the ground, so the terrain needs a
     // level bench under each before the colony asks it how high the ground is.
-    const padSites = world.props.flatMap((p) =>
-      p.kind === 'pad' && p.y === undefined ? [p.x] : [],
-    );
+    // Every pad the campaign will ever set on the ground, not just this mission's — see
+    // `campaignPadSites`. Grading the site once is what keeps the ground a colony was
+    // grown on from moving underneath it as later pads arrive.
+    this.canyon.build(current.digs, campaignPadSites(worlds));
 
-    this.canyon.build(world.digs, padSites);
+    // Growth runs here, after `canyon.build()`, because the whole design depends on the
+    // order: generate the landscape, fit a lattice to it, reserve every live pad's
+    // flight route, then grow on what is left. See docs/plans/mycelial_colony_growth.md.
+    const plan = planColonies(id, worlds, this.progress.ranks, this.progress.seed, this.canyon);
+    const allProps = [...current.props, ...plan.colonies];
+
+    // The resolver only moves what it can move — a platform is bolted to its tower and
+    // stays put. If one of those ever ends up over a pad, nothing downstream will notice
+    // and the mission just quietly becomes harder to land, so say so during development.
+    // Colonies are included here too — they're generated safe-by-construction rather than
+    // resolved, but this is still the same belt-and-suspenders net every other prop gets.
+    // Runs here rather than inside `worldAt` now that colonies (and a resolved wall
+    // mouth's real position) both need the real `this.canyon` this check can now pass
+    // along — see `checkLayout`'s own doc comment on what that unlocks.
+    if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
+      for (const v of checkLayout(allProps, current.digs, undefined, this.canyon, plan.network.channels)) {
+        console.warn(`[layout] mission ${id}: ${v.prop} ${v.detail} (pad ${v.pad})`);
+      }
+    }
+
     /**
-     * `?colonies` strips the hand-authored structures (towers, gantries, masts, cave
-     * roofs, radar — and the backdrop skyline they seed) so the generated colonies can
-     * be judged on their own, against nothing but the terrain and the pads they must
-     * keep clear of. Pads and their decks stay: they are the anchors the whole growth
-     * model is built around, and a colony floating in an empty canyon says nothing
-     * about whether it respects them. Debug-only by nature — the dropped props take
-     * their colliders with them, so a run flown in this view is not the real mission.
+     * `?colonies` strips everything but the grown structures and the pads they must
+     * keep clear of — narrower than it used to be now that hand-authored structures
+     * are gone from the real ledger (see the `Prop` doc comment in Colony.ts); today
+     * this only drops `caveRoof` and `radar`. Pads stay: they are the anchors the
+     * whole growth model is built around, and a colony floating in an empty canyon
+     * says nothing about whether it respects them. Debug-only by nature — the dropped
+     * props take their colliders with them, so a run flown in this view is not the
+     * real mission.
      */
     const coloniesOnly = new URLSearchParams(window.location.search).has('colonies');
     const shown = coloniesOnly
-      ? world.props.filter((p) => p.kind === 'colony' || p.kind === 'pad' || p.kind === 'platform')
-      : world.props;
-    this.colony.build(shown, this.canyon);
+      ? allProps.filter((p) => p.kind === 'colony' || p.kind === 'pad')
+      : allProps;
+    this.colony.build(shown, this.canyon, plan);
 
     // A structure fast enough to cross the hull inside one substep can be passed clean
     // through, and the symptom is nothing happening — which looks exactly like nothing
@@ -309,149 +322,6 @@ export class Game {
     this.inspector?.refresh();
   }
 
-  /** Removes and disposes a list of loose scene objects — the pattern `CanyonGenerator`
-   *  and `Colony` each own privately for their own tracked objects, needed here too
-   *  since `loadGrowthDemo`'s structure and gizmos live outside either lifecycle. */
-  private disposeDemoObjects(objects: THREE.Object3D[]): void {
-    for (const o of objects) {
-      this.scene.remove(o);
-      const mesh = o as THREE.Mesh;
-      mesh.geometry?.dispose?.();
-      (mesh.material as THREE.Material | undefined)?.dispose?.();
-    }
-  }
-
-  /**
-   * A standalone scene for the procedural-growth prototype (`ColonyGrowth.ts`),
-   * reached only via `?growth` — never through `loadMission`, never through
-   * `worldAt`, and its mission `id` (0) is never a real campaign entry. Deliberately
-   * not "mission 31": no brief in an established corp voice, no rank, no unlock, no
-   * write to `Progress` at all — see the guards in `resolveSettle` and `fail`.
-   *
-   * The one real pad is hand-built with `pad()`, the same helper the campaign itself
-   * uses, so its physics and scoring are the genuine article. The grown structure is
-   * placed a full grid-width clear of the pad rather than validated by `checkLayout`
-   * — there is no corridor-safety pass here yet (see docs/plans/procedural_colony_
-   * growth.md), so the margin is generous by hand instead of proven by the resolver.
-   */
-  private loadGrowthDemo(): void {
-    this.demoMode = true;
-    this.mission = {
-      id: 0,
-      client: 'outpost',
-      payload: { name: 'Test Rig', mass: 1.0 },
-      fuel: 400,
-      start: { x: 0, y: 220 },
-      target: 'growth-demo-pad',
-      failDepth: -60,
-      brief:
-        '<b>ENGINEERING TEST</b> — not part of the campaign, reloads a fresh grown ' +
-        'structure from your save seed every time.<br/><br/>One pad, and beside it ' +
-        'whatever the WFC-lite prototype grew this run — rooms, scaffold, and the odd ' +
-        'connecting tube, kept clear of the approach by the same corridor check real ' +
-        'missions use.' +
-        '<br/><br/><b>OBJECTIVE</b> Deliver to TEST PAD.',
-    };
-    const mission = this.mission;
-
-    this.state = 'BRIEF';
-    this.wasThrusting = false;
-    this.heightAboveGround = Infinity;
-    this.missionTime = 0;
-    this.pendingScore = null;
-    this.pendingFailure = null;
-    this.clearBlasts();
-
-    const padX = 0;
-    const padProp = pad('outpost', 'growth-demo-pad', padX, 13);
-    const props: Prop[] = [padProp];
-    this.physics.clear();
-    this.canyon.build([], [padX]);
-    this.colony.build(props, this.canyon);
-
-    this.disposeDemoObjects(this.demoObjects);
-    this.disposeDemoObjects(this.gizmoObjects);
-    this.gizmoObjects = [];
-    // Every cell is a cube at least as wide as the pad it grows from, per the design
-    // note — a floor here rather than the raw pad width so a very narrow pad still
-    // grows a structure at a legible scale.
-    const cellSize = Math.max(12, padProp.kind === 'pad' ? padProp.width : 12);
-    const padHalfWidth = padProp.kind === 'pad' ? padProp.width / 2 : 0;
-    const margin = cellSize * 1.5; // clearance the approach keeps, not a corridor check
-    /**
-     * Fit to the canyon rather than a fixed offset: `floorEdgeAt` is the wall's near
-     * edge on the +x side of the canyon's own (wandering) centreline, not a fixed
-     * distance from the pad — the floor is rarely centred on world x=0 at all. The
-     * grid is sized to reach it and is allowed to run a column past it; a cell
-     * overlapping the wall a little is the same compromise `buildTower` already makes
-     * sinking structures into terrain to read as anchored, not a new one.
-     */
-    const wallX = this.canyon.floorEdgeAt(0, 1);
-    const cols = Math.max(2, Math.min(5, Math.round((wallX - padX - padHalfWidth - margin) / cellSize)));
-    const structureX = padX + padHalfWidth + margin;
-    const structureY = this.canyon.heightAt(structureX, 0);
-    /**
-     * The real corridor mechanism now, not the hand-picked row an earlier version of
-     * this scene used — `reservedCellsFor` is exactly what `Missions.synthesizeColonies`
-     * feeds real missions, tested here against this scene's own pad so the demo and the
-     * campaign path can't silently drift apart. The pad sits well clear of the grid by
-     * construction (`margin`, above), so in practice nothing usually gets reserved —
-     * this is exercising the plumbing, not manufacturing a visible cutoff the way the
-     * old demonstration row did.
-     */
-    const rows = 8;
-    const anchorCol = 0;
-    const placement = { x: structureX, y: structureY, z: 0, cellSize, direction: 1 as const };
-    const reserved = reservedCellsFor(placement, { cols, rows, anchorCol }, props);
-    const grid = growGrid(cols, rows, anchorCol, this.progress.seed, { reserved });
-    this.demoObjects = buildColonyGrowth(this.scene, grid, placement, 'outpost');
-    // Cell boundaries, including empty cells — the shape the support rule and the
-    // distance-decay odds actually produce, not just the modules rendered inside it.
-    if (new URLSearchParams(window.location.search).has('gizmos')) {
-      this.gizmoObjects = buildGrowthGizmos(this.scene, grid, placement);
-    }
-
-    this.targetPad = this.colony.pads.find((p) => p.id === mission.target) ?? null;
-    this.colony.setTarget(mission.target);
-
-    this.lander?.dispose();
-    this.lander = new Lander(this.scene, mission.payload, mission.fuel, AIRFRAMES[airframeFor(mission)]);
-    this.lander.invertThrusters = this.progress.invertThrusters;
-    audio.setEngineLayout(this.lander.airframe.engines.map((e) => e.x));
-    this.lander.allowGround = false;
-    this.lander.x = mission.start.x;
-    this.lander.y = mission.start.y;
-    this.lander.vx = ENTRY_VELOCITY.vx;
-    this.lander.vy = ENTRY_VELOCITY.vy;
-    this.lander.group.position.set(mission.start.x, mission.start.y, 0);
-
-    this.director.snapTo(mission.start.x, mission.start.y);
-    this.sun.target.position.set(mission.start.x, CANYON.FLOOR_Y, 0);
-
-    this.ui.setHudVisible(false);
-    this.ui.setInstruments(false);
-    this.ui.setTiltInstrument(this.lander.airframe.scheme === 'attitude');
-    this.ui.setMission(mission, this.targetPad);
-    this.ui.showBrief(
-      mission,
-      null,
-      {
-        airframe: this.lander.airframe,
-        fuel: this.lander.fuelCapacity,
-        invertThrusters: this.progress.invertThrusters,
-        onInvert: (on) => {
-          this.progress.setInvertThrusters(on);
-          if (this.lander) this.lander.invertThrusters = on;
-        },
-      },
-      () => this.begin(),
-    );
-
-    audio.setMissionContext(mission.client, mission.id);
-    audio.startAmbient();
-    this.inspector?.refresh();
-  }
-
   private begin(): void {
     audio.init();
     audio.startAmbient();
@@ -492,8 +362,7 @@ export class Game {
     this.lander?.freeze();
     this.ui.setHudVisible(false);
     this.ui.showFailure(title, detail, () => {
-      if (this.demoMode) this.loadGrowthDemo();
-      else this.loadMission(this.mission.id);
+      this.loadMission(this.mission.id);
     });
   }
 
@@ -695,15 +564,11 @@ export class Game {
 
     if (this.pendingScore) {
       const score = this.pendingScore;
-      // The demo's mission id (0) is never a real campaign entry — recording it or
-      // advancing "to mission 1" off it would be a fabricated progress write, not a
-      // completion. See `loadGrowthDemo`.
-      if (!this.demoMode) this.progress.complete(this.mission.id, score.rank);
+      this.progress.complete(this.mission.id, score.rank);
       this.state = 'RESULT';
       this.ui.setHudVisible(false);
       this.ui.showResult(this.mission, score, () => {
-        if (this.demoMode) this.loadGrowthDemo();
-        else this.loadMission(this.mission.id + 1);
+        this.loadMission(this.mission.id + 1);
       });
     }
   }
@@ -880,8 +745,7 @@ export class Game {
     this.canyon.dispose();
     this.canyon = new CanyonGenerator(this.scene, this.physics, seed);
     this.director.groundAt = (x, z) => this.canyon.heightAt(x, z);
-    if (this.demoMode) this.loadGrowthDemo();
-    else this.loadMission(this.mission.id);
+    this.loadMission(this.mission.id);
   }
 
   /** Map editor, generator readout and detached camera. ?debug=1 */
@@ -898,6 +762,7 @@ export class Game {
       ranks: () => this.progress.ranks,
       mastX: () => this.progress.mastX,
       mastY: () => this.progress.mastY,
+      terrain: () => this.canyon,
       loadMission: (id) => this.loadMission(id),
       useSeed: (seed) => this.useSeed(seed),
       setInspecting: (on) => {

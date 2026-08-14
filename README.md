@@ -14,6 +14,8 @@ Then open http://localhost:5173.
 
 Append `?debug=1` for a mission jump control, the canyon seed, a reroll button, and a `window.__mtm` console handle with `place(x, y)`, `overTarget(height)` and `scale(n)`.
 
+`?gizmos` draws what colony growth actually read: the flight routes as lines, cells reserved against them in red, and the growable rock surface in white. `?colonies` strips the world back to colonies and pads.
+
 `?scale=N` sets the pixelation divisor (1 native, 2–4 chunky). It defaults to **1**.
 
 Typecheck and tests, which run in the container:
@@ -39,4 +41,5 @@ Detailed documentation is organized in the [`docs/`](docs/) directory:
 
 - **[Telemetry Dialogue System](docs/plans/telemetry_dialogue_system.md)**: Multi-card Guidance AI pre-mission telemetry uplink system.
 - **[Campaign Narrative Enhancements](docs/plans/campaign_narrative_enhancements.md)**: Ixion shutdown visual shifts, AI corridor diagnostics, and shaft acoustic audio effects.
-- **[Procedural Colony Growth](docs/plans/procedural_colony_growth.md)**: Anchors-vs-grown-flesh model, wall/floor/tunnel mounts, voxel/WFC-lite growth around fixed pads, room/tube/scaffold tiles, and campaign-age maturation.
+- **[Mycelial Colony Growth](docs/plans/mycelial_colony_growth.md)**: The live model — three colonies growing as branching filaments across the canyon's rock, competing for substrate, with a permanent flight channel reserved to the rim for every pad ever built.
+- **[Procedural Colony Growth](docs/plans/procedural_colony_growth.md)**: Superseded by the above; kept as the record of the voxel/WFC-lite model that shipped before it and why it was replaced.

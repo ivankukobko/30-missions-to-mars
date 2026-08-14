@@ -10,7 +10,8 @@ import {
 } from './Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
 import { checkLayout } from './Layout.ts';
-import { mergeDigs } from '../world/CanyonGenerator.ts';
+import { mergeDigs, type Excavation } from '../world/CanyonGenerator.ts';
+import { resolveTerrainAnchoredDigs, applyDigAttachments, type WallTerrain } from './TerrainDigs.ts';
 import { CANYON } from '../world/CanyonSpec.ts';
 import type { Prop } from '../world/Colony.ts';
 
@@ -27,6 +28,28 @@ const IDS = MISSIONS.map((m) => m.id);
 const MAST_POSITIONS = [null, -60, -33, -14, -4, 0, 7, 21, 40, 66];
 
 const pads = (props: Prop[]) => props.filter((p) => p.kind === 'pad');
+
+/**
+ * A deliberately simple stand-in terrain for tests that need `WallAnchoredDig`s
+ * resolved but don't care about a real canyon — flat floor out to ±60, then a real
+ * (if too-regular to ever ship) rising wall, so `resolveTerrainAnchoredDigs`'s slope
+ * sampling has something genuine to read rather than degenerating into the fallback
+ * angle. Real per-seed terrain is what `ColonyAvailability.test.ts` and
+ * `CampaignPipeline.integration.test.ts` exist for.
+ */
+const FAKE_WALL_TERRAIN: WallTerrain = {
+  floorEdgeAt: (_z, side) => side * 78,
+  heightAt: (x) => Math.max(0, Math.abs(x) - 60) * 2.2,
+};
+
+/** `worldAt`'s digs, fully resolved and with `attachToDig` props repositioned, the way
+ *  `Game.loadMission` does it — for tests that care about real dig geometry rather than
+ *  the raw authored ledger. */
+function resolvedWorldAt(id: number, mastX: number | null = null): { props: Prop[]; digs: Excavation[] } {
+  const world = worldAt(id, mastX);
+  const resolved = resolveTerrainAnchoredDigs(world.digs, FAKE_WALL_TERRAIN);
+  return { props: applyDigAttachments(world.props, resolved.endpoints), digs: resolved.digs };
+}
 
 describe('campaign table', () => {
   it('has thirty missions', () => {
@@ -113,21 +136,21 @@ describe('getMission', () => {
 
 describe('worldAt accumulation', () => {
   it('builds nothing but the ledger up to the given mission', () => {
-    // Mission 1's own `adds` are empty — the one prop in its world is Ixion's colony,
-    // which is not hand-authored by any mission: `synthesizeColonies` derives its
-    // existence from the campaign position alone, so mission 1 was never truly bare
-    // once that shipped. See docs/plans/procedural_colony_growth.md.
+    // Mission 1's own `adds` are empty, and — unlike before colony generation moved to
+    // `ColonyGeneration.ts` — nothing else fills the gap: `worldAt` no longer bakes in
+    // Ixion's colony (or any corp's) at all. See docs/plans/procedural_colony_growth.md.
     const world = worldAt(1);
-    expect(world.props).toEqual([expect.objectContaining({ kind: 'colony', corp: 'outpost' })]);
+    expect(world.props).toEqual([]);
     expect(world.digs).toEqual([]);
   });
 
-  it('only ever loses a structure a mission explicitly struck', () => {
-    /**
-     * The corridor closes because of what you delivered, so the ledger grows — with one
-     * exception. A mission may decommission a pad it authored, and then the count is
-     * allowed to fall by exactly that pad and the deck under it.
-     */
+  it('only ever grows, except for a mission that explicitly struck something', () => {
+    // The corridor closes because of what you delivered, so the ledger grows — with one
+    // exception. A mission may decommission a pad it authored, and then the count is
+    // allowed to fall by exactly that pad. Colonies are no longer part of this count at
+    // all — `worldAt` doesn't produce them any more — so the fluctuation a grown
+    // colony's own territory contention can cause isn't this test's concern any more
+    // either; that's `ColonyGeneration.test.ts` now.
     let previous = 0;
     for (const id of IDS) {
       const count = worldAt(id, 0).props.length;
@@ -135,8 +158,7 @@ describe('worldAt accumulation', () => {
       if (struck === 0) {
         expect(count, `mission ${id}`).toBeGreaterThanOrEqual(previous);
       } else {
-        // A pad and its platform: never more than two props per id struck.
-        expect(previous - count, `mission ${id}`).toBeLessThanOrEqual(struck * 2);
+        expect(previous - count, `mission ${id}`).toBeLessThanOrEqual(struck);
       }
       previous = count;
     }
@@ -158,10 +180,14 @@ describe('worldAt accumulation', () => {
     }
   });
 
-  it('leaves a way into every excavation that has a pad in it', () => {
+  it('leaves a way into every hand-authored excavation blocker', () => {
     // The rule that was missing when Helion capped its own cavern with its crest deck.
+    // Colony-caused capping (the only kind live in the current campaign, now that
+    // Helion's cavern mouth is measured against real terrain) is covered with real
+    // terrain in `CampaignPipeline.integration.test.ts` instead — this pure version
+    // only ever had non-colony blockers (a cave roof) to catch anyway.
     for (const id of IDS) {
-      const w = worldAt(id, 0);
+      const w = resolvedWorldAt(id, 0);
       const capped = checkLayout(w.props, w.digs).filter((v) => v.rule === 'mouth');
       expect(capped, `mission ${id}`).toEqual([]);
     }
@@ -171,58 +197,6 @@ describe('worldAt accumulation', () => {
     // The invariant retrying after a crash depends on: same inputs, same canyon.
     for (const id of [1, 7, 16, 23, 30]) {
       expect(worldAt(id, 10)).toEqual(worldAt(id, 10));
-    }
-  });
-
-  it('grows one colony per active corp, near that corp side of the canyon', () => {
-    const colonies = (id: number) =>
-      worldAt(id, 0).props.filter((p): p is Extract<Prop, { kind: 'colony' }> => p.kind === 'colony');
-
-    // Ixion flies mission 1; Helion's and Kessler's first missions come later, and a
-    // corp that hasn't started yet has built nothing.
-    expect(colonies(1).map((c) => c.corp)).toEqual(['outpost']);
-    expect(colonies(30).map((c) => c.corp).sort()).toEqual(['helion', 'kessler', 'outpost']);
-
-    // Each corp roots on its own side — Helion west, Kessler east, Ixion nearer the
-    // centre than either wall. Not asserted against the exact claim bounds: the anchor
-    // search (`findAnchorX`) is allowed to walk a colony a couple of cells off its
-    // natural spot when the centre is crowded, which by mission 30 it genuinely is.
-    for (const c of colonies(30)) {
-      if (c.corp === 'helion') expect(c.x).toBeLessThan(-20);
-      if (c.corp === 'kessler') expect(c.x).toBeGreaterThan(20);
-      if (c.corp === 'outpost') expect(Math.abs(c.x)).toBeLessThan(45);
-    }
-
-    // And each grows toward the canyon centre, per the lore in CanyonSpec.ts.
-    expect(colonies(30).find((c) => c.corp === 'helion')?.direction).toBe(1);
-    expect(colonies(30).find((c) => c.corp === 'kessler')?.direction).toBe(-1);
-  });
-
-  it('builds a denser colony for a corp whose missions have gone well', () => {
-    // The rank record is monotonically best-so-far (`Progress.complete`), so this is
-    // the campaign-level face of ColonyGrowth's quality-monotonicity guarantee: an
-    // all-S history never produces fewer occupied cells than an ungraded one.
-    const occupied = (ranks: Record<string, 'S' | 'A' | 'B' | 'C'>) =>
-      worldAt(30, 0, null, ranks)
-        .props.filter((p): p is Extract<Prop, { kind: 'colony' }> => p.kind === 'colony')
-        .reduce((sum, c) => sum + c.grid.cells.flat().filter((cell) => cell !== 'empty').length, 0);
-
-    const allS = Object.fromEntries(MISSIONS.map((m) => [String(m.id), 'S' as const]));
-    expect(occupied(allS)).toBeGreaterThanOrEqual(occupied({}));
-  });
-
-  it('every colony in every mission at every mast position passes the layout check', () => {
-    // Colonies are generated safe-by-construction (reservedCellsFor), and this is the
-    // belt-and-suspenders proof: the same checkLayout net that guards every authored
-    // prop reports nothing for any generated one, campaign-wide.
-    for (const id of IDS) {
-      for (const mastX of MAST_POSITIONS) {
-        const world = worldAt(id, mastX);
-        const violations = checkLayout(world.props, world.digs).filter((v) =>
-          v.prop.startsWith('colony'),
-        );
-        expect(violations, `mission ${id}, mastX ${mastX}`).toEqual([]);
-      }
     }
   });
 
@@ -295,7 +269,7 @@ describe('delivery addresses', () => {
 describe('resolved layout is legal for the whole campaign', () => {
   it.each(IDS)('mission %i has a clean layout at every mast position', (id) => {
     for (const mastX of MAST_POSITIONS) {
-      const world = worldAt(id, mastX);
+      const world = resolvedWorldAt(id, mastX);
       const violations = checkLayout(world.props, world.digs);
 
       expect(
@@ -309,7 +283,7 @@ describe('resolved layout is legal for the whole campaign', () => {
     // The heightfield, the terrain hole and the bore are all built from the merged list,
     // so the entry lanes have to be reserved against that and not the raw ledger.
     for (const id of IDS) {
-      const world = worldAt(id, 0);
+      const world = resolvedWorldAt(id, 0);
       const violations = checkLayout(world.props, mergeDigs(world.digs));
 
       expect(violations, `mission ${id}`).toEqual([]);
@@ -452,21 +426,14 @@ describe('pad widths', () => {
     }
   });
 
-  it('keeps a platform wider than the pad resting on it', () => {
-    const world = worldAt(MISSION_COUNT, 0);
-    for (const p of pads()) {
-      const deck = world.props.find(
-        (o) => o.kind === 'platform' && Math.abs(o.x - p.x) < 0.001,
-      );
-      if (!deck || deck.kind !== 'platform') continue;
-      // The apron is an absolute margin either side, so it must survive the scaling.
-      expect(deck.width).toBeGreaterThan(p.width);
-    }
-  });
 });
 
 describe('excavations', () => {
   it('digs only downward and with real width', () => {
+    // `depth`/`halfWidth` exist identically on both an ordinary dig and a still-
+    // unresolved `WallAnchoredDig`, so this one reads the raw ledger directly rather
+    // than resolving it — every other test in this block cares about a dig's real `x`,
+    // which a `WallAnchoredDig` doesn't have until `resolveTerrainAnchoredDigs` runs.
     for (const dig of worldAt(30, 0).digs) {
       expect(dig.depth).toBeGreaterThan(0);
       expect(dig.halfWidth).toBeGreaterThan(0);
@@ -474,38 +441,47 @@ describe('excavations', () => {
   });
 
   it('collapses the Kessler shaft records into one deepening bore', () => {
-    // Mission 15 opens it 58 deep, mission 20 drives it to 172. Two records at the same
-    // x, and a shaft built from both would lay a floor slab across the deep bore.
-    const digs = worldAt(20, 0).digs.filter((d) => d.x === 10);
-    expect(digs.length).toBeGreaterThan(1);
+    // Mission 15 opens it 58 deep, mission 20 drives it to 172. Two records sharing an
+    // x — both anchored to the same real wall via the same formula, not a hand-typed
+    // constant any more (see `TerrainDigs.ts`'s `mount: 'floor'`) — and a shaft built
+    // from both would lay a floor slab across the deep bore.
+    const digs = resolvedWorldAt(20, 0).digs;
+    const kesslerX = digs.find((d, i) => digs.some((o, j) => j !== i && Math.abs(o.x - d.x) < 1))?.x;
+    expect(kesslerX, 'expected two dig records sharing an x').toBeDefined();
+    const same = digs.filter((d) => Math.abs(d.x - kesslerX!) < 1);
+    expect(same.length).toBeGreaterThan(1);
 
-    const merged = mergeDigs(digs);
+    const merged = mergeDigs(same);
     expect(merged).toHaveLength(1);
     expect(merged[0].depth).toBe(172);
   });
 
   it('keeps distinct bores separate', () => {
-    // Kessler at x=10 and the Helion cavern at x=-33 are far apart.
-    const merged = mergeDigs(worldAt(30, 0).digs);
+    // Kessler's shaft and the Helion cavern are far apart.
+    const merged = mergeDigs(resolvedWorldAt(30, 0).digs);
     expect(merged.length).toBeGreaterThan(1);
   });
 
   it('reaches every pad sunk into a dig', () => {
     // A pad below the natural floor has to be inside a bore that gets that deep, or it
     // is sealed under rock the mesh never removed.
-    const world = worldAt(30, 0);
+    const world = resolvedWorldAt(30, 0);
     const merged = mergeDigs(world.digs);
 
     for (const p of pads(world.props)) {
       if (p.y === undefined || p.y >= 0) continue;
       const bore = merged.find((d) => Math.abs(d.x - p.x) <= d.halfWidth);
       expect(bore, `pad ${p.id} at y=${p.y}`).toBeDefined();
-      expect(bore!.depth, `pad ${p.id}`).toBeGreaterThan(Math.abs(p.y));
+      // Greater-or-equal, not strictly greater: a pad attached to its dig's own real
+      // endpoint (`attachToDig`) computes its `y` from the exact same formula the dig's
+      // own `depth` does, so the two can land exactly equal — that is the pad sitting
+      // precisely at the bore's floor, not sealed under rock past it.
+      expect(bore!.depth, `pad ${p.id}`).toBeGreaterThanOrEqual(Math.abs(p.y));
     }
   });
 
   it('keeps a pad inside a dig narrower than the bore it sits in', () => {
-    const world = worldAt(30, 0);
+    const world = resolvedWorldAt(30, 0);
     const merged = mergeDigs(world.digs);
 
     for (const p of pads(world.props)) {

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { Noise, clamp01, lerp, smoothstep } from './Noise.ts';
 import { CANYON, FACET_CELL, PALETTE } from './CanyonSpec.ts';
-import type { Excavation } from './CanyonGenerator.ts';
+import type { Excavation, WallHoleBoundary, WallHoleEdge } from './CanyonGenerator.ts';
 
 /**
  * A mined shaft, built as real geometry rather than carved out of the heightfield.
@@ -52,6 +52,13 @@ export interface ShaftSurface {
 export interface Vec2 {
   x: number;
   y: number;
+}
+
+/** A mouth-ring point plus the `z` it was sampled at — `wallPoint` alone only gives
+ *  x/y, and `buildCollar` needs the z to match against the terrain's own hole boundary
+ *  (see `Shaft.mouthEdges`). */
+export interface MouthEdgePoint extends Vec2 {
+  z: number;
 }
 
 /**
@@ -262,6 +269,87 @@ export class Shaft {
         // Wound so normal points into the bore (+Z towards player)
         indices.push(a, a + span + 1, a + 1, a + 1, a + span + 1, a + span + 2);
       }
+    }
+    this.addMesh(positions, colors, indices);
+  }
+
+  /** This bore's own opening ring at the mouth (`s = 0`), split into its two z-ordered
+   *  curves the same way `buildWalls` already draws them — `neg`/`pos` by `perp` side,
+   *  not by world x sign, so `buildCollar` establishes that correspondence itself
+   *  rather than assuming it. Public so `CampaignPipeline.integration.test.ts` can
+   *  verify it against `CanyonGenerator.wallHoleBoundary`'s own output. */
+  mouthEdges(): { neg: MouthEdgePoint[]; pos: MouthEdgePoint[] } {
+    const zs = this.zs();
+    const neg = zs.map((z) => ({ ...this.wallPoint(-1, 0, z), z }));
+    const pos = zs.map((z) => ({ ...this.wallPoint(1, 0, z), z }));
+    return { neg, pos };
+  }
+
+  /** A point on a `WallHoleEdge` at a given `z`, linearly interpolated — both this
+   *  bore's own mouth ring and the terrain's hole boundary are already monotonic in z
+   *  by construction (see `CanyonGenerator.wallHoleBoundary`'s doc comment), so there
+   *  is no arc-length parametrization or winding-direction problem to solve, only this. */
+  private static lerpEdgeAtZ(edge: WallHoleEdge, z: number): { x: number; y: number; color: THREE.Color } {
+    const pts = edge.points;
+    const cols = edge.colors;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i];
+      const b = pts[i + 1];
+      if ((z <= a.z && z >= b.z) || (z >= a.z && z <= b.z)) {
+        const span = a.z - b.z;
+        const t = span === 0 ? 0 : (a.z - z) / span;
+        return { x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t), color: cols[i].clone().lerp(cols[i + 1], t) };
+      }
+    }
+    // Outside the edge's own z range — clamp to whichever end is closer, rather than
+    // extrapolate a direction the terrain data never actually measured.
+    const nearest = Math.abs(z - pts[0].z) <= Math.abs(z - pts[pts.length - 1].z) ? 0 : pts.length - 1;
+    return { x: pts[nearest].x, y: pts[nearest].y, color: cols[nearest].clone() };
+  }
+
+  /**
+   * Bridges `hole` — this dig's real terrain-hole boundary, or `null` if
+   * `CanyonGenerator` couldn't recover a single clean one for this seed (see
+   * `wallHoleBoundary`) — to this bore's own mouth ring with two triangle strips, so
+   * the terrain and the bore stop being built from unrelated noise fields with no
+   * shared edge. Wall-mounted digs only — `CanyonGenerator.build` is the only caller,
+   * right after `build()`; a floor-mounted bore's own ring already lands on
+   * `overShaft`'s exact rectangle within `RELIEF` (2.6 units), closer than this collar
+   * would ever manage matching noise field to noise field, so nothing calls this there.
+   *
+   * Correspondence between the terrain's `low`/`high` (by world x) and this bore's own
+   * `neg`/`pos` (by `perp` side, which flips with bore direction) is established once,
+   * from each ring's own first point, rather than assumed from the naming.
+   */
+  buildCollar(hole: WallHoleBoundary | null): void {
+    if (!hole) return;
+    const { neg, pos } = this.mouthEdges();
+    const negIsLow = neg[0].x <= pos[0].x;
+    this.buildEdgeStrip(hole.low, negIsLow ? neg : pos);
+    this.buildEdgeStrip(hole.high, negIsLow ? pos : neg);
+  }
+
+  private buildEdgeStrip(holeEdge: WallHoleEdge, ring: MouthEdgePoint[]): void {
+    const positions: number[] = [];
+    const colors: number[] = [];
+    for (const ringPt of ring) {
+      const holePt = Shaft.lerpEdgeAtZ(holeEdge, ringPt.z);
+      positions.push(holePt.x, holePt.y, ringPt.z, ringPt.x, ringPt.y, ringPt.z);
+      // Colour lerps between the terrain's own real colour and the lining's own real
+      // colour at this station — position-only continuity still reads as a seam if the
+      // colour jumps, so both real boundaries are reused rather than a guessed third.
+      const lit = 1 - Math.abs(ringPt.z) / (this.lengthZ / 2);
+      const shaftColor = this.rockAt(0, lit);
+      const mixed = holePt.color.clone().lerp(shaftColor, 0.5);
+      colors.push(mixed.r, mixed.g, mixed.b, mixed.r, mixed.g, mixed.b);
+    }
+    const indices: number[] = [];
+    for (let i = 0; i < ring.length - 1; i++) {
+      const a = i * 2;
+      const b = a + 1;
+      const c = a + 2;
+      const d = a + 3;
+      indices.push(a, c, b, b, c, d);
     }
     this.addMesh(positions, colors, indices);
   }

@@ -1,10 +1,8 @@
 import type { Prop } from '../world/Colony.ts';
-import { mergeDigs, type Excavation } from '../world/CanyonGenerator.ts';
-import { CORPS, type CorpId } from '../world/CanyonSpec.ts';
+import type { CorpId } from '../world/CanyonSpec.ts';
 import type { AirframeId } from '../entities/Airframe.ts';
-import type { Rank } from './Progress.ts';
-import { checkLayout, resolveLayout, reservedCellsFor } from './Layout.ts';
-import { growGrid } from '../world/ColonyGrowth.ts';
+import { resolveLayout } from './Layout.ts';
+import type { DigEntry } from './TerrainDigs.ts';
 
 /** What the cargo physically looks like strapped under the lander. */
 export type CargoShape = 'crate' | 'drum' | 'sphere' | 'rig';
@@ -55,7 +53,7 @@ export interface Mission {
    */
   airframe?: AirframeId;
   /** Built at the start of this mission and standing for every mission after. */
-  adds?: { props?: Prop[]; digs?: Excavation[] };
+  adds?: { props?: Prop[]; digs?: DigEntry[] };
   /**
    * Pads taken out of service at the start of this mission, by id, along with whatever
    * deck each one rests on.
@@ -105,32 +103,6 @@ export function airframeFor(mission: Mission): AirframeId {
 export const ENTRY_VELOCITY = { vx: 0, vy: -55 };
 
 /**
- * A landing platform plus the pad resting on it.
- *
- * `apron` is how much wider the platform is than its pad. Generous by default: the
- * platform's flanks are lethal structure, so a narrow skirt turns every slightly-off
- * approach into a crash against the very thing you were aiming for.
- *
- * Decks *inside a shaft* want the opposite. There the bore is only 24 across, so a
- * default apron makes a 19-wide slab in a 24-wide hole — which is what made the descent
- * past it nearly unflyable, and left no width for the bore to meander into either.
- */
-function deck(
-  corp: CorpId,
-  id: string,
-  x: number,
-  y: number,
-  width: number,
-  apron = 7,
-): Prop[] {
-  const w = padWidth(width);
-  return [
-    { kind: 'platform', corp, x, y, width: w + apron },
-    { kind: 'pad', id, corp, x, y: y + 1, width: w },
-  ];
-}
-
-/**
  * Every landing surface in the campaign is 20% narrower than it was authored.
  *
  * One knob rather than seven edited numbers, because pad width is the single strongest
@@ -148,9 +120,34 @@ function padWidth(authored: number): number {
   return Math.round(authored * PAD_WIDTH_SCALE);
 }
 
-/** A pad standing on its own, with no platform under it. */
-export function pad(corp: CorpId, id: string, x: number, width: number, y?: number): Prop {
-  return { kind: 'pad', id, corp, x, width: padWidth(width), ...(y === undefined ? {} : { y }) };
+/**
+ * A pad standing on its own, with no platform under it.
+ *
+ * `attachToDig` — see the `pad` variant's doc comment in `Colony.ts`. Authored `x`/`y`
+ * are still required even when set, as the pre-resolution placeholder `Game.loadMission`
+ * overwrites once the named dig's real endpoint is known — kept close to where the
+ * eventual real position will actually land, so a bug that left resolution un-wired
+ * would still read as roughly-plausible rather than obviously broken.
+ */
+export function pad(
+  corp: CorpId,
+  id: string,
+  x: number,
+  width: number,
+  y?: number,
+  attachToDig?: string,
+  xFromDig?: string,
+): Prop {
+  return {
+    kind: 'pad',
+    id,
+    corp,
+    x,
+    width: padWidth(width),
+    ...(y === undefined ? {} : { y }),
+    ...(attachToDig === undefined ? {} : { attachToDig }),
+    ...(xFromDig === undefined ? {} : { xFromDig }),
+  };
 }
 
 /**
@@ -188,10 +185,7 @@ export const MISSIONS: Mission[] = [
     brief:
       '<b>IXION OUTPOST</b><br/>Radar is up and slaved to your feed — altitude, range and target bearing, all of it off the mast you set down yesterday. Our pad is in as well, so from here on you are flying to an address.<br/><br/>You placed it better than the specification asked for. We have started calling you the navigator. It is not a rank anyone here has the standing to award, but it has stuck.<br/><br/>Second run. Watch your descent rate — the canyon floor is not forgiving and neither is the west wall.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.',
     adds: {
-      props: [
-        pad('outpost', 'outpost-main', -14, 16),
-        { kind: 'mast', corp: 'outpost', x: -8, topY: 42 },
-      ],
+      props: [pad('outpost', 'outpost-main', -14, 16)],
     },
   },
   {
@@ -204,7 +198,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>IXION OUTPOST</b><br/>Heavier load today, navigator. Mass makes the airframe slow to answer — start your corrections earlier than the figures suggest.<br/><br/>The lag is worse than the mass number implies. We have never worked out why.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.',
-    adds: { props: [{ kind: 'mast', corp: 'outpost', x: 7, topY: 48 }] },
   },
   {
     id: 4,
@@ -216,9 +209,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>IXION OUTPOST</b><br/>Two extraction charters cleared orbit this morning. Helion to our west, Kessler to our east.<br/><br/>We filed first. It will not matter, navigator, but it will be on the record — and the record is the only thing we have that they cannot dig up.<br/><br/><b>OBJECTIVE</b> Deliver the filings before the corporate survey lands.',
-    adds: {
-      props: [{ kind: 'tower', corp: 'helion', x: -52, width: 11, topY: 88 }],
-    },
   },
 
   // ------------------------------------------------ II. The Corporations (5-9)
@@ -232,7 +222,13 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>HELION EXTRACTION</b><br/>You fly for us now. Our crest platform is live on the west approach — bring the drill head in on the platform, not the outpost slab. We pay for addresses, not effort.<br/><br/><b>OBJECTIVE</b> Deliver to HELION CREST.',
-    adds: { props: deck('helion', 'helion-crest', -33, 66, 14) },
+    // Bare pad, no platform under it — the colony grown at Helion's own anchor is what
+    // will eventually stand under this height; early in Helion's arc it hasn't grown
+    // that far yet, and the pad simply reads as "not built up to yet," the same as any
+    // pad whose supporting structure the ledger hasn't authored (mission 1's radar has
+    // no platform either). Height kept at the deck's old level (66 + 1) so nothing about
+    // the approach changes.
+    adds: { props: [pad('helion', 'helion-crest', -34, 14, 67)] },
   },
   {
     id: 6,
@@ -244,12 +240,8 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>KESSLER DEEP</b><br/>Helion drills sideways. We drill down. East tower is up and the deck is waiting.<br/><br/>You will be flying one of ours. Nothing that goes down a bore has any business turning, so it does not. Try not to bend it, tin can — the frame costs more than the contract does.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER CREST.',
-    adds: {
-      props: [
-        { kind: 'tower', corp: 'kessler', x: 52, width: 12, topY: 96 },
-        ...deck('kessler', 'kessler-crest', 34, 72, 14),
-      ],
-    },
+    // Bare pad, same convention as helion-crest above.
+    adds: { props: [pad('kessler', 'kessler-crest', 34, 14, 73)] },
   },
   {
     id: 7,
@@ -261,7 +253,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>HELION EXTRACTION</b><br/>Kessler has started building toward the centre line. So have we. Mind the new mast on your approach.<br/><br/><b>OBJECTIVE</b> Deliver coolant to HELION CREST.',
-    adds: { props: [{ kind: 'mast', corp: 'helion', x: -15, topY: 104 }] },
   },
   {
     id: 8,
@@ -273,7 +264,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>KESSLER DEEP</b><br/>Casing is heavy and you start on the wrong side of the canyon.<br/><br/>Cross high or cross low, tin can, but cross deliberately. Drifting through the middle is how you meet the gantry Helion put up.<br/><br/><b>OBJECTIVE</b> Carry the casing east to KESSLER CREST.',
-    adds: { props: [{ kind: 'mast', corp: 'kessler', x: 14, topY: 110 }] },
   },
   {
     id: 9,
@@ -285,9 +275,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>IXION OUTPOST</b><br/>They are building on our sightlines. This injunction will be ignored, but it will be <i>filed</i>.<br/><br/>You will have noticed the approach is tighter than it was. That is not your handling, navigator. That is the canyon closing, and it will keep closing.<br/><br/><b>OBJECTIVE</b> Return to the outpost pad.',
-    adds: {
-      props: [{ kind: 'tower', corp: 'helion', x: -64, width: 11, topY: 132 }],
-    },
   },
 
   // ------------------------------------------------ III. The Corridor (10-14)
@@ -301,9 +288,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>HELION EXTRACTION</b><br/>We are spanning the west approach. Once this goes up, the gap under it is your only clean line in.<br/><br/><b>OBJECTIVE</b> Deliver the segment to HELION CREST.',
-    adds: {
-      props: [{ kind: 'gantry', corp: 'helion', x1: -64, x2: -52, y: 118 }],
-    },
   },
   {
     id: 11,
@@ -315,12 +299,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>KESSLER DEEP</b><br/>Our own span goes up today. Helion will call it provocation. It is a winch.<br/><br/>Mind it on the way in, tin can. It went up this morning and it is not on the chart you flew last time.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER CREST.',
-    adds: {
-      props: [
-        { kind: 'tower', corp: 'kessler', x: 65, width: 12, topY: 124 },
-        { kind: 'gantry', corp: 'kessler', x1: 52, x2: 65, y: 106 },
-      ],
-    },
   },
   {
     id: 12,
@@ -332,7 +310,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>IXION OUTPOST</b><br/>Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open, and it is open because we filed for it.<br/><br/>Heavy load, navigator, and a narrower corridor than the last time you flew it.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.',
-    adds: { props: [{ kind: 'mast', corp: 'outpost', x: -4, topY: 60 }] },
   },
   {
     id: 13,
@@ -344,9 +321,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>HELION EXTRACTION</b><br/>Charges are light but you are crossing the whole canyon under two spans to get here. Fuel is not generous.<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CREST.',
-    adds: {
-      props: [{ kind: 'gantry', corp: 'helion', x1: -52, x2: -33, y: 92, thickness: 2 }],
-    },
   },
   {
     id: 14,
@@ -358,9 +332,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -60,
     brief:
       '<b>KESSLER DEEP</b><br/>Last surface delivery. Tomorrow we open the floor.<br/><br/>Heaviest thing you have carried for us, tin can, and the deck has not grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER CREST.',
-    adds: {
-      props: [{ kind: 'gantry', corp: 'kessler', x1: 34, x2: 52, y: 94, thickness: 2 }],
-    },
   },
 
   // -------------------------------------------------- IV. The Digging (15-19)
@@ -375,8 +346,7 @@ export const MISSIONS: Mission[] = [
     brief:
       '<b>KESSLER DEEP</b><br/>The shaft is open. Do not go down it yet — there is nothing down there to land on and the walls are unlined.<br/><br/>The core goes on the crest deck, same as always. Look at the hole on your way past if you like. It is the last time it will be that shallow.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER CREST.',
     adds: {
-      digs: [{ x: 10, halfWidth: 12, depth: 58 }],
-      props: [{ kind: 'mast', corp: 'kessler', x: 18, topY: 78 }],
+      digs: [{ anchorToWall: 'east', mount: 'floor', halfWidth: 12, depth: 58, id: 'kessler-shaft' }],
     },
   },
   {
@@ -390,7 +360,10 @@ export const MISSIONS: Mission[] = [
     brief:
       '<b>KESSLER DEEP</b><br/>Pad is in at the shaft floor. Fifty-eight metres below the canyon, walls close on both sides.<br/><br/>Come down slow and come down straight, tin can. Light load today, and that is deliberate — I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Descend the shaft. Deliver to KESSLER SHAFT.',
     adds: {
-      props: [pad('kessler', 'kessler-shaft', 10, 12)],
+      // x/y are the pre-resolution placeholder — `attachToDig` repositions this to
+      // `kessler-shaft`'s real, wall-anchored endpoint once terrain exists. Same
+      // pattern as Helion's cavern pad (`Game.loadMission`'s `applyDigAttachments`).
+      props: [pad('kessler', 'kessler-shaft', 60, 12, -58, 'kessler-shaft')],
     },
   },
   {
@@ -404,7 +377,13 @@ export const MISSIONS: Mission[] = [
     brief:
       '<b>HELION EXTRACTION</b><br/>Kessler dug a hole. We are digging a room. Heaviest rig you have carried — respect the inertia.<br/><br/><b>OBJECTIVE</b> Deliver the rig to HELION CREST.',
     adds: {
-      digs: [{ x: -33, halfWidth: 10, depth: 46 }],
+      // Wall-anchored, not a fixed x: this bore goes into the wall itself (horizontal,
+      // roughly orthogonal to the local rock face) rather than straight down into the
+      // floor, and the canyon's centreline wanders enough by seed that a fixed "near
+      // the wall" x used to land on open floor on some seeds and inside solid rock on
+      // others — see `TerrainDigs.ts`. `id` is what the mission-18/19 props below
+      // resolve their own position from, once this bore's real endpoint is known.
+      digs: [{ anchorToWall: 'west', halfWidth: 10, depth: 46, id: 'helion-cavern' }],
     },
   },
   {
@@ -420,8 +399,10 @@ export const MISSIONS: Mission[] = [
     adds: {
       // Half-width 3 against a dig of 10, so the bracing spans the middle of the pad
       // and still leaves a real slot either side. At the authored 9 it sealed the hole:
-      // one unit of clearance for a 1.24 hull. See MIN_MOUTH in Layout.ts.
-      props: [{ kind: 'caveRoof', corp: 'helion', x: -33, halfWidth: 3, y: -12 }],
+      // one unit of clearance for a 1.24 hull. See MIN_MOUTH in Layout.ts. x/y are the
+      // pre-resolution placeholder — `attachToDig` moves this to the real cavern bore's
+      // end once `Game.loadMission` resolves it (see `TerrainDigs.ts`).
+      props: [{ kind: 'caveRoof', corp: 'helion', x: -48, halfWidth: 1, y: -12, attachToDig: 'helion-cavern' }],
     },
   },
   {
@@ -435,7 +416,7 @@ export const MISSIONS: Mission[] = [
     brief:
       '<b>HELION EXTRACTION</b><br/>The cavern pad is lit. You will have to fly beneath the bracing and level off inside — no vertical approach, the roof is in the way.<br/><br/><b>OBJECTIVE</b> Enter the west cavern. Deliver to HELION CAVERN.',
     adds: {
-      props: [pad('helion', 'helion-cavern', -33, 12)],
+      props: [pad('helion', 'helion-cavern', -48, 12, -12, 'helion-cavern')],
     },
     // The crest deck stood directly over this cavern. Nothing lands on it again — every
     // Helion run from here on is inside the wall — and leaving it up capped the only way
@@ -455,13 +436,12 @@ export const MISSIONS: Mission[] = [
     brief:
       '<b>KESSLER DEEP</b><br/>We are sinking the main shaft. The hole you have spent five missions landing beside goes down another hundred and thirty metres tonight.<br/><br/>Pylons anchor the lining. If they are not seated, everything we put below them comes back up the hard way.<br/><br/><b>OBJECTIVE</b> Deliver pylons to KESSLER SHAFT.',
     adds: {
-      // Headframe over the shaft, and the shaft itself driven far deeper. Later digs
-      // at the same X win inside their half-width, so this simply extends it down.
-      digs: [{ x: 10, halfWidth: 12, depth: 172 }],
-      props: [
-        { kind: 'mast', corp: 'kessler', x: 21, topY: 96 },
-        { kind: 'gantry', corp: 'kessler', x1: 3, x2: 21, y: 40, thickness: 2.6 },
-      ],
+      // Headframe over the shaft, and the shaft itself driven far deeper. Same anchor
+      // and `id` as the mission-15 record — `mergeDigs` collapses them into one bore
+      // (it matches by resolved `x` proximity, which the two records now agree on
+      // deterministically per seed, both resolving from the same wall anchor) and
+      // takes the deeper of the two, so this simply extends the existing shaft down.
+      digs: [{ anchorToWall: 'east', mount: 'floor', halfWidth: 12, depth: 172, id: 'kessler-shaft' }],
     },
   },
   {
@@ -489,7 +469,10 @@ export const MISSIONS: Mission[] = [
      * pad held against the wall had its outer edge inside rock and lost 17% of its
      * approach. Centred, an 11-wide pad fits that band with room either side.
      */
-    adds: { props: [pad('kessler', 'kessler-ledge', 10, 11, -45)] },
+    // `xFromDig`, not `attachToDig`: this pad sits at its own fixed depth partway down
+    // the bore, not at the bore's own endpoint — see `xFromDig`'s doc comment
+    // (`Colony.ts`). `x: 60` is the pre-resolution placeholder.
+    adds: { props: [pad('kessler', 'kessler-ledge', 60, 11, -45, undefined, 'kessler-shaft')] },
   },
   {
     id: 22,
@@ -501,9 +484,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -190,
     brief:
       '<b>HELION EXTRACTION</b><br/>Kessler is down the shaft. We are contesting it. Take this beacon to our cavern and then, for your own sake, stay out of the arbitration.<br/><br/><b>OBJECTIVE</b> Cross the canyon. Deliver to HELION CAVERN.',
-    adds: {
-      props: [{ kind: 'gantry', corp: 'helion', x1: -18, x2: -7, y: 96, thickness: 2.4 }],
-    },
   },
   {
     id: 23,
@@ -515,9 +495,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -190,
     brief:
       '<b>KESSLER DEEP</b><br/>Heavy rig, and the ledge is narrow.<br/><br/>This is the run that sorts the good units from scrap, tin can. Better ones than you have come apart on that ledge.<br/><br/><b>OBJECTIVE</b> Deliver the rig to KESSLER LEDGE.',
-    adds: {
-      props: [{ kind: 'tower', corp: 'kessler', x: 78, width: 12, topY: 150 }],
-    },
   },
   {
     id: 24,
@@ -529,9 +506,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -190,
     brief:
       '<b>IXION OUTPOST</b><br/>Both charters have hit the same seam from opposite sides. We have recommended evacuation. Nobody has acknowledged it.<br/><br/>We are aware you fly for them as well, navigator. It has never been held against you. You go where the contract sends you, which is a thing we have in common.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.',
-    adds: {
-      props: [{ kind: 'gantry', corp: 'helion', x1: -54, x2: -43, y: 88, thickness: 2.4 }],
-    },
   },
 
   // ------------------------------------------------- VI. The Gauntlet (25-30)
@@ -545,8 +519,9 @@ export const MISSIONS: Mission[] = [
     failDepth: -320,
     brief:
       '<b>KESSLER DEEP</b><br/>Second platform, a hundred and forty-two metres down. Below the ledge the shaft squeezes and the fog goes black.<br/><br/>Trust the altimeter, not the optical feed. Down there the two will disagree, and the altimeter will be the one that is right.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER DEEP.',
-    // Bare pad on the centreline, for the same reasons as kessler-ledge.
-    adds: { props: [pad('kessler', 'kessler-deep', 10, 11, -141)] },
+    // Bare pad on the centreline, for the same reasons as kessler-ledge — and the same
+    // `xFromDig`, not `attachToDig`, for the same reason.
+    adds: { props: [pad('kessler', 'kessler-deep', 60, 11, -141, undefined, 'kessler-shaft')] },
   },
   {
     id: 26,
@@ -558,9 +533,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -320,
     brief:
       '<b>HELION EXTRACTION</b><br/>Full crossing, west cavern, under the bracing. You have done every piece of this before. Not all on one tank.<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CAVERN.',
-    adds: {
-      props: [{ kind: 'gantry', corp: 'kessler', x1: 31, x2: 43, y: 52, thickness: 2.2 }],
-    },
   },
   {
     id: 27,
@@ -572,9 +544,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -320,
     brief:
       '<b>KESSLER DEEP</b><br/>Heaviest object anyone has flown in this canyon. West wall to the bottom of the shaft, through everything both charters have built.<br/><br/>I would not hand this run to anyone else. Take the weight down slowly and do not let it get ahead of you.<br/><br/><b>OBJECTIVE</b> Deliver the shell to KESSLER DEEP.',
-    adds: {
-      props: [{ kind: 'mast', corp: 'helion', x: -29, topY: 148 }],
-    },
   },
   {
     id: 28,
@@ -586,9 +555,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -320,
     brief:
       '<b>IXION OUTPOST</b><br/>We are shutting down. Everything the outpost learned about this canyon is in that archive — every sounding, every core, the mast calibration, all of it.<br/><br/>Fly it home one last time, navigator.<br/><br/>The radar stays up. We are leaving it powered and the charters can use it or not. You will still have your bearings after we are gone, which seemed the least we could do.<br/><br/><b>OBJECTIVE</b> Return the archive to the outpost pad.',
-    adds: {
-      props: [{ kind: 'gantry', corp: 'kessler', x1: 7, x2: 18, y: 126, thickness: 2.2 }],
-    },
   },
   {
     id: 29,
@@ -600,9 +566,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -320,
     brief:
       '<b>HELION EXTRACTION</b><br/>The outpost is dark. The seam is ours and Kessler disputes it. Light cargo, thin margins, and a canyon that no longer has an easy line through it.<br/><br/><b>OBJECTIVE</b> Deliver the writ to HELION CAVERN.',
-    adds: {
-      props: [{ kind: 'gantry', corp: 'helion', x1: -7, x2: 5, y: 140, thickness: 2.4 }],
-    },
   },
   {
     id: 30,
@@ -614,9 +577,6 @@ export const MISSIONS: Mission[] = [
     failDepth: -320,
     brief:
       '<b>KESSLER DEEP</b><br/>Thirtieth run. West wall to the floor of the shaft, and every structure in between was put there by you.<br/><br/>Take it down, navigator.<br/><br/><b>OBJECTIVE</b> Deliver the charge to KESSLER DEEP.',
-    adds: {
-      props: [{ kind: 'mast', corp: 'kessler', x: 36, topY: 158 }],
-    },
   },
 ];
 
@@ -642,197 +602,40 @@ export function getMission(id: number): Mission | null {
  * colliders and the layout check can never disagree about where a structure is.
  */
 /**
- * Strikes a pad from the ledger in place, together with the platform it stands on.
+ * Strikes a pad from the ledger in place.
  *
- * A pad and its deck are authored as a pair by `deck()` and are meaningless apart: a
- * landing surface with no structure beneath it floats, and a bare platform is a slab
- * nobody is cleared to touch. They are matched the same way `Layout.isOwnDeck` matches
- * them — same x, and a deck sitting the authored one unit below its pad.
+ * Bare removal is enough now that pads carry no hand-authored platform under them —
+ * the grown colony is whatever's standing at that x, and it answers to the mission
+ * index and the corp's own maturity, not to this ledger. Helion's crest pad still
+ * needs striking at mission 19: `cappedMouths` (Layout.ts) judges a mouth by x-overlap
+ * alone, with no height exemption, so a pad left standing at the cavern's own x would
+ * still read as capping it from above even with nothing but the grown colony behind it.
  */
 function decommission(props: Prop[], padId: string): void {
-  const pad = props.find((p) => p.kind === 'pad' && p.id === padId);
-  if (!pad || pad.kind !== 'pad') return;
-
-  const padY = pad.y ?? 0;
-  for (let i = props.length - 1; i >= 0; i--) {
-    const p = props[i];
-    if (p === pad) {
-      props.splice(i, 1);
-      continue;
-    }
-    // A span that terminated at this deck went up to serve it and has nowhere to land
-    // now. Leaving it would also hang it over whatever replaced the deck — which, in
-    // Helion's case, is the mouth of the cavern that made the deck redundant.
-    if (p.kind === 'gantry') {
-      if (Math.abs(p.x1 - pad.x) < 0.001 || Math.abs(p.x2 - pad.x) < 0.001) props.splice(i, 1);
-      continue;
-    }
-    if (p.kind !== 'platform') continue;
-    if (Math.abs(p.x - pad.x) < 0.001 && Math.abs(p.y - (padY - 1)) < 2.5) {
-      props.splice(i, 1);
-    }
-  }
+  const i = props.findIndex((p) => p.kind === 'pad' && p.id === padId);
+  if (i >= 0) props.splice(i, 1);
 }
 
-/** 0–3, so an average of several ranks is a plain number rather than a string compare. */
-const RANK_VALUE: Record<Rank, number> = { C: 0, B: 1, A: 2, S: 3 };
-
 /**
- * Cell pitch and grid shape are fixed constants here, not per-corp authored data — see
- * docs/plans/procedural_colony_growth.md: 8 rows is the "fully built" ceiling, checked
- * against real tower `topY` values in this file; 5 columns is the same cap `?growth`'s
- * canyon-fit logic already uses.
- */
-const COLONY_CELL_SIZE = 12;
-/** Six columns, not five: at cellSize 12 a wall corp's reach is then 72 units — enough
- *  to actually close on the canyon centre by full maturity, which is the whole lore. */
-const COLONY_COLS = 6;
-const COLONY_ROWS = 8;
-
-/** So three corps sharing one campaign seed don't roll identical grids at whatever
- *  cells their quality/maturity happen to coincide on. Arbitrary, only needs to be
- *  distinct per corp. */
-const COLONY_SEED_OFFSET: Record<CorpId, number> = { outpost: 0, helion: 4001, kessler: 8009 };
-
-/**
- * Starting from a corp's natural anchor point, searches outward — alternating sides,
- * since there's no reason to assume either direction has more open floor — for the
- * nearest x where the anchor cell itself is not already reserved airspace.
+ * The authored ledger up to mission `id` — pads, cave roofs, digs, decommissions,
+ * the radar — nothing colony-grown. Deliberately pure: no `seed` or `ranks` parameter,
+ * no terrain, no `synthesizeColonies` call. Colony growth used to run in here (reading
+ * `ranks` to derive density), before any terrain existed for the mission being loaded
+ * (`Game.loadMission` calls `canyon.build` *after* this) — it now runs separately, from
+ * `ColonyGeneration.synthesizeColonies`, once real terrain does, and takes `ranks`
+ * directly rather than through here. See `docs/plans/procedural_colony_growth.md`.
  *
- * The claim edge (or midpoint, for Ixion) is a starting guess, not a guarantee: it is
- * exactly where that corp's *own* hand-authored pads and towers already stand, since a
- * corp obviously builds its real infrastructure inside its own claimed territory.
- * `reservedCellsFor` only ever protects growth *beyond* the anchor — it can't rescue an
- * anchor placed on top of existing structure, because the anchor cell is unconditionally
- * a room. This is what actually keeps that from happening.
+ * `digs` can still contain unresolved `WallAnchoredDig` entries (`TerrainDigs.ts`) —
+ * resolving those needs terrain too, so it also happens downstream, in
+ * `Game.loadMission`, not here.
  */
-function findAnchorX(
-  startX: number,
-  shape: { cols: number; rows: number; anchorCol: number },
-  context: Prop[],
-  digs: Excavation[],
-): number {
-  for (let attempt = 0; attempt < 30; attempt++) {
-    const offset = attempt === 0 ? 0 : (attempt % 2 === 1 ? 1 : -1) * Math.ceil(attempt / 2) * COLONY_CELL_SIZE;
-    const x = startX + offset;
-    const place = { x, y: 0, cellSize: COLONY_CELL_SIZE, direction: 1 as const };
-    if (!reservedCellsFor(place, shape, context, digs)(0, shape.anchorCol)) return x;
-  }
-  return startX; // exhausted the search — fall back rather than loop forever
-}
-
-/**
- * One grown colony per corp, appended after the resolver — see `worldAt`. Existence,
- * reach and solidity are all derived from the campaign itself (which corps are active
- * as of `id`, how many of their missions have passed, how well they have gone) rather
- * than hand-placed: there is no separate "turn it on" step for a new corp, it starts
- * the moment their first mission does.
- *
- * Walls-to-centre growth mirrors the lore in `CanyonSpec.ts` — a corp west of the
- * canyon's own centre roots near the outer edge of its claim and grows toward
- * increasing x (toward the centre); one to the east grows toward decreasing x. Ixion is
- * the exception: its claim straddles the centre, so it roots near its own claim's
- * midpoint and grows outward both ways — `anchorCol` sitting mid-grid does that for
- * free, the same way it already does in `growGrid` for any caller, not a special case
- * added here.
- */
-function synthesizeColonies(
-  id: number,
-  worldSoFar: Prop[],
-  ranks: Readonly<Record<string, Rank>>,
-  seed: number,
-  digs: Excavation[],
-): Prop[] {
-  const out: Prop[] = [];
-  // Grows as each corp's colony is added, so a later corp's reservation check sees
-  // an earlier corp's colony too — unlikely to matter given how far apart Helion,
-  // Kessler and Ixion's claims sit, but cheap to get right rather than assume.
-  const context = [...worldSoFar];
-
-  for (const corp of Object.keys(CORPS) as CorpId[]) {
-    const corpMissions = MISSIONS.filter((m) => m.client === corp);
-    const first = corpMissions[0];
-    if (!first || first.id > id) continue; // this corp hasn't started yet
-
-    const elapsed = corpMissions.filter((m) => m.id <= id);
-    const maturity = elapsed.length / corpMissions.length;
-
-    const graded = elapsed.map((m) => ranks[String(m.id)]).filter((r): r is Rank => r != null);
-    const quality =
-      graded.length === 0 ? 0 : graded.reduce((sum, r) => sum + RANK_VALUE[r], 0) / graded.length / 3;
-
-    const [lo, hi] = CORPS[corp].claim;
-    const isOutpost = corp === 'outpost';
-    const centre = (lo + hi) / 2;
-    const direction: 1 | -1 = centre < 0 ? 1 : -1;
-    const anchorCol = isOutpost ? Math.floor(COLONY_COLS / 2) : 0;
-    const shape = { cols: COLONY_COLS, rows: COLONY_ROWS, anchorCol };
-    const x = findAnchorX(isOutpost ? centre : centre < 0 ? lo : hi, shape, context, digs);
-
-    const place = { x, y: 0, cellSize: COLONY_CELL_SIZE, direction };
-    const reserved = reservedCellsFor(place, shape, context, digs);
-    const grid = growGrid(COLONY_COLS, COLONY_ROWS, anchorCol, seed + COLONY_SEED_OFFSET[corp], {
-      reserved,
-      maturity,
-      quality,
-    });
-
-    /**
-     * `footprintX`/`height` measure what the grid actually occupies, not its nominal
-     * cols/rows — an immature or unlucky-seed colony that only ever fills its anchor
-     * cell should report a footprint about that big, not the full 5×8 envelope it
-     * might eventually grow into. Wider-than-reality reads as conservative, but for a
-     * prop-level check that can't see individual cells, it means flagging conflicts
-     * with real structures the colony never actually reaches — the exact false
-     * positive a whole-campaign check exists to catch.
-     */
-    let minC = COLONY_COLS;
-    let maxC = -1;
-    let maxR = -1;
-    for (let r = 0; r < grid.rows; r++) {
-      for (let c = 0; c < grid.cols; c++) {
-        if (grid.cells[r][c] === 'empty') continue;
-        minC = Math.min(minC, c);
-        maxC = Math.max(maxC, c);
-        maxR = Math.max(maxR, r);
-      }
-    }
-    const half = COLONY_CELL_SIZE / 2;
-    const worldXAt = (c: number) => x + (c - anchorCol) * COLONY_CELL_SIZE * direction;
-    // `direction` can flip which of minC/maxC is smaller in world space, so the two
-    // endpoints are sorted rather than assumed.
-    const footprintX: [number, number] =
-      maxC >= minC
-        ? [Math.min(worldXAt(minC), worldXAt(maxC)) - half, Math.max(worldXAt(minC), worldXAt(maxC)) + half]
-        : [x - half, x + half]; // degenerate: only the anchor cell itself is occupied
-    const height = (Math.max(maxR, 0) + 1) * COLONY_CELL_SIZE;
-
-    const colony: Prop = {
-      kind: 'colony',
-      corp,
-      x,
-      cellSize: COLONY_CELL_SIZE,
-      direction,
-      grid,
-      footprintX,
-      height,
-    };
-    out.push(colony);
-    context.push(colony);
-  }
-
-  return out;
-}
-
 export function worldAt(
   id: number,
   mastX: number | null = null,
   mastY: number | null = null,
-  ranks: Readonly<Record<string, Rank>> = {},
-  seed = 0,
-): { props: Prop[]; digs: Excavation[] } {
+): { props: Prop[]; digs: DigEntry[] } {
   const props: Prop[] = [];
-  const digs: Excavation[] = [];
+  const digs: DigEntry[] = [];
   for (const mission of MISSIONS) {
     if (mission.id > id) break;
     if (mission.adds?.props) props.push(...mission.adds.props);
@@ -841,22 +644,7 @@ export function worldAt(
     // struck — and a world rebuilt for any earlier mission still has it standing.
     for (const id of mission.decommissions ?? []) decommission(props, id);
   }
-  const resolved = resolveLayout(props, digs);
-  // Digs go in merged, the same way the generator actually opens them — see
-  // `mergeDigs`: two records of one bore reserved separately would leave a phantom
-  // seam a colony could grow into.
-  resolved.push(...synthesizeColonies(id, resolved, ranks, seed, mergeDigs(digs)));
-
-  // The resolver only moves what it can move — a platform is bolted to its tower and
-  // stays put. If one of those ever ends up over a pad, nothing downstream will notice
-  // and the mission just quietly becomes harder to land, so say so during development.
-  // Colonies are included here too — they're generated safe-by-construction rather than
-  // resolved, but this is still the same belt-and-suspenders net every other prop gets.
-  if ((import.meta as { env?: { DEV?: boolean } }).env?.DEV) {
-    for (const v of checkLayout(resolved, digs)) {
-      console.warn(`[layout] mission ${id}: ${v.prop} ${v.detail} (pad ${v.pad})`);
-    }
-  }
+  const resolved = resolveLayout(props);
 
   /**
    * The radar goes in after the resolver, deliberately.

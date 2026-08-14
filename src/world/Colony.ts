@@ -1,45 +1,41 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
-import { KinematicBody, KinematicWorld, type Motion } from '../physics/Kinematics.ts';
+import { KinematicWorld } from '../physics/Kinematics.ts';
 import { CORPS, type CorpId } from './CanyonSpec.ts';
 import type { CanyonGenerator } from './CanyonGenerator.ts';
-import { buildColonyGrowth, buildGrowthGizmos, type ColonyGrid } from './ColonyGrowth.ts';
+import { buildColonyCells, buildColonyGizmos } from './ColonyRender.ts';
+import type { PlacedCell } from './ColonyOrganism.ts';
+import type { ColonyDebug } from './ColonyRender.ts';
 
 /**
  * Everything the colony has built. These are authored props, not terrain — which is
  * the whole trick: a heightfield cannot express an overhang, but a *structure* can.
- * Caves, gantries and platforms are things the colonists made, so they get to be
- * objects with their own colliders, and the terrain never has to do anything clever.
+ * Caves and grown colonies are things the colonists made, so they get to be objects
+ * with their own colliders, and the terrain never has to do anything clever.
  *
  * Props accumulate across the campaign and are never removed. The canyon the player
  * flies in mission 30 is the one they spent 29 missions helping to build.
+ *
+ * `tower`/`gantry`/`mast`/`platform` used to live here too: hand-authored corporate
+ * structures, one line per mission, standing for the rest of the campaign. They are
+ * gone — every mission's structure now comes from `colony`, grown from that corp's own
+ * history rather than typed in by hand (see `ColonyGeneration.synthesizeColonies` and
+ * docs/plans/procedural_colony_growth.md) — and nothing in the ledger authors one any
+ * more. `caveRoof` is the one holdover: turning a pit into a roofed cave still wants
+ * real terrain geometry no grid cell can express, and that generation hasn't moved into
+ * the colony system yet.
  */
 export type Prop =
-  /** Corporate tower. `topY` is absolute so silhouettes are seed-independent. */
-  | { kind: 'tower'; corp: CorpId; x: number; width: number; topY: number }
   /**
-   * Horizontal span across the corridor. A lethal line to cross above or below.
-   * With `motion`, a travelling gantry: the authored span is the centre of its travel.
+   * Roof slab over an excavation, turning a pit into a cave with a real ceiling.
+   *
+   * `attachToDig`, when set, names a `WallAnchoredDig`'s `id` (`TerrainDigs.ts`) whose
+   * real bottom this prop's `x`/`y` should follow instead of the authored values —
+   * `Game.loadMission` overwrites them once the dig's real endpoint is known. Authored
+   * `x`/`y` stay as the pre-resolution placeholder, never actually rendered at.
    */
-  | {
-      kind: 'gantry';
-      corp: CorpId;
-      x1: number;
-      x2: number;
-      y: number;
-      thickness?: number;
-      motion?: Motion;
-    }
-  /** Thin lethal spire — antenna masts and drill towers. */
-  | { kind: 'mast'; corp: CorpId; x: number; topY: number }
-  /**
-   * Slab held above the floor on stilts. Usually carries a pad.
-   * With `motion`, a flying deck — it loses its stilts, having nothing to stand on.
-   */
-  | { kind: 'platform'; corp: CorpId; x: number; y: number; width: number; motion?: Motion }
-  /** Roof slab over an excavation, turning a pit into a cave with a real ceiling. */
-  | { kind: 'caveRoof'; corp: CorpId; x: number; halfWidth: number; y: number }
+  | { kind: 'caveRoof'; corp: CorpId; x: number; halfWidth: number; y: number; attachToDig?: string }
   /**
    * The navigation radar, standing wherever the player set it down in mission 1.
    * A landmark rather than an obstacle: no collider, ever. See `buildRadar`.
@@ -54,40 +50,52 @@ export type Prop =
    * Omit `y` to rest on whatever ground is beneath — canyon floor, or the floor of
    * an excavation. The deck always sits slightly *above* the terrain, so touchdown
    * resolves against the pad collider and nothing else.
+   *
+   * `attachToDig` — see the `caveRoof` variant's doc comment; same mechanism.
+   *
+   * `xFromDig` — a narrower cousin of `attachToDig`, for a pad that sits at its own
+   * fixed, authored depth *inside* a straight vertical bore rather than at the bore's
+   * own endpoint (Kessler's `kessler-ledge`/`kessler-deep`, partway down a shaft whose
+   * mouth is `attachToDig`'s own consumer). Only `x` is replaced, with the named dig's
+   * resolved position — the same one for every depth along a vertical bore, since its
+   * `direction` never carries any x — `y` stays exactly as authored. Mutually exclusive
+   * with `attachToDig` in practice, though nothing enforces that; author one or the
+   * other, never both.
    */
-  | { kind: 'pad'; id: string; corp: CorpId; x: number; width: number; y?: number }
+  | {
+      kind: 'pad';
+      id: string;
+      corp: CorpId;
+      x: number;
+      width: number;
+      y?: number;
+      attachToDig?: string;
+      xFromDig?: string;
+    }
   /**
-   * A procedurally grown structure — see docs/plans/procedural_colony_growth.md. The
-   * grid arrives pre-computed (by `Missions.synthesizeColonies`, from that corp's own
-   * mission history and rank) rather than generated here; `Colony` only ever renders
-   * what it's given, the same as every other prop.
+   * A grown colony — see docs/plans/mycelial_colony_growth.md. The cells arrive
+   * pre-computed (by `ColonyPlan.planColonies`, grown against the real per-seed terrain
+   * from that corp's own mission history and rank) rather than generated here; `Colony`
+   * only ever renders what it's given, the same as every other prop.
    *
-   * `x` is the *anchor* cell's world position — what `Colony.ts` renders from, via the
-   * same `(column − anchorCol) × cellSize × direction` offset `growGrid`'s own caller
-   * uses. It is not necessarily the footprint's centre: growth away from the anchor is
-   * one-directional for a wall-rooted corp, so `footprintX` is tracked separately
-   * rather than assumed symmetric around `x` the way a tower's `width` is around its
-   * own `x`. Only `x` is authored, no `y` — matching `tower`: `Missions.ts` has no
-   * terrain access, so the base is resolved from `canyon.floorAt(x)` at render time,
-   * the same "sunk just enough to read as anchored" convention `buildTower` uses.
+   * `cells` carry **world positions**, not lattice coordinates. The lattice stops at the
+   * boundary of generation on purpose: the model this replaced had five overlapping
+   * notions of position (a global column, a grid-local one, a grid origin `x`, a column
+   * bound, and `FLOOR_BASE` standing in for real terrain over in `Layout.ts`) with the
+   * conversions written out again in four files, and two live bugs came from exactly
+   * that. `ColonyLattice.ts` is now the only place a column becomes a coordinate.
    *
-   * `footprintX`/`height` exist purely for `Layout.ts` and measure what the grid
-   * actually occupies, not its nominal cols/rows — an immature or unlucky-seed colony
-   * that only fills its anchor cell reports a footprint about that big, not the full
-   * envelope it might eventually grow into. `height` is *not* an absolute Y the way a
-   * tower's `topY` is — a grown structure has no author to hand-pick one — `Layout.ts`
-   * adds it to `FLOOR_BASE` the same conservative way it already estimates a floor-
-   * anchored prop's unknown base.
+   * `footprintX`/`spanY` are the real occupied bounds, for `Layout.ts`. `spanY` is an
+   * absolute world interval rather than a height above a guessed base — growth is fitted
+   * to real terrain now, so its true vertical extent is known rather than estimated.
    */
   | {
       kind: 'colony';
       corp: CorpId;
-      x: number;
       cellSize: number;
-      direction: 1 | -1;
-      grid: ColonyGrid;
+      cells: PlacedCell[];
       footprintX: [number, number];
-      height: number;
+      spanY: [number, number];
     };
 
 /**
@@ -214,10 +222,10 @@ export const LATTICE = {
 /**
  * How many bays a frame of this height gets.
  *
- * Shared rather than rewritten per caller, because two of the callers have to agree
- * exactly: `latticeMembers` puts the ring bracing on these bay lines, and `buildTower`
- * hangs its pressurised modules on them. Two copies of the formula that drift by one
- * bay leave every module floating between rings.
+ * Shared rather than rewritten per caller: `latticeMembers` puts its ring bracing on
+ * these bay lines, and `buildBackdropColony` scales its own echoed structures against
+ * the same count. Two copies of the formula that drift by one bay leave a module
+ * floating between rings.
  */
 function bayCount(height: number, maxBays: number = LATTICE.MAX_BAYS): number {
   return Math.min(maxBays, Math.max(LATTICE.MIN_BAYS, Math.round(height / LATTICE.BAY)));
@@ -390,83 +398,15 @@ export interface PadInfo {
  * plane. That plane is gone, and with it the reason: structures can be buildings now
  * rather than cardboard standees, and their side faces catch light at a different
  * angle from their fronts, which is most of what makes them read as solid.
- *
- * Masts stay square and slim. They are poles; they are supposed to look like poles.
  */
 const DEPTH = {
-  tower: 17,
-  gantry: 11,
-  platform: 9,
   pad: 8.5,
   caveRoof: 15,
   colony: 15,
 } as const;
 
-/**
- * A stout pressure vessel: a barrel-profile revolve, capped and laid on its side.
- *
- * Kessler's towers hang rectangular modules in their lattice — the same box every
- * corp's structures use, which is exactly the "steel-coloured boxes" the design record
- * names as unfinished business. A charter that measures itself in metres of bore would
- * not fabricate a flat-sided box to hold pressure against a shaft; it would weld a tank.
- * This is the same technique the KD-9 hull uses — a five-point radius profile revolved
- * with `LatheGeometry`, capped because a lathe has no ends of its own — scaled down and
- * laid on its side, since the module it replaces already runs longer through depth than
- * it is wide (a Kessler tower's `DEPTH.tower`, 17, dwarfs its own `width`, 11–12).
- *
- * `diameter` sets the barrel's cross-section, `length` how far it runs along whichever
- * axis it is rotated onto — here `group.rotation.x` swaps that axis from the lathe's
- * native Y to Z, so the tank's long axis matches the depth the box it replaces already
- * had.
- */
-function buildBarrel(
-  diameter: number,
-  length: number,
-  segments: number,
-  material: THREE.Material,
-): THREE.Group {
-  const r = diameter / 2;
-  const capR = r * 0.55;
-  const profile = [
-    [0, capR],
-    [0.1, r * 0.95],
-    [0.5, r],
-    [0.9, r * 0.95],
-    [1, capR],
-  ] as const;
-
-  const points = profile.map(([t, rad]) => new THREE.Vector2(rad, (t - 0.5) * length));
-  const shell = new THREE.Mesh(new THREE.LatheGeometry(points, segments), material);
-  shell.castShadow = true;
-  shell.receiveShadow = true;
-
-  const cap = (y: number, faceUp: boolean) => {
-    const disc = new THREE.Mesh(new THREE.CircleGeometry(capR, segments), material);
-    disc.rotation.x = faceUp ? -Math.PI / 2 : Math.PI / 2;
-    disc.position.y = y;
-    return disc;
-  };
-
-  const group = new THREE.Group();
-  group.add(shell, cap(-length / 2, false), cap(length / 2, true));
-  // Lays the barrel down: its revolve axis (Y) becomes Z, so it runs front-to-back
-  // through the frame the way the box module it replaces always did.
-  group.rotation.x = Math.PI / 2;
-  return group;
-}
-
 /** How far the whole main row is drawn toward the camera from the play plane. */
 const ROW_SHIFT = 1;
-
-/**
- * Across the flats of a mast's lattice.
- *
- * Held to exactly the width of the solid pole it replaces, because that is the width of
- * the collider (half-width 0.7). Any wider and the visible frame overhangs the thing
- * that actually stops you, so a pilot could clip structure and live — which teaches the
- * wrong lesson about every other beam in the canyon.
- */
-const MAST_WIDTH = 1.4;
 
 /**
  * Structures sit mostly *behind* the play plane. Bulk in front of z=0 would sit
@@ -501,10 +441,14 @@ export class Colony {
    * Every moving structure in the mission. Advanced by `Game` inside the fixed-step
    * loop, not here — a crane's pose is simulation state, and stepping it on the render
    * clock would make it stutter with the frame rate and drift out of determinism.
+   *
+   * Always empty today: `gantry` and `platform`, the only prop kinds that ever carried
+   * a `motion`, are gone (see the `Prop` doc comment). Kept rather than torn out —
+   * `Game.ts` still steps it every frame and it is a real, tested primitive
+   * (`Kinematics.ts`) a future moving colony part would reach for again, not
+   * old-system debris.
    */
   readonly kinematics = new KinematicWorld();
-  /** Meshes that follow a kinematic body, with the position each holds at rest. */
-  private carried: Array<{ body: KinematicBody; object: THREE.Object3D; x: number; y: number }> = [];
   private rings: LandingRing[] = [];
   private radar: Radar | null = null;
   private lattices: LatticeEntry[] = [];
@@ -529,7 +473,6 @@ export class Colony {
    */
   update(dt: number, camera?: THREE.Camera): void {
     this.updateRadar(dt, camera);
-    this.followKinematics();
     if (camera) this.updateLattices(camera);
 
     for (const ring of this.rings) {
@@ -544,25 +487,6 @@ export class Colony {
       const innerMat = ring.inner.material as THREE.MeshBasicMaterial;
       innerMat.opacity = isTarget ? 0.55 + Math.sin(ring.phase * Math.PI * 2) * 0.2 : 0.25;
     }
-  }
-
-  /**
-   * Puts the visible structures where their colliders already are.
-   *
-   * Read from the body rather than recomputed from the clock, so the mesh cannot end up
-   * describing a different pose from the thing that will kill you. Purely a copy: the
-   * bodies were advanced during the physics step.
-   */
-  private followKinematics(): void {
-    for (const held of this.carried) {
-      held.object.position.x = held.x + held.body.offset.x;
-      held.object.position.y = held.y + held.body.offset.y;
-    }
-  }
-
-  /** Attaches a mesh to a moving body, remembering where it sits at rest. */
-  private carry(body: KinematicBody, object: THREE.Object3D): void {
-    this.carried.push({ body, object, x: object.position.x, y: object.position.y });
   }
 
   /**
@@ -646,7 +570,7 @@ export class Colony {
     radar.beacon.scale.setScalar(Math.max(RADAR.BASE_SIZE, dist * RADAR.MIN_ANGULAR));
   }
 
-  build(props: Prop[], canyon: CanyonGenerator): void {
+  build(props: Prop[], canyon: CanyonGenerator, debug?: ColonyDebug): void {
     this.dispose();
     this.pads = [];
     this.rings = [];
@@ -659,18 +583,6 @@ export class Colony {
 
     for (const prop of props) {
       switch (prop.kind) {
-        case 'tower':
-          this.buildTower(prop, canyon);
-          break;
-        case 'gantry':
-          this.buildGantry(prop);
-          break;
-        case 'mast':
-          this.buildMast(prop, canyon);
-          break;
-        case 'platform':
-          this.buildPlatform(prop, canyon, props);
-          break;
         case 'caveRoof':
           this.buildCaveRoof(prop);
           break;
@@ -681,338 +593,17 @@ export class Colony {
           this.buildRadar(prop, canyon);
           break;
         case 'colony':
-          this.buildColonyStructure(prop, canyon);
+          this.buildColonyStructure(prop);
           break;
       }
+    }
+
+    if (debug && new URLSearchParams(window.location.search).has('gizmos')) {
+      this.objects.push(...buildColonyGizmos(this.scene, debug, zCentre(DEPTH.colony)));
     }
   }
 
   // ------------------------------------------------------------------ props
-
-  private buildTower(
-    prop: Extract<Prop, { kind: 'tower' }>,
-    canyon: CanyonGenerator,
-  ): void {
-    const corp = CORPS[prop.corp];
-    // Sunk just enough to read as anchored. Deeper than this and the buried section
-    // shows in front of the near cut instead of disappearing into it.
-    const baseY = canyon.floorAt(prop.x) - 2;
-    const height = Math.max(8, prop.topY - baseY);
-    const cy = baseY + height / 2;
-
-    const z = zCentre(DEPTH.tower);
-    const hull = new THREE.MeshStandardMaterial({
-      color: corp.hull,
-      roughness: 0.55,
-      metalness: 0.18,
-      flatShading: true,
-    });
-
-    // Frame, not a slab. A tower this size as solid volume is more material than anyone
-    // in this canyon has, and it walls off the sightlines the late campaign is flown on.
-    this.addLattice(prop.x, baseY, z, height, prop.width, DEPTH.tower, hull);
-
-    /**
-     * Pressurised modules hung in the frame.
-     *
-     * These are the expensive part — sealed volume, shipped or fabricated — so there are
-     * only ever a few, and how many a structure carries is a reasonable read on how rich
-     * its owner is. They also give the frame rhythm: pure lattice all the way up is
-     * visual noise with no silhouette.
-     */
-    // Must be the same count `latticeMembers` used, or the modules hang between rings.
-    const bays = bayCount(height);
-    const bayH = height / bays;
-    const modules = Math.max(1, Math.round(bays / 3.5));
-    /**
-     * Kessler hangs tanks; everyone else still hangs the box. One corp at a time, so
-     * this is the barrel's first outing rather than a repaint of every tower in the
-     * campaign sight unseen — Helion's own shape is a separate, not-yet-drawn pass.
-     */
-    const barreled = prop.corp === 'kessler';
-    for (let i = 0; i < modules; i++) {
-      // Deterministic placement from the tower's own x plus the campaign seed, so a
-      // retry rebuilds it identically but a fresh seed rearranges it — folding the seed
-      // in the same way `Shaft` already does (CanyonGenerator.seed, offset per feature)
-      // rather than carrying a second seed value. Previously this was `x`/`i` only, so
-      // every save saw the same module in the same bay regardless of seed.
-      const r = Math.abs(Math.sin((prop.x * 12.9898 + i * 78.233 + canyon.seed) * 43758.5453) % 1);
-      const bay = Math.min(bays - 1, Math.floor(r * bays));
-      const cy = baseY + bayH * (bay + 0.5);
-
-      if (barreled) {
-        /**
-         * `diameter` becomes the tank's *vertical* extent too, once it is laid on its
-         * side — a lathe is radially symmetric, so the same number spans X and Y before
-         * rotation. Sizing it off `prop.width` (~10) the way the box's width once was
-         * sized would make it taller than a single bay (~5.5) and punch into the rings
-         * above and below. `bayH` is the number that actually bounds one bay, so the
-         * diameter is sized against that instead, with 0.85 rather than the box's 0.72
-         * because a circle reads smaller than a square sharing the same bound.
-         */
-        const diameter = bayH * 0.85;
-        const tank = buildBarrel(diameter, DEPTH.tower * 0.86, 8, hull);
-        tank.position.set(prop.x, cy, z);
-        this.scene.add(tank);
-        this.objects.push(tank);
-
-        // The lit band: a short open ring wrapped around the tank's waist rather than a
-        // flat strip laid across it, which on a barrel would either float clear of the
-        // curve or sink into it depending which side you're looking from.
-        const band = new THREE.Mesh(
-          new THREE.CylinderGeometry(diameter * 0.51, diameter * 0.51, bayH * 0.16, 8, 1, true),
-          new THREE.MeshStandardMaterial({
-            color: corp.color,
-            emissive: corp.color,
-            emissiveIntensity: 1.1,
-            roughness: 0.4,
-            side: THREE.DoubleSide,
-          }),
-        );
-        band.rotation.x = Math.PI / 2;
-        band.position.set(prop.x, cy, z);
-        this.scene.add(band);
-        this.objects.push(band);
-        continue;
-      }
-
-      const module = new THREE.Mesh(
-        new THREE.BoxGeometry(prop.width * 0.86, bayH * 0.72, DEPTH.tower * 0.86),
-        hull,
-      );
-      module.position.set(prop.x, cy, z);
-      module.castShadow = true;
-      module.receiveShadow = true;
-      this.scene.add(module);
-      this.objects.push(module);
-
-      // The lit face. Emissive only, so a canyon full of towers costs no light budget.
-      const strip = new THREE.Mesh(
-        new THREE.BoxGeometry(prop.width * 0.9, 0.5, DEPTH.tower * 0.9),
-        new THREE.MeshStandardMaterial({
-          color: corp.color,
-          emissive: corp.color,
-          emissiveIntensity: 1.1,
-          roughness: 0.4,
-        }),
-      );
-      strip.position.set(prop.x, cy - bayH * 0.36, z);
-      this.scene.add(strip);
-      this.objects.push(strip);
-    }
-
-    // The collider stays the full solid box it always was. The frame is see-through,
-    // but it is not fly-through, and with instant death on contact that gap must never
-    // be something the player has to discover.
-    this.physics.addBox(prop.x, cy, prop.width / 2, height / 2, 'structure');
-  }
-
-  private buildGantry(prop: Extract<Prop, { kind: 'gantry' }>): void {
-    const corp = CORPS[prop.corp];
-    const span = Math.abs(prop.x2 - prop.x1);
-    const cx = (prop.x1 + prop.x2) / 2;
-    const thickness = prop.thickness ?? 2.4;
-
-    const mesh = new THREE.Mesh(
-      new THREE.BoxGeometry(span, thickness, DEPTH.gantry),
-      new THREE.MeshStandardMaterial({
-        color: corp.hull,
-        roughness: 0.5,
-        metalness: 0.18,
-        flatShading: true,
-      }),
-    );
-    mesh.position.set(cx, prop.y, zCentre(DEPTH.gantry));
-    mesh.castShadow = true;
-    this.scene.add(mesh);
-    this.objects.push(mesh);
-
-    // A travelling gantry rides its rail; a fixed one is bolted where it was authored.
-    const body = prop.motion ? this.kinematics.add(new KinematicBody(prop.motion)) : null;
-    if (body) this.carry(body, mesh);
-
-    // Running lights along the underside — the visual warning that this is solid.
-    const lampCount = Math.max(2, Math.floor(span / 12));
-    for (let i = 0; i < lampCount; i++) {
-      const lamp = new THREE.Mesh(
-        new THREE.BoxGeometry(1.2, 0.4, DEPTH.gantry * 0.75),
-        new THREE.MeshStandardMaterial({
-          color: corp.color,
-          emissive: corp.color,
-          emissiveIntensity: 1.8,
-        }),
-      );
-      lamp.position.set(
-        prop.x1 + (span * (i + 0.5)) / lampCount * Math.sign(prop.x2 - prop.x1 || 1),
-        prop.y - thickness / 2 - 0.2,
-        zCentre(DEPTH.gantry),
-      );
-      this.scene.add(lamp);
-      this.objects.push(lamp);
-      if (body) this.carry(body, lamp);
-    }
-
-    if (body) body.box(this.physics, cx, prop.y, span / 2, thickness / 2, 'structure');
-    else this.physics.addBox(cx, prop.y, span / 2, thickness / 2, 'structure');
-  }
-
-  private buildMast(prop: Extract<Prop, { kind: 'mast' }>, canyon: CanyonGenerator): void {
-    const corp = CORPS[prop.corp];
-    const baseY = canyon.floorAt(prop.x);
-    const height = Math.max(6, prop.topY - baseY);
-    const cy = baseY + height / 2;
-
-    // A guyed lattice spire. Slightly wider across the flats than the old solid pole,
-    // and a small fraction of the material — which is the point.
-    this.addLattice(
-      prop.x,
-      baseY,
-      0,
-      height,
-      MAST_WIDTH,
-      MAST_WIDTH,
-      new THREE.MeshStandardMaterial({
-        color: corp.hull,
-        roughness: 0.4,
-        metalness: 0.2,
-        flatShading: true,
-      }),
-    );
-
-    const tip = new THREE.Mesh(
-      new THREE.SphereGeometry(1.1, 8, 6),
-      new THREE.MeshStandardMaterial({
-        color: corp.color,
-        emissive: corp.color,
-        emissiveIntensity: 1.4,
-      }),
-    );
-    tip.position.set(prop.x, baseY + height, 0);
-    this.scene.add(tip);
-    this.objects.push(tip);
-
-    // Collider unchanged: the spire is see-through, not passable.
-    this.physics.addBox(prop.x, cy, 0.7, height / 2, 'structure');
-  }
-
-  private buildPlatform(
-    prop: Extract<Prop, { kind: 'platform' }>,
-    canyon: CanyonGenerator,
-    all: Prop[],
-  ): void {
-    const corp = CORPS[prop.corp];
-
-    const slab = new THREE.Mesh(
-      new THREE.BoxGeometry(prop.width, 1.8, DEPTH.platform),
-      new THREE.MeshStandardMaterial({
-        color: corp.hull,
-        roughness: 0.5,
-        metalness: 0.18,
-        flatShading: true,
-      }),
-    );
-    slab.position.set(prop.x, prop.y - 0.9, zSurface(DEPTH.platform));
-    slab.castShadow = true;
-    slab.receiveShadow = true;
-    this.scene.add(slab);
-    this.objects.push(slab);
-
-    /**
-     * A flying deck gets no legs and no brace.
-     *
-     * Stilts are the one part of a platform that is structurally an argument about where
-     * it is: they run to the ground beneath the authored x, so a deck that traverses
-     * would drag them sideways through the rock they are supposedly planted in. A deck
-     * that moves is held up by something else, and the honest way to draw that is to
-     * draw nothing.
-     */
-    const body = prop.motion ? this.kinematics.add(new KinematicBody(prop.motion)) : null;
-    if (body) {
-      this.carry(body, slab);
-      body.box(this.physics, prop.x, prop.y - 0.9, prop.width / 2, 0.9, 'structure');
-      return;
-    }
-
-    // Stilts down to whatever is beneath — floor, or the wall of an excavation.
-    // Capped: a platform bolted partway down a 170-unit shaft would otherwise grow
-    // a leg the length of the shaft.
-    const groundY = canyon.floorAt(prop.x);
-    const drop = prop.y - 1.8 - groundY;
-    const legHeight = Math.max(0, drop);
-    if (drop > 1 && drop <= 26) {
-      // Four legs, front and back — two read as a cut-out, four as a trestle. Offset
-      // from the slab's own centre, so they stay under it wherever the slab sits.
-      // Slimmer than the 0.9 posts they replace and cross-braced, because a deck this
-      // size standing on four solid columns is more steel than the frame holding the
-      // deck itself.
-      const slabZ = zSurface(DEPTH.platform);
-      const legMat = new THREE.MeshStandardMaterial({
-        color: corp.hull,
-        roughness: 0.6,
-        metalness: 0.18,
-        flatShading: true,
-      });
-      const span = prop.width - 2.4;
-      for (const sz of [slabZ + DEPTH.platform * 0.34, slabZ - DEPTH.platform * 0.34]) {
-        for (const sx of [-span / 2, span / 2]) {
-          const leg = new THREE.Mesh(new THREE.BoxGeometry(0.5, legHeight, 0.5), legMat);
-          leg.position.set(prop.x + sx, groundY + legHeight / 2, sz);
-          this.scene.add(leg);
-          this.objects.push(leg);
-        }
-
-        // One X between each pair, which is what turns four posts into a trestle.
-        for (const dir of [1, -1]) {
-          const brace = new THREE.Mesh(
-            new THREE.BoxGeometry(Math.hypot(span, legHeight), 0.35, 0.35),
-            legMat,
-          );
-          brace.rotation.z = dir * Math.atan2(legHeight, span);
-          brace.position.set(prop.x, groundY + legHeight / 2, sz);
-          this.scene.add(brace);
-          this.objects.push(brace);
-        }
-      }
-    } else {
-      this.buildPlatformBrace(prop, all);
-    }
-
-    this.physics.addBox(prop.x, prop.y - 0.9, prop.width / 2, 0.9, 'structure');
-  }
-
-  /**
-   * A deck high above the floor is a balcony, not a trestle: stilts would either run
-   * sixty units to the ground or, capped, stop in mid-air. It gets a boxed arm to the
-   * nearest tower instead — which is also what makes it read as *attached* to the
-   * building rather than passing through it.
-   */
-  private buildPlatformBrace(prop: Extract<Prop, { kind: 'platform' }>, all: Prop[]): void {
-    const corp = CORPS[prop.corp];
-    let best: { face: number; dist: number } | null = null;
-    for (const other of all) {
-      if (other.kind !== 'tower') continue;
-      // The tower face on the side the platform sits.
-      const face = other.x + (prop.x > other.x ? other.width / 2 : -other.width / 2);
-      const dist = Math.abs(prop.x - face);
-      if (!best || dist < best.dist) best = { face, dist };
-    }
-    if (!best || best.dist > prop.width) return;
-
-    const edge = prop.x + (best.face > prop.x ? prop.width / 2 : -prop.width / 2);
-    const span = Math.abs(best.face - edge) + 2;
-    const brace = new THREE.Mesh(
-      new THREE.BoxGeometry(Math.max(1.5, span), 2.2, DEPTH.platform * 0.55),
-      new THREE.MeshStandardMaterial({
-        color: corp.hull,
-        roughness: 0.6,
-        metalness: 0.18,
-        flatShading: true,
-      }),
-    );
-    brace.position.set((best.face + edge) / 2, prop.y - 3.2, zSurface(DEPTH.platform));
-    this.scene.add(brace);
-    this.objects.push(brace);
-  }
 
   private buildCaveRoof(prop: Extract<Prop, { kind: 'caveRoof' }>): void {
     const corp = CORPS[prop.corp];
@@ -1272,22 +863,30 @@ export class Colony {
   /**
    * Thin wrapper, not a generator — the grid arrives pre-computed on the prop (see the
    * `colony` variant's own doc comment), the same as every other prop's geometry arrives
-   * fully specified by the time it reaches `Colony`. Gizmos read the URL directly rather
-   * than threading a flag through `build()`'s signature, matching how `Game.ts` already
-   * gates its own debug-only paths — this is the one prop kind with a debug overlay, not
-   * a reason to add a parameter every other caller of `build()` would have to pass `false`
-   * for.
+   * fully specified by the time it reaches `Colony`. Gizmos are *not* built here any
+   * more — see `buildColonyGizmos`'s own doc comment for why they need every colony at
+   * once rather than one prop at a time.
    */
-  private buildColonyStructure(prop: Extract<Prop, { kind: 'colony' }>, canyon: CanyonGenerator): void {
-    // Sunk just enough to read as anchored — same convention `buildTower` uses, and
-    // for the same reason: `Missions.ts` has no terrain access, so only render time
-    // ever knows where the ground under `prop.x` actually is.
-    const y = canyon.floorAt(prop.x) - 2;
+  private buildColonyStructure(prop: Extract<Prop, { kind: 'colony' }>): void {
     const z = zCentre(DEPTH.colony);
-    const place = { x: prop.x, y, z, cellSize: prop.cellSize, direction: prop.direction };
-    this.objects.push(...buildColonyGrowth(this.scene, prop.grid, place, prop.corp));
-    if (new URLSearchParams(window.location.search).has('gizmos')) {
-      this.objects.push(...buildGrowthGizmos(this.scene, prop.grid, place, prop.corp));
+    this.objects.push(
+      ...buildColonyCells(this.scene, prop.corp, prop.cells, prop.cellSize, z, DEPTH.colony),
+    );
+
+    // One collider per cell, sized to the *full* cell rather than the leaner module or
+    // open frame drawn inside it — the same "the frame is see-through, not fly-through"
+    // rule every other structure's collider already keeps: what you see is allowed to be
+    // leaner than what stops you, never the other way round. A colony's silhouette is
+    // branched and one-sided, so a single bounding box would swallow open canyon the
+    // render never fills.
+    //
+    // Scaffold cells collide exactly like built ones. Flyability is carried entirely by
+    // the channel network (`ColonyChannels.ts`) rather than by gaps in the massing, so
+    // there is no case where the player needs to pass through a colony cell, and a
+    // frame that stops you is the safer of the two ways to be wrong.
+    const half = prop.cellSize / 2;
+    for (const cell of prop.cells) {
+      this.physics.addBox(cell.x, cell.y, half, half, 'structure');
     }
   }
 
@@ -1324,9 +923,13 @@ export class Colony {
    * pads, no lights — only silhouettes and the emissive neon that survives the fog.
    */
   private buildBackdropColony(props: Prop[], canyon: CanyonGenerator): void {
-    const solid = props.filter(
-      (p) => p.kind === 'tower' || p.kind === 'mast' || p.kind === 'gantry',
-    );
+    // Used to source this from tower/mast/gantry — the hand-authored structures.
+    // The campaign no longer authors any (see Missions.ts), so the grown `colony`
+    // props are the only real structure left to echo. Only a handful exist (one per
+    // active corp) versus the dozen-plus hand props this used to see, so the echo rows
+    // are coarser than they were, but `'x' in prop` below already resolves a colony's
+    // own `x` the same way it did a tower's, with no further change needed.
+    const solid = props.filter((p): p is Extract<Prop, { kind: 'colony' }> => p.kind === 'colony');
     if (solid.length === 0) return;
 
     const hulls: THREE.BufferGeometry[] = [];
@@ -1363,7 +966,10 @@ export class Colony {
         // Lateral scatter widens with depth, matching the way the canyon itself fans
         // out — a constant spread would taper to a thin line down the middle.
         const spread = 34 + depthIndex * 16;
-        const x = ('x' in prop ? prop.x : (prop.x1 + prop.x2) / 2) + (r(2) - 0.5) * spread;
+        // A colony has no single `x` — it is a spread of cells — so the backdrop echoes
+        // it from the middle of what it actually occupies.
+        const originX = (prop.footprintX[0] + prop.footprintX[1]) / 2;
+        const x = originX + (r(2) - 0.5) * spread;
 
         /**
          * How long this building has been standing.
@@ -1581,6 +1187,5 @@ export class Colony {
     this.radar = null;
     // The colliders themselves belong to the physics world, which the caller clears.
     this.kinematics.clear();
-    this.carried = [];
   }
 }

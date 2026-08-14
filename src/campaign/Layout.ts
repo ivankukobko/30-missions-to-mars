@@ -1,18 +1,23 @@
 import type { Prop } from '../world/Colony.ts';
 import type { Excavation } from '../world/CanyonGenerator.ts';
-import type { Offset } from '../physics/Kinematics.ts';
-import type { Reserved } from '../world/ColonyGrowth.ts';
+import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
+import { CHANNEL_HALF, type Channel } from './ColonyChannels.ts';
+
+/**
+ * The slice of `CanyonGenerator` a wall-mounted mouth's precise position needs — narrow
+ * on purpose so this module doesn't have to import the concrete class (which would pull
+ * terrain generation into a module that otherwise never touches it) just to type one
+ * parameter. A real `CanyonGenerator` satisfies this structurally.
+ */
+export interface MouthTerrain {
+  wallMouthY(dig: Excavation): number;
+}
 
 /**
  * Layout rules for the colony planner.
  *
- * The campaign ledger is thirty missions of hand-typed coordinates that accumulate
- * and are never removed, so a span authored in mission 12 can end up hanging over a
- * pad that mission 5 placed — and nothing in the source connects the two. This module
- * is that connection: the constraints a pad imposes on everything built afterwards,
- * checked mechanically rather than by eye.
- *
- * Two rules, and they say different things:
+ * What a pad demands of everything built afterwards, checked mechanically rather
+ * than by eye:
  *
  *   1. Nothing stands *on* a landing surface. A pad's footprint is reserved from just
  *      under the deck to well above it.
@@ -22,6 +27,18 @@ import type { Reserved } from '../world/ColonyGrowth.ts';
  * Rule 2 deliberately stops at a cave roof. A pad under a deliberate ceiling is a
  * cave — the roof is the level design, not a violation — so the corridor requirement
  * applies only to the open air beneath it.
+ *
+ * Rule 2 is now carried by `ColonyChannels.ts` for colonies specifically: a pad's real
+ * approach is a route that bends around rock, not a vertical column, and growth is
+ * generated against that route rather than checked against a column afterwards. The
+ * column rule stays here for everything else, and for callers with no routes to hand.
+ *
+ * This module used to also *resolve* violations — relocating a hand-authored
+ * `tower`/`mast`/`gantry` that drifted into a pad's rules over a campaign where
+ * nothing was ever removed. Those prop kinds are gone (see the `Prop` doc comment in
+ * `Colony.ts`): every mission's structure is now `colony`, grown safe-by-construction
+ * against the channel network, so there is nothing left to relocate. `resolveLayout` is
+ * now a pass-through for that reason, not an oversight — see its own doc comment.
  */
 
 /**
@@ -50,39 +67,10 @@ const MARGIN = 1.2;
 export interface Violation {
   /** Mission that introduced the offending prop, when known. */
   mission?: number;
-  rule: 'deck' | 'corridor' | 'mouth';
+  rule: 'deck' | 'corridor' | 'mouth' | 'channel';
   pad: string;
   prop: string;
   detail: string;
-}
-
-/**
- * Entry lanes at an excavation mouth.
- *
- * A pad at the bottom of a dig is roofed on purpose, so its vertical corridor stops at
- * the ceiling and the way in is *around* the lip instead. That entrance is invisible to
- * the corridor rule — it is a gap in the terrain, not airspace over a deck — so without
- * it a resolver is free to park a mast in the one slot that matters. It did exactly
- * that: a mast displaced from the outpost pad landed at x=-24, one unit off the pit
- * wall at -23, and sealed the only route into the Helion cavern.
- *
- * Only the lanes are reserved, not the whole mouth. Reserving the mouth outright ate so
- * much floor that the resolver started throwing masts sixty units clear of the canyon
- * to find somewhere legal — and a mast standing in the middle of a wide pit is fine, it
- * is a mast at the doorway that is not.
- */
-const LANE_WIDTH = 5;
-const LANE_OUTSIDE = 2;
-
-/** Reserved airspace a pad imposes on everything built after it. */
-interface PadZone {
-  id: string;
-  y: number;
-  /** Footprint no structure may stand through. */
-  footprint: [number, number];
-  /** Approach corridor that must stay clear from the deck up to `ceiling`. */
-  core: [number, number];
-  ceiling: number;
 }
 
 /**
@@ -91,40 +79,19 @@ interface PadZone {
  * two structures need 2.4 units of air between them and the resolver rejects slots
  * that are perfectly legal.
  */
-/**
- * How far a prop's colliders stray from its authored position over a whole cycle.
- *
- * Every extent below is widened by this, so a moving structure is judged by the airspace
- * it *sweeps* rather than by where it happens to rest. Without it the rules go blind at
- * exactly the wrong moment: a travelling gantry authored clear of a pad, whose stroke
- * carries it straight through that pad's approach corridor, passes every check — and the
- * mission becomes unflyable in a way no static reading can detect.
- */
-function reach(p: Prop): Offset {
-  const motion = 'motion' in p ? p.motion : undefined;
-  if (!motion) return { x: 0, y: 0 };
-  return { x: Math.abs(motion.dx ?? 0), y: Math.abs(motion.dy ?? 0) };
-}
-
 function spanX(p: Prop, m: number = MARGIN): [number, number] {
-  const swept = reach(p).x;
   switch (p.kind) {
-    case 'tower':
-    case 'platform':
     case 'pad':
-      return [p.x - p.width / 2 - m - swept, p.x + p.width / 2 + m + swept];
-    // Not centred on `x` the way a tower is on its own `x` — `x` is the anchor cell,
-    // and growth away from it is one-directional for a wall-rooted corp, so the
-    // occupied span is tracked explicitly rather than assumed symmetric. See the
-    // `colony` variant's doc comment in Colony.ts.
+      return [p.x - p.width / 2 - m, p.x + p.width / 2 + m];
+    // Not centred on `x` the way a pad is on its own `x` — `x` is the shared grid's
+    // own column-0 origin, not this corp's anchor, and growth away from the anchor is
+    // one-directional for a wall-rooted corp, so the occupied span is tracked
+    // explicitly rather than assumed symmetric. See the `colony` variant's doc
+    // comment in Colony.ts.
     case 'colony':
-      return [p.footprintX[0] - m - swept, p.footprintX[1] + m + swept];
-    case 'gantry':
-      return [Math.min(p.x1, p.x2) - m - swept, Math.max(p.x1, p.x2) + m + swept];
-    case 'mast':
-      return [p.x - 0.7 - m, p.x + 0.7 + m];
+      return [p.footprintX[0] - m, p.footprintX[1] + m];
     case 'caveRoof':
-      return [p.x - p.halfWidth - m, p.x + p.halfWidth + m];
+      return [p.x - p.halfWidth, p.x + p.halfWidth];
     /**
      * Degenerate, to say plainly that the radar occupies nothing. Note that this alone
      * does not exempt it — `overlaps` counts a point strictly inside an interval as
@@ -142,7 +109,7 @@ function spanX(p: Prop, m: number = MARGIN): [number, number] {
  *
  * Only the radar is not. It is a landmark rather than colony hardware — the one
  * structure the player sited themselves, deliberately built without a collider so it can
- * stand wherever they set down, including inside ground a later tower grows through. So
+ * stand wherever they set down, including inside ground a later colony grows through. So
  * it can neither block an approach nor be blocked by one, and the layout rules have to
  * ignore it outright.
  *
@@ -160,33 +127,26 @@ function hasCollider(p: Prop): boolean {
 /**
  * Vertical extent of a prop.
  *
- * Towers and masts stand on the canyon floor, whose exact height is a function of the
- * seed and not known here. `FLOOR_BASE` is a floor-with-relief estimate: low enough to
- * be conservative for anything at grade, but *not* unbounded — treating them as
- * infinitely deep would have them reaching down into excavations they stand beside,
- * and wrongly condemn every pad at the bottom of a shaft.
+ * A colony stands on the canyon floor, whose exact height is a function of the seed
+ * and not known here. `FLOOR_BASE` is a floor-with-relief estimate: low enough to be
+ * conservative for anything at grade, but *not* unbounded — treating it as infinitely
+ * deep would have it reaching down into excavations it stands beside, and wrongly
+ * condemn every pad at the bottom of a shaft.
+ *
+ * Exported for `ColonyAvailability.ts`, which needs the same "floor-with-relief
+ * estimate" as the shared row-to-Y datum its availability grid measures cells against
+ * — see that file's doc comment for why a shared, fixed datum (not per-column real
+ * terrain) is the right call there too.
  */
-const FLOOR_BASE = -6;
+export const FLOOR_BASE = -6;
 
 function spanY(p: Prop): [number, number] {
-  const swept = reach(p).y;
   switch (p.kind) {
-    case 'tower':
-    case 'mast':
-      return [FLOOR_BASE, p.topY];
-    // Unlike a tower's `topY`, a colony has no author to hand-pick an absolute Y — see
-    // its doc comment in Colony.ts. `height` is the grid's nominal rows × cellSize,
-    // added to the same floor-with-relief estimate `FLOOR_BASE` already stands in for
-    // every other floor-anchored prop's unknown base.
+    // Real, measured bounds — growth is fitted to real terrain (`ColonyLattice.ts`), so
+    // unlike every other floor-anchored prop here a colony's vertical extent is known
+    // rather than estimated off `FLOOR_BASE`.
     case 'colony':
-      return [FLOOR_BASE, FLOOR_BASE + p.height];
-    case 'gantry':
-      return [
-        p.y - (p.thickness ?? 2.4) / 2 - swept,
-        p.y + (p.thickness ?? 2.4) / 2 + swept,
-      ];
-    case 'platform':
-      return [p.y - 1.8 - swept, p.y + swept];
+      return p.spanY;
     case 'caveRoof':
       return [p.y, p.y + 4];
     case 'pad':
@@ -198,23 +158,13 @@ function spanY(p: Prop): [number, number] {
 }
 
 function label(p: Prop): string {
-  if (p.kind === 'gantry') return `gantry ${p.corp} ${p.x1}..${p.x2} @${p.y}`;
   if (p.kind === 'pad') return `pad ${p.id}`;
+  if (p.kind === 'colony') return `colony ${p.corp} x=${p.footprintX[0].toFixed(0)}..${p.footprintX[1].toFixed(0)}`;
   return `${p.kind} ${p.corp} x=${p.x}`;
 }
 
 function overlaps(a: [number, number], b: [number, number]): boolean {
   return a[0] < b[1] && b[0] < a[1];
-}
-
-/**
- * The platform a pad rests on, which is allowed to sit under it — that is what a deck
- * is. Matched on position rather than by an explicit link, because `deck()` builds the
- * pair from one call and nothing else in the ledger shares a pad's exact x.
- */
-function isOwnDeck(pad: Extract<Prop, { kind: 'pad' }>, p: Prop): boolean {
-  if (p.kind !== 'platform') return false;
-  return Math.abs(p.x - pad.x) < 0.001 && Math.abs(p.y - ((pad.y ?? 0) - 1)) < 2.5;
 }
 
 /**
@@ -233,10 +183,6 @@ function ceilingOver(pad: Extract<Prop, { kind: 'pad' }>, props: Prop[]): number
 }
 
 /**
- * Checks one accumulated world. `owner` maps a prop back to the mission that added
- * it, so a failure names the line to edit.
- */
-/**
  * Narrowest channel down into an excavation that still counts as a way in.
  *
  * The hull is 1.24 across, so this is not about fitting — it is the same argument as
@@ -253,127 +199,232 @@ const MIN_MOUTH = 5;
 /**
  * Excavations whose opening has been built over.
  *
- * The lane check above keeps the two *lips* of a dig clear, which stops a tower being
- * planted on the edge — but it says nothing about the span between them, and it only
- * ever looked at towers and masts. Helion drove its cavern directly beneath its own
- * crest deck and the deck, being a platform, was not a kind the rule considered: the
- * mouth measured twenty-three units across with a two-unit gap to fly through, and the
- * campaign shipped it on every seed.
- *
- * So this measures instead of enumerating. Subtract every colliding prop above the floor
- * from the width of the opening and ask what is left; if the widest surviving channel is
+ * Measures instead of enumerating: subtract every colliding prop above the floor from
+ * the width of the opening and ask what is left; if the widest surviving channel is
  * under `MIN_MOUTH`, the excavation is capped no matter what kind of thing capped it.
+ * That generality is what caught Helion driving its cavern directly beneath its own
+ * hand-authored crest deck — the mouth measured twenty-three units across with a
+ * two-unit gap to fly through, on every seed, until this rule existed.
  *
  * A cave roof counts, and that is the deliberate part. Everywhere else in this module a
  * roof is exempt, because a pad under a ceiling is the level design rather than a
- * mistake — but the ceiling still has to leave you a way past it. Helion's was authored
- * at half-width 9 inside a dig of 10, which is a one-unit slot for a hull of 1.24: not a
- * roofed approach, a lid.
+ * mistake — but the ceiling still has to leave you a way past it.
  *
- * Reported rather than resolved, like a tower. What is standing over the hole is usually
+ * Reported rather than resolved. What is standing over the hole is usually
  * load-bearing, and choosing between moving it, narrowing it and striking it from the
- * ledger is a level-design decision — not one a resolver should make silently.
+ * ledger is a level-design decision — not one this module should make silently.
+ *
+ * A floor-mounted dig's opening is an x-interval at any height above it — "up" is
+ * unambiguous when the bore goes straight down. A wall-mounted dig's opening faces
+ * *sideways*, at a specific height on the wall face (`terrain.wallMouthY(d)`), so the
+ * two cases measure genuinely different things and are kept as separate branches rather
+ * than forced through one formula with an axis swapped in by convention.
  */
 function cappedMouths(
   props: Prop[],
   digs: Excavation[],
-  owner?: Map<Prop, number>,
+  owner: Map<Prop, number> | undefined,
+  terrain: MouthTerrain | undefined,
 ): Violation[] {
   const out: Violation[] = [];
 
   for (const d of digs) {
-    const west = d.x - d.halfWidth;
-    const east = d.x + d.halfWidth;
-
-    /**
-     * Only worth asking once there is somewhere to land down there. A bore driven two
-     * missions before its pad arrives is a hole nobody is being sent into, and the lane
-     * rule above already keeps its lips clear for anyone flying past.
-     */
-    const occupants = props.filter(
-      (p): p is Extract<Prop, { kind: 'pad' }> =>
-        p.kind === 'pad' &&
-        p.x > west &&
-        p.x < east &&
-        // Down in the hole, not merely sharing its x. A pad resting on ground has no y
-        // of its own and inside an excavation that ground *is* the floor; anything with
-        // an authored height is only in the hole if that height is below the datum.
-        // Without this, Helion's crest deck sixty-seven units overhead counted as an
-        // occupant of the cavern beneath it.
-        (p.y === undefined || p.y < 0),
-    );
-    if (occupants.length === 0) continue;
-
-    /**
-     * Everything with a collider that sits over the opening, widened by the usual margin
-     * so grazing an edge does not read as passing it — except the pads inside the hole
-     * and the decks they stand on. Those are the destination. Counting a pad as its own
-     * obstruction is how the first draft of this rule decided the Kessler shaft was
-     * sealed by the very platform it exists to deliver to.
-     */
-    const blockers = props.filter(
-      (p) =>
-        hasCollider(p) &&
-        !occupants.some((pad) => pad === p || isOwnDeck(pad, p)) &&
-        overlaps(spanX(p, MARGIN), [west, east]),
-    );
-
-    let widest = 0;
-    let cursor = west;
-    for (const [lo, hi] of blockers
-      .map((p) => spanX(p, MARGIN))
-      .sort((a, b) => a[0] - b[0])) {
-      if (lo > cursor) widest = Math.max(widest, lo - cursor);
-      cursor = Math.max(cursor, hi);
+    if (isFloorMounted(boreDirection(d).dir)) {
+      out.push(...cappedFloorMouth(d, props, owner));
+      continue;
     }
-    widest = Math.max(widest, east - cursor);
+    // A wall mouth's real opening height only exists once real terrain does — see
+    // `checkLayout`'s doc comment. Skipping rather than guessing is the safe direction:
+    // it can only under-report, never wrongly flag a mission that's actually fine.
+    if (!terrain) continue;
+    out.push(...cappedWallMouth(d, props, owner, terrain));
+  }
 
-    if (widest >= MIN_MOUTH || blockers.length === 0) continue;
+  return out;
+}
 
-    // Name the widest offender: with several stacked over one hole, the biggest is the
-    // one worth arguing about.
-    const worst = blockers.reduce((a, b) => {
-      const wa = spanX(a, MARGIN), wb = spanX(b, MARGIN);
-      return wb[1] - wb[0] > wa[1] - wa[0] ? b : a;
-    });
-    out.push({
+function cappedFloorMouth(
+  d: Excavation,
+  props: Prop[],
+  owner?: Map<Prop, number>,
+): Violation[] {
+  const west = d.x - d.halfWidth;
+  const east = d.x + d.halfWidth;
+
+  /**
+   * Only worth asking once there is somewhere to land down there. A bore driven two
+   * missions before its pad arrives is a hole nobody is being sent into.
+   */
+  const occupants = props.filter(
+    (p): p is Extract<Prop, { kind: 'pad' }> =>
+      p.kind === 'pad' &&
+      p.x > west &&
+      p.x < east &&
+      // Down in the hole, not merely sharing its x. A pad resting on ground has no y
+      // of its own and inside an excavation that ground *is* the floor; anything with
+      // an authored height is only in the hole if that height is below the datum.
+      (p.y === undefined || p.y < 0),
+  );
+  if (occupants.length === 0) return [];
+
+  /**
+   * Everything with a collider that sits over the opening, widened by the usual
+   * margin so grazing an edge does not read as passing it — except the pads inside
+   * the hole themselves, which are the destination. Counting a pad as its own
+   * obstruction is how the first draft of this rule decided the Kessler shaft was
+   * sealed by the very pad it exists to deliver to.
+   */
+  const blockerSpans: Array<{ prop: Prop; sx: [number, number] }> = [];
+  for (const p of props) {
+    if (!hasCollider(p) || occupants.some((pad) => pad === p)) continue;
+    if (p.kind === 'colony') {
+      for (const col of colonyCells(p, 0)) {
+        if (overlaps(col.sx, [west, east])) blockerSpans.push({ prop: p, sx: col.sx });
+      }
+    } else {
+      const sx = spanX(p, MARGIN);
+      if (overlaps(sx, [west, east])) blockerSpans.push({ prop: p, sx });
+    }
+  }
+
+  const widest = widestGap(blockerSpans.map((b) => b.sx), west, east);
+  if (widest >= MIN_MOUTH || blockerSpans.length === 0) return [];
+
+  const worst = blockerSpans.reduce((a, b) =>
+    b.sx[1] - b.sx[0] > a.sx[1] - a.sx[0] ? b : a,
+  ).prop;
+  return [
+    {
       mission: owner?.get(worst),
       rule: 'mouth',
       pad: `dig ${west.toFixed(0)}..${east.toFixed(0)}`,
       prop: label(worst),
       detail:
         `caps the excavation: widest way in is ${widest.toFixed(1)}, needs ${MIN_MOUTH}`,
-    });
-  }
-
-  return out;
+    },
+  ];
 }
 
+/**
+ * The wall-mount analogue of `cappedFloorMouth`, axes swapped: the opening is a y-band
+ * (`wallMouthY(d) ± d.halfWidth`) at a fixed x (`d.x`, the wall-face position the bore
+ * was driven from — see `boreDirection`'s doc comment on why every wall-mounted prop in
+ * this codebase agrees `dig.x` means that and not something else). A pad occupies the
+ * shaft if it sits in that band, near that x; a blocker is anything whose *vertical*
+ * extent crosses the band while its horizontal extent reaches the mouth's x.
+ *
+ * First real use of a wall mount in `checkLayout` — the margin/window choices here
+ * (`d.halfWidth` on each axis) are the floor case's own margins with the axes swapped,
+ * not yet tuned against a second real mission the way `MIN_MOUTH`'s comment can point to
+ * one. Worth revisiting once more than Helion's cavern exercises this branch.
+ */
+function cappedWallMouth(
+  d: Excavation,
+  props: Prop[],
+  owner: Map<Prop, number> | undefined,
+  terrain: MouthTerrain,
+): Violation[] {
+  const mouthY = terrain.wallMouthY(d);
+  // The physical opening — what a lander actually flies through — stays at the mouth's
+  // own band regardless of how far the bore travels afterward; how deep the shaft goes
+  // doesn't move its entrance.
+  const low = mouthY - d.halfWidth;
+  const high = mouthY + d.halfWidth;
+  const xWindow: [number, number] = [d.x - d.halfWidth, d.x + d.halfWidth];
+
+  /**
+   * Unlike a floor mount — straight down, so "below datum at this x" always means
+   * "inside this shaft" — a wall-mounted bore travels well clear of its own mouth by
+   * the time it reaches its destination: Helion's cavern ends up tens of units sideways
+   * and down from where it enters the wall, not hovering just past the opening. So "is
+   * there actually a destination in here" has to be judged against the bore's real
+   * endpoint (mouth plus `depth` along `direction`), not the mouth's own narrow band —
+   * checked here, not against `TerrainDigs.ts`'s own endpoint helper, since this only
+   * needs the two fields already on a resolved `Excavation` and pulling in a second
+   * module for one formula would be the wrong kind of reuse.
+   */
+  const dir = d.direction ?? { x: 0, y: -1 };
+  const endX = d.x + dir.x * d.depth;
+  const endY = mouthY + dir.y * d.depth;
+  const occupants = props.filter(
+    (p): p is Extract<Prop, { kind: 'pad' }> =>
+      p.kind === 'pad' && Math.hypot(p.x - endX, (p.y ?? 0) - endY) <= d.halfWidth + MARGIN,
+  );
+  if (occupants.length === 0) return [];
+
+  const blockerSpans: Array<{ prop: Prop; sy: [number, number] }> = [];
+  for (const p of props) {
+    if (!hasCollider(p) || occupants.some((pad) => pad === p)) continue;
+    if (p.kind === 'colony') {
+      for (const col of colonyCells(p, 0)) {
+        if (overlaps(col.sx, xWindow) && overlaps(col.sy, [low, high])) {
+          blockerSpans.push({ prop: p, sy: col.sy });
+        }
+      }
+    } else {
+      const sx = spanX(p, MARGIN);
+      const sy = spanY(p);
+      if (overlaps(sx, xWindow) && overlaps(sy, [low, high])) blockerSpans.push({ prop: p, sy });
+    }
+  }
+
+  const widest = widestGap(blockerSpans.map((b) => b.sy), low, high);
+  if (widest >= MIN_MOUTH || blockerSpans.length === 0) return [];
+
+  const worst = blockerSpans.reduce((a, b) =>
+    b.sy[1] - b.sy[0] > a.sy[1] - a.sy[0] ? b : a,
+  ).prop;
+  return [
+    {
+      mission: owner?.get(worst),
+      rule: 'mouth',
+      pad: `wall dig @x=${d.x.toFixed(0)} y=${low.toFixed(0)}..${high.toFixed(0)}`,
+      prop: label(worst),
+      detail:
+        `caps the excavation: widest way in is ${widest.toFixed(1)}, needs ${MIN_MOUTH}`,
+    },
+  ];
+}
+
+/** Widest surviving gap in `[lo, hi]` once every span in `spans` has been cut out. */
+function widestGap(spans: Array<[number, number]>, lo: number, hi: number): number {
+  let widest = 0;
+  let cursor = lo;
+  for (const [a, b] of [...spans].sort((x, y) => x[0] - y[0])) {
+    if (a > cursor) widest = Math.max(widest, a - cursor);
+    cursor = Math.max(cursor, b);
+  }
+  return Math.max(widest, hi - cursor);
+}
+
+/**
+ * Checks one accumulated world. `owner` maps a prop back to the mission that added
+ * it, so a failure names the line to edit.
+ *
+ * `terrain`, when given, is what lets a wall-mounted dig's mouth be judged precisely
+ * instead of skipped — see `cappedMouths`/`cappedWallMouth`. Callers without real
+ * terrain (most of `Missions.test.ts`'s sweeps, which are deliberately pure) still get
+ * every other rule at full strength; they just can't catch a wall mouth being capped,
+ * which is fine as long as nothing they check authors one.
+ */
 export function checkLayout(
   props: Prop[],
   digs: Excavation[] = [],
   owner?: Map<Prop, number>,
+  // Only needed to judge a wall-mounted dig's mouth precisely — see `cappedMouths`.
+  // Every floor-mounted dig (everything in the campaign except Helion's cavern) is
+  // checked exactly as before whether or not a caller has terrain to give it.
+  terrain?: MouthTerrain,
+  // The real flight routes, when the caller has them. Given these, a colony is judged
+  // against the route a pad is actually reached by rather than against a vertical column
+  // over its core — see `channelIntrusions`.
+  channels?: Channel[],
 ): Violation[] {
   const out: Violation[] = [];
   const pads = props.filter((p): p is Extract<Prop, { kind: 'pad' }> => p.kind === 'pad');
 
-  // Excavation mouths are checked independently of any pad: the dig may be driven
-  // several missions before the pad at the bottom of it exists.
-  for (const [lo, hi] of mouths(digs)) {
-    for (const p of props) {
-      if (p.kind !== 'tower' && p.kind !== 'mast') continue;
-      if (!overlaps(spanX(p), [lo, hi])) continue;
-      out.push({
-        mission: owner?.get(p),
-        rule: 'mouth',
-        pad: `dig ${lo.toFixed(0)}..${hi.toFixed(0)}`,
-        prop: label(p),
-        detail: `stands in the excavation mouth, blocking the way in`,
-      });
-    }
-  }
-
-  out.push(...cappedMouths(props, digs, owner));
+  out.push(...cappedMouths(props, digs, owner, terrain));
+  if (channels) out.push(...channelIntrusions(props, channels, owner));
 
   for (const pad of pads) {
     const padY = pad.y ?? 0;
@@ -382,7 +433,7 @@ export function checkLayout(
     const ceiling = ceilingOver(pad, props);
 
     for (const p of props) {
-      if (p === pad || isOwnDeck(pad, p)) continue;
+      if (p === pad) continue;
       // A pad resting on ground inside an excavation has no y of its own; the cave
       // roof above it is the level design and is exempt from both rules.
       if (p.kind === 'caveRoof') continue;
@@ -390,13 +441,12 @@ export function checkLayout(
       if (!hasCollider(p)) continue;
 
       /**
-       * A colony is judged column by column rather than by its whole-footprint box.
-       * The box is honest nowhere a colony matters: cells growing low *under* an
-       * elevated deck are legal, but one tall column elsewhere raises the box until it
-       * reads as planted through a deck nothing actually touches. See `colonyColumns`.
+       * A colony is judged cell by cell rather than by its whole-footprint box. The box
+       * is honest nowhere a colony matters: cells growing low *under* an elevated deck
+       * are legal, but one tall filament elsewhere raises the box until it reads as
+       * planted through a deck nothing actually touches. See `colonyCells`.
        */
-      const extents =
-        p.kind === 'colony' ? colonyColumns(p) : [{ sx: spanX(p), sy: spanY(p) }];
+      const extents = p.kind === 'colony' ? colonyCells(p) : [{ sx: spanX(p), sy: spanY(p) }];
 
       // Rule 1 — nothing standing on the landing surface. This is about a structure
       // passing *through* the deck plane, which is what "planted on the pad" means;
@@ -421,10 +471,17 @@ export function checkLayout(
 
       // Rule 2 — the corridor over the pad's core stays clear up to any cave roof.
       //
-      // Only built structure counts. Another deck overhead is the shaft's own level
-      // design — kessler-shaft, -ledge and -deep are stacked down one hole on purpose,
-      // and each necessarily sits under the one above it.
-      if (p.kind === 'pad' || p.kind === 'platform') continue;
+      // Another pad overhead is the shaft's own level design — kessler-shaft, -ledge
+      // and -deep are stacked down one hole on purpose, and each necessarily sits
+      // under the one above it.
+      if (p.kind === 'pad') continue;
+      // A colony is judged against the pad's real route instead, when the caller has one
+      // — a channel bends around rock as it climbs (`ColonyChannels.ts`), so a vertical
+      // column over the core condemns airspace the approach never actually uses, and
+      // would report the colony for standing exactly where it is supposed to: massed
+      // against the outside of a bend. Without channels this rule still applies to
+      // colonies unchanged, which is what keeps the pure, terrain-free tests honest.
+      if (p.kind === 'colony' && channels) continue;
       const top = Math.min(padY + CORRIDOR_HEIGHT, ceiling);
       for (const { sx, sy } of extents) {
         if (overlaps(sx, core) && sy[1] > padY && sy[0] < top) {
@@ -446,313 +503,93 @@ export function checkLayout(
   return out;
 }
 
-// --------------------------------------------------------------------- resolver
-
-/** Zones every pad in the world reserves. Pads themselves never move. */
-function padZones(props: Prop[]): PadZone[] {
-  return props
-    .filter((p): p is Extract<Prop, { kind: 'pad' }> => p.kind === 'pad')
-    .map((pad) => ({
-      id: pad.id,
-      y: pad.y ?? 0,
-      footprint: [pad.x - pad.width / 2, pad.x + pad.width / 2] as [number, number],
-      core: [pad.x - CORE_HALF, pad.x + CORE_HALF] as [number, number],
-      ceiling: ceilingOver(pad, props),
-    }));
-}
+// --------------------------------------------------------------------- growth safety
 
 /**
- * Cells of a not-yet-generated colony grid that fall inside any pad's reserved
- * airspace — the corridor-safety domain restriction `growGrid`'s `reserved` option
- * exists for, given real data instead of a hand-picked demonstration row.
+ * The independent net under the flight-channel guarantee: no colony cell may sit within
+ * `CHANNEL_HALF` of any route.
  *
- * Mirrors `intrudes`'s own deck/corridor tests exactly, just asked once per cell
- * instead of once per whole prop — a cell is reserved by precisely the rule that would
- * otherwise have flagged it after the fact, so growth stays safe by construction rather
- * than needing a generate-then-reject pass. `props` should be the already-resolved
- * world a colony is about to be added to, not including the colony itself.
- *
- * `place.y` is an estimate, not a real terrain sample — `Missions.ts` has no terrain
- * access, so it stands in for the colony's unknown base the same way `FLOOR_BASE`
- * already does for every other floor-anchored prop here. Being wrong small is the safe
- * direction: it can only make a cell's reservation test slightly conservative, never
- * miss one.
- *
- * `digs` reserves every cell over an excavation's opening, lips included, at *any*
- * height — deliberately stricter than the mouth rules it stands in for. `cappedMouths`
- * would tolerate structure over a hole as long as a `MIN_MOUTH` channel survives, but
- * a growth algorithm negotiating for partial credit over a mineshaft is complexity
- * with no upside: a colony simply does not build over a hole in the ground.
+ * Deliberately measured geometrically, against the polyline itself, rather than by
+ * re-reading the same rasterised cell mask growth was handed. A check that consults the
+ * generator's own bookkeeping agrees with it by construction and catches nothing — which
+ * is exactly how the previous model's corridor check kept passing while a colony grew
+ * onto a pad footprint. Distance to a segment is a different computation from "which
+ * cells did I mark", so a rasterisation bug has somewhere to show up.
  */
-export function reservedCellsFor(
-  place: { x: number; y: number; cellSize: number; direction: 1 | -1 },
-  shape: { cols: number; rows: number; anchorCol: number },
-  props: Prop[],
-  digs: Excavation[] = [],
-): Reserved {
-  const zones = padZones(props);
-  const half = place.cellSize / 2;
-  const holes: Array<[number, number]> = digs.map((d) => [
-    d.x - d.halfWidth - LANE_OUTSIDE,
-    d.x + d.halfWidth + LANE_OUTSIDE,
-  ]);
-
-  return (r: number, c: number): boolean => {
-    const cx = place.x + (c - shape.anchorCol) * place.cellSize * place.direction;
-    const cy = place.y + r * place.cellSize;
-    const cellX: [number, number] = [cx - half, cx + half];
-    const cellY: [number, number] = [cy - half, cy + half];
-
-    for (const h of holes) if (overlaps(cellX, h)) return true;
-
-    for (const z of zones) {
-      if (overlaps(cellX, z.footprint) && cellY[1] > z.y - DECK_UNDER && cellY[0] < z.y + DECK_CLEAR) {
-        return true;
+function channelIntrusions(props: Prop[], channels: Channel[], owner?: Map<Prop, number>): Violation[] {
+  const out: Violation[] = [];
+  for (const p of props) {
+    if (p.kind !== 'colony') continue;
+    const half = p.cellSize / 2;
+    for (const channel of channels) {
+      let worst = 0;
+      for (const cell of p.cells) {
+        for (let i = 0; i + 1 < channel.points.length; i++) {
+          const gap = pointToSegment(cell.x, cell.y, channel.points[i], channel.points[i + 1]) - half;
+          if (gap < CHANNEL_HALF) worst = Math.max(worst, CHANNEL_HALF - gap);
+        }
       }
-      const top = Math.min(z.y + CORRIDOR_HEIGHT, z.ceiling);
-      if (overlaps(cellX, z.core) && cellY[1] > z.y && cellY[0] < top) return true;
+      if (worst > 0) {
+        out.push({
+          mission: owner?.get(p),
+          rule: 'channel',
+          pad: channel.padId,
+          prop: label(p),
+          detail: `intrudes ${worst.toFixed(1)} into the ${CHANNEL_HALF}-unit clearance of its flight route`,
+        });
+      }
     }
-    return false;
-  };
+  }
+  return out;
+}
+
+/** Perpendicular distance from a point to a line segment, clamped to the segment's own
+ *  ends — a route is a chain of finite segments, and treating one as an infinite line
+ *  would report clearance failures against airspace the route never passes through. */
+function pointToSegment(px: number, py: number, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const len2 = dx * dx + dy * dy;
+  const t = len2 === 0 ? 0 : Math.max(0, Math.min(1, ((px - a.x) * dx + (py - a.y) * dy) / len2));
+  return Math.hypot(px - (a.x + dx * t), py - (a.y + dy * t));
 }
 
 /**
- * A colony's occupied columns as individual tower-like extents, for the deck and
- * corridor rules.
+ * A colony's cells as individual extents, for the deck and corridor rules.
  *
- * The single `footprintX`/`height` box lies as soon as a colony is big: growth under an
- * elevated deck is legal (the cells stop well below it — reservation saw to that), but
- * a *tall column elsewhere* raises the whole box, and the box then reads as standing
- * through a deck no actual cell goes near. Per-column extents say what is really there.
- * The coarse box remains what `spanX`/`spanY` report — conservative is the right answer
- * everywhere else it is used.
+ * The single `footprintX`/`spanY` box lies as soon as a colony is big: growth under an
+ * elevated deck is legal (the channel network saw to that), but one tall filament
+ * elsewhere raises the whole box until it reads as standing through a deck no actual
+ * cell goes near. Per-cell extents say what is really there — and unlike the per-*column*
+ * version this replaces, they do not fill in the gaps a branched structure leaves inside
+ * its own silhouette.
  */
-function colonyColumns(p: Extract<Prop, { kind: 'colony' }>, m: number = MARGIN): Array<{
+function colonyCells(p: Extract<Prop, { kind: 'colony' }>, m: number = 0): Array<{
   sx: [number, number];
   sy: [number, number];
 }> {
-  const out: Array<{ sx: [number, number]; sy: [number, number] }> = [];
-  for (let c = 0; c < p.grid.cols; c++) {
-    let topRow = -1;
-    for (let r = 0; r < p.grid.rows; r++) {
-      if (p.grid.cells[r][c] !== 'empty') topRow = r;
-    }
-    if (topRow < 0) continue;
-    const cx = p.x + (c - p.grid.anchorCol) * p.cellSize * p.direction;
-    out.push({
-      sx: [cx - p.cellSize / 2 - m, cx + p.cellSize / 2 + m],
-      sy: [FLOOR_BASE, FLOOR_BASE + (topRow + 1) * p.cellSize],
-    });
-  }
-  return out;
-}
-
-/** The two lanes at each dig's lips, which must stay clear of floor structures. */
-function mouths(digs: Excavation[]): Array<[number, number]> {
-  const out: Array<[number, number]> = [];
-  for (const d of digs) {
-    const west = d.x - d.halfWidth;
-    const east = d.x + d.halfWidth;
-    out.push([west - LANE_OUTSIDE, west + LANE_WIDTH]);
-    out.push([east - LANE_WIDTH, east + LANE_OUTSIDE]);
-  }
-  return out;
-}
-
-/** Does this prop intrude on any pad's footprint, approach corridor, or a dig mouth? */
-function intrudes(p: Prop, zones: PadZone[], holes: Array<[number, number]> = []): boolean {
-  // The radar is appended after the resolver runs, so in practice it never arrives here.
-  // Skipped anyway, so the resolver and the check can never disagree about it.
-  if (!hasCollider(p)) return false;
-
-  const sx = spanX(p);
-  const sy = spanY(p);
-
-  // Only things standing on the floor can block a mouth; a gantry passes overhead.
-  if (p.kind === 'tower' || p.kind === 'mast') {
-    for (const h of holes) if (overlaps(sx, h)) return true;
-  }
-
-  for (const z of zones) {
-    if (overlaps(sx, z.footprint) && sy[1] > z.y - DECK_UNDER && sy[0] < z.y + DECK_CLEAR) {
-      return true;
-    }
-    if (p.kind === 'pad' || p.kind === 'platform') continue;
-    const top = Math.min(z.y + CORRIDOR_HEIGHT, z.ceiling);
-    if (overlaps(sx, z.core) && sy[1] > z.y && sy[0] < top) return true;
-  }
-  return false;
+  const half = p.cellSize / 2;
+  return p.cells.map((cell) => ({
+    sx: [cell.x - half - m, cell.x + half + m] as [number, number],
+    sy: [cell.y - half, cell.y + half] as [number, number],
+  }));
 }
 
 /**
- * Resolves a hand-authored ledger into a legal one.
+ * Once resolved every prop the way `tower`/`mast`/`gantry` needed — moving or trimming
+ * a hand-authored span that drifted into a pad's rules over a campaign where nothing
+ * was ever removed. Those prop kinds are gone (see the `Prop` doc comment in
+ * `Colony.ts`): `colony` is generated safe-by-construction against every pad already
+ * standing (`reservedCellsFor` above), and `pad`/`caveRoof`/`radar` were never
+ * relocated even when this function had somewhere to send them — an anchor, a roof
+ * tied to its excavation, and a collider-less landmark were never candidates for it.
  *
- * The thirty missions are written as intent — *Helion runs a mast up near the centre
- * line* — with a coordinate attached. Over a campaign where nothing is ever removed,
- * those coordinates drift into conflict with pads placed twenty missions earlier, and
- * the author has no way to see it. So the authored x is treated as a preference, not a
- * commitment: anything that clears the pad rules is left exactly where it was written,
- * and only the pieces that would stand on a landing surface get moved.
- *
- * Displacement searches outward from the authored position and takes the first legal
- * slot, so a moved prop lands as close to its intended spot as the rules allow, and
- * the search is deterministic — the same ledger always yields the same colony.
+ * So there is nothing left to resolve. `checkLayout` remains the real check —
+ * verifying the ledger is legal, not fixing it — and this stays a real exported pass
+ * rather than being deleted and inlined at its one call site in `Missions.ts`, so a
+ * future authored prop that *does* need relocating has an obvious place to add that
+ * logic back, instead of one more special case bolted onto `worldAt`.
  */
-export function resolveLayout(props: Prop[], digs: Excavation[] = []): Prop[] {
-  const zones = padZones(props);
-  const holes = mouths(digs);
-  const out: Prop[] = [];
-
-  /**
-   * Floor-level footprints already committed, so relocations do not stack up. Stored
-   * unmargined — `relocate` adds the gap once, on the candidate.
-   */
-  const floorTaken: Array<[number, number]> = [];
-  for (const p of props) {
-    // Towers always hold their ground because the resolver never moves them; a mast
-    // only holds its authored spot if it is staying there. Leaving an intruding tower
-    // out of this list once let a relocated mast be placed straight through one.
-    if (p.kind === 'tower') floorTaken.push(spanX(p, 0));
-    else if (p.kind === 'mast' && !intrudes(p, zones, holes)) floorTaken.push(spanX(p, 0));
-  }
-
-  for (const p of props) {
-    if (!intrudes(p, zones, holes)) {
-      out.push(p);
-      continue;
-    }
-
-    // A fixed span is pulled back to the pad's edge. A *travelling* one is not: its
-    // span is the stroke of a machine on a rail, so trimming it shortens the run and
-    // sliding it moves the rail — either way the resolver would be redesigning working
-    // hardware to fit a rule. Moving structures fall through to be reported instead.
-    if (p.kind === 'gantry' && !p.motion) {
-      out.push(trimGantry(p, zones));
-      continue;
-    }
-
-    if (p.kind === 'mast') {
-      const moved = relocate(p, zones, holes, floorTaken);
-      out.push(moved);
-      floorTaken.push(spanX(moved, 0));
-      continue;
-    }
-
-    // Towers are anchors, not scenery: a crest platform braces to the nearest tower
-    // face, so sliding one silently tears the deck off its support. Same for platforms
-    // and cave roofs, which belong to a deck and an excavation respectively. These are
-    // reported rather than moved — a warning the author can act on beats a colony that
-    // quietly rearranges its own load-bearing structure.
-    out.push(p);
-  }
-  return out;
+export function resolveLayout(props: Prop[]): Prop[] {
+  return [...props];
 }
-
-/**
- * A span across a pad is pulled back to the pad's edge rather than moved. A gantry
- * connects two points and means something structurally, so shortening it — a walkway
- * that stops short of the landing zone — preserves the read where sliding it sideways
- * would leave it bridging nothing.
- *
- * Trimming repeats until it stops changing: retreating from one pad's corridor can
- * push an endpoint into another's, and a single pass would leave that unnoticed.
- */
-const MIN_SPAN = 4;
-
-function trimGantry(g: Extract<Prop, { kind: 'gantry' }>, zones: PadZone[]): Prop {
-  let lo = Math.min(g.x1, g.x2);
-  let hi = Math.max(g.x1, g.x2);
-  const sy = spanY(g);
-
-  for (let pass = 0; pass < 6; pass++) {
-    let changed = false;
-    for (const z of zones) {
-      const top = Math.min(z.y + CORRIDOR_HEIGHT, z.ceiling);
-      if (!(sy[1] > z.y && sy[0] < top)) continue;
-      if (!overlaps([lo - MARGIN, hi + MARGIN], z.core)) continue;
-
-      // Retreat to whichever side of the corridor keeps more of the span.
-      const west = z.core[0] - MARGIN - lo;
-      const east = hi - (z.core[1] + MARGIN);
-      if (west >= east) hi = Math.min(hi, z.core[0] - MARGIN);
-      else lo = Math.max(lo, z.core[1] + MARGIN);
-      changed = true;
-    }
-    if (!changed) break;
-  }
-
-  if (hi - lo >= MIN_SPAN) return { ...g, x1: lo, x2: hi };
-
-  // Nothing worth keeping survived the trim, so slide the original span instead,
-  // searching outward for somewhere it clears every corridor at its full length.
-  const length = Math.abs(g.x2 - g.x1);
-  const start = Math.min(g.x1, g.x2);
-  for (let d = 0; d <= 120; d += 0.5) {
-    for (const dir of [-1, 1]) {
-      const l = start + dir * d;
-      const candidate: Prop = { ...g, x1: l, x2: l + length };
-      if (!intrudes(candidate, zones)) return candidate;
-    }
-  }
-  return { ...g, x1: lo, x2: lo + MIN_SPAN };
-}
-
-/** Nearest legal x to the authored one, searched outward, corp side preferred. */
-function relocate(
-  p: Extract<Prop, { kind: 'mast' }>,
-  zones: PadZone[],
-  holes: Array<[number, number]>,
-  taken: Array<[number, number]>,
-): Prop {
-  const STEP = 0.5;
-  // Bounded on purpose. Past this the prop is no longer where the mission meant it to
-  // be — a mast the brief tells you to mind, parked beyond the canyon wall, is not an
-  // obstacle any more. Better to leave it authored and let the check complain.
-  const REACH = 26;
-  // Search the corp's own side of the canyon first: Helion holds the west approach and
-  // Kessler the east, and a mast that hops the centre line breaks that read.
-  const side = p.corp === 'helion' ? -1 : p.corp === 'kessler' ? 1 : 0;
-
-  const order: number[] = [];
-  for (let d = STEP; d <= REACH; d += STEP) {
-    if (side >= 0) order.push(d);
-    if (side <= 0) order.push(-d);
-    if (side > 0) order.push(-d);
-    else if (side < 0) order.push(d);
-  }
-
-  // Gap required between two structures. Applied once, to the candidate — `taken`
-  // holds raw extents.
-  const GAP = 1.5;
-
-  const free = (x: number) => {
-    const candidate = { ...p, x };
-    if (intrudes(candidate, zones, holes)) return false;
-    return !taken.some((t) => overlaps(spanX(candidate, GAP), t));
-  };
-
-  for (const delta of order) if (free(p.x + delta)) return { ...p, x: p.x + delta };
-
-  /**
-   * Nothing on the open floor. By the late campaign that is the normal case rather
-   * than an edge case — pads, dig lanes, towers and platforms leave a single free slot
-   * between them — so the fallback is the canyon wall on the corp's own side, which is
-   * where the towers were moved for the same reason. A mast up the wall stops being an
-   * obstacle in the corridor, which is a real loss, but it beats one standing on a
-   * landing pad.
-   */
-  const wall =
-    side < 0 ? WALL_WEST
-    : side > 0 ? WALL_EAST
-    : Math.abs(p.x - WALL_WEST) < Math.abs(p.x - WALL_EAST) ? WALL_WEST
-    : WALL_EAST;
-  for (let d = 0; d <= 60; d += STEP) {
-    const x = wall + (wall < 0 ? -d : d);
-    if (free(x)) return { ...p, x };
-  }
-  return p;
-}
-
-/** Outer edge of the built floor on each side; beyond it the canyon walls rise. */
-const WALL_WEST = -68;
-const WALL_EAST = 86;

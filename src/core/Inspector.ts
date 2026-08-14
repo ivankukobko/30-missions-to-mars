@@ -1,8 +1,10 @@
 import * as THREE from 'three';
 import { CANYON } from '../world/CanyonSpec.ts';
 import type { PadInfo } from '../world/Colony.ts';
-import { MISSION_COUNT, worldAt } from '../campaign/Missions.ts';
+import type { CanyonGenerator } from '../world/CanyonGenerator.ts';
+import { MISSION_COUNT } from '../campaign/Missions.ts';
 import { checkLayout } from '../campaign/Layout.ts';
+import { planColonies, missionWorlds } from '../campaign/ColonyPlan.ts';
 import type { Rank } from '../campaign/Progress.ts';
 
 /**
@@ -25,6 +27,9 @@ export interface InspectorHost {
   mastX(): number | null;
   /** Its exact height. Paired with `mastX`; see `Progress.mastY`. */
   mastY(): number | null;
+  /** The live canyon — colonies and dig resolution both need real terrain now, and the
+   *  currently-loaded canyon already matches this mission's own digs. */
+  terrain(): CanyonGenerator;
   loadMission(id: number): void;
   /** Rebuilds the world on a different seed, keeping the current mission. */
   useSeed(seed: number): void;
@@ -320,10 +325,23 @@ export class Inspector {
     // back to the pre-fix terrain estimate, and a readout whose whole claim is that it
     // reports what the campaign enforces cannot be building a different radar than the
     // campaign actually placed.
-    const world = worldAt(id, this.host.mastX(), this.host.mastY(), this.host.ranks(), this.host.seed());
+    //
+    // `worldAt` only gives the authored ledger now — colonies and any terrain-anchored
+    // dig are resolved here too, the same way `Game.loadMission` does it, off the live
+    // canyon (`this.host.terrain()`), or this readout would silently stop showing
+    // colonies and stop catching colony-layout violations. See `Game.loadMission`.
+    const terrain = this.host.terrain();
+    const worlds = missionWorlds(this.host.mastX(), this.host.mastY(), terrain);
+    const current = worlds(id);
+    // The same growth pass `Game.loadMission` runs, off the same live canyon — a
+    // readout whose whole claim is that it reports what the campaign enforces cannot be
+    // growing a different colony than the campaign actually built.
+    const plan = planColonies(id, worlds, this.host.ranks(), this.host.seed(), terrain);
+    const allProps = [...current.props, ...plan.colonies];
+
     const counts = new Map<string, number>();
-    for (const p of world.props) counts.set(p.kind, (counts.get(p.kind) ?? 0) + 1);
-    const issues = checkLayout(world.props, world.digs);
+    for (const p of allProps) counts.set(p.kind, (counts.get(p.kind) ?? 0) + 1);
+    const issues = checkLayout(allProps, current.digs, undefined, terrain, plan.network.channels);
 
     const pads = this.host.pads();
     const target = this.host.targetPad();
@@ -334,7 +352,7 @@ export class Inspector {
     this.stats.innerHTML = `
       <span>floor@0 <b>${floor.toFixed(1)}</b></span>
       <span>${[...counts].map(([k, n]) => `${k} <b>${n}</b>`).join(' &middot; ')}</span>
-      <span>digs <b>${world.digs.length}</b></span>
+      <span>digs <b>${current.digs.length}</b></span>
       <span>pads <b>${pads.length}</b></span>
       <span>target <b>${target ? `${target.id} (${target.x}, ${target.y.toFixed(1)})` : 'none'}</b></span>
       <span class="${issues.length ? 'bad' : 'good'}">layout ${
