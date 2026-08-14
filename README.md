@@ -41,5 +41,5 @@ Detailed documentation is organized in the [`docs/`](docs/) directory:
 
 - **[Telemetry Dialogue System](docs/plans/telemetry_dialogue_system.md)**: Multi-card Guidance AI pre-mission telemetry uplink system.
 - **[Campaign Narrative Enhancements](docs/plans/campaign_narrative_enhancements.md)**: Ixion shutdown visual shifts, AI corridor diagnostics, and shaft acoustic audio effects.
-- **[Mycelial Colony Growth](docs/plans/mycelial_colony_growth.md)**: The live model — three colonies growing as branching filaments across the canyon's rock, competing for substrate, with a permanent flight channel reserved to the rim for every pad ever built.
+- **[Mycelial Colony Growth](docs/plans/mycelial_colony_growth.md)**: The live model — three colonies growing as branching filaments across the canyon's rock, competing for substrate. Every pad standing keeps a flight channel to the rim, and routes merge into a shared trunk as they climb rather than each reserving a column of their own. Nothing is reserved before the pad that needs it exists, so a new approach can demolish what stood in it — deterministically, so a retry replays the same canyon.
 - **[Procedural Colony Growth](docs/plans/procedural_colony_growth.md)**: Superseded by the above; kept as the record of the voxel/WFC-lite model that shipped before it and why it was replaced.

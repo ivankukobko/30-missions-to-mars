@@ -34,7 +34,9 @@ const colony = (x: number, cols = 1, rows = 1): Prop => {
   const cells = [];
   for (let c = 0; c < cols; c++) {
     for (let r = 0; r < rows; r++) {
-      cells.push({ x: x + c * 12, y: r * 12, links: 0, scaffold: false });
+      // z=0 throughout: the play plane is the only layer `checkLayout` judges, so a
+      // fixture built anywhere else would be invisible to every rule under test.
+      cells.push({ x: x + c * 12, y: r * 12, z: 0, links: 0, scaffold: false });
     }
   }
   return {

@@ -1,5 +1,5 @@
 import { clamp01 } from './Noise.ts';
-import type { Lattice } from './ColonyLattice.ts';
+import { COLONY_LAYERS, type Lattice } from './ColonyLattice.ts';
 
 /**
  * What each cell of the lattice is made of, measured from the real per-seed terrain
@@ -23,16 +23,23 @@ export type Substrate = 'solid' | 'surface' | 'open';
 /** `heightAt(x, 0)` for many `x` with the z=0 row resolved once — see
  *  `CanyonGenerator.sampleFloorRow`. The only terrain call this module makes. */
 export interface SubstrateTerrain {
-  sampleFloorRow(xs: number[], includeDigs?: boolean): number[];
+  sampleFloorRow(xs: number[], includeDigs?: boolean, z?: number): number[];
 }
 
 export interface SubstrateField {
-  at(col: number, row: number): Substrate;
+  /**
+   * What a cell is made of. `layer` is the colony layer (`COLONY_LAYERS`), defaulting to
+   * the play plane — **the rock profile is genuinely different at each depth**, because a
+   * canyon wall flares and wanders in z as well as y. Sampling one profile for all three
+   * would put a module inside the wall on one layer and floating clear of it on another,
+   * which is the kind of error that is invisible in a test and obvious on screen.
+   */
+  at(col: number, row: number, layer?: number): Substrate;
   /** Out of bounds counts as solid: a column nobody measured is not verified open air.
    *  The old mask learned this the hard way — it returned "available" outside its own
    *  sampled range, and an anchor search walked 240 units past the far canyon wall onto
    *  ground that had never been looked at. */
-  isSolid(col: number, row: number): boolean;
+  isSolid(col: number, row: number, layer?: number): boolean;
 }
 
 /** Samples across a cell's width, as fractions of `cellSize` so the rule survives a
@@ -65,34 +72,44 @@ export function buildSubstrate(terrain: SubstrateTerrain, lattice: Lattice): Sub
    * the substrate a pure function of the seed, the replay identical every mission, and
    * growth strictly additive.
    */
-  const heights = terrain.sampleFloorRow(xs, false);
-
-  const solid = new Uint8Array(lattice.cols * rows);
-  for (let col = colLo; col <= colHi; col++) {
-    const off = (col - colLo) * SAMPLES.length;
-    for (let row = 0; row < rows; row++) {
-      const yLo = lattice.worldY(row) - cellSize / 2;
-      let covered = 0;
-      for (let s = 0; s < SAMPLES.length; s++) covered += clamp01((heights[off + s] - yLo) / cellSize);
-      if (covered / SAMPLES.length > 0.5) solid[lattice.index(col, row)] = 1;
+  /** One coverage mask per layer, each sampled at that layer's own depth. */
+  const masks = new Map<number, Uint8Array>();
+  for (const layer of COLONY_LAYERS) {
+    const heights = terrain.sampleFloorRow(xs, false, lattice.worldZ(layer));
+    const solid = new Uint8Array(lattice.cols * rows);
+    for (let col = colLo; col <= colHi; col++) {
+      const off = (col - colLo) * SAMPLES.length;
+      for (let row = 0; row < rows; row++) {
+        const yLo = lattice.worldY(row) - cellSize / 2;
+        let covered = 0;
+        for (let s = 0; s < SAMPLES.length; s++) covered += clamp01((heights[off + s] - yLo) / cellSize);
+        if (covered / SAMPLES.length > 0.5) solid[lattice.index(col, row)] = 1;
+      }
     }
+    masks.set(layer, solid);
   }
 
-  const isSolid = (col: number, row: number): boolean => {
+  const isSolid = (col: number, row: number, layer: number = 0): boolean => {
     // Below row 0 is beneath the canyon's own lowest floor point, so it is rock
     // everywhere by construction — which is also what makes every open row-0 cell a
     // surface cell without a special case for "resting on the ground".
     if (row < 0) return true;
     if (!lattice.inBounds(col, row)) return true;
-    return solid[lattice.index(col, row)] === 1;
+    // A layer nobody measured is rock, for the same reason out of bounds is.
+    return (masks.get(layer) ?? masks.get(0)!)[lattice.index(col, row)] === 1;
   };
 
   return {
     isSolid,
-    at(col, row) {
-      if (isSolid(col, row)) return 'solid';
+    at(col, row, layer = 0) {
+      if (isSolid(col, row, layer)) return 'solid';
+      // Adjacency is judged within the layer: a filament creeps along the rock face it can
+      // actually touch, and the face at this depth is the one it is standing against.
       const touching =
-        isSolid(col, row - 1) || isSolid(col, row + 1) || isSolid(col - 1, row) || isSolid(col + 1, row);
+        isSolid(col, row - 1, layer) ||
+        isSolid(col, row + 1, layer) ||
+        isSolid(col - 1, row, layer) ||
+        isSolid(col + 1, row, layer);
       return touching ? 'surface' : 'open';
     },
   };

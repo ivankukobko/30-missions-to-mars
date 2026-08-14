@@ -6,16 +6,53 @@
 `ColonyGeneration.ts`, `ColonyAvailability.ts`, their tests and the `?growth` demo scene
 are all deleted. `Game.loadMission` and the inspector both call `planColonies`.
 
-### The guarantee
+### Where it stands
 
-**A colony never disappears and never loses a cell.** Measured over six seeds × thirty
-missions — 486 corp-missions: zero disappearances, zero colonies under ten cells, zero
-cells lost, smallest colony 13 cells, median 26. `ColonyPlan.test.ts` holds this as a
-test over every consecutive mission pair, asserting *cell-position inclusion* rather than
-counts, because a count that merely stays level would also pass for a colony demolished
-and regrown somewhere else the same size — which is exactly what used to happen.
+Measured across seven seeds × thirty missions, counting from mission 10 so a corp that has
+only just arrived is not scored as starving — 441 corp-missions: **zero with a play-plane
+face under ten cells**, median face 39, median colony 45 including the layers behind it,
+median width-to-height 0.50 (it was 0.27 when a colony read as four times taller than
+wide). Routes reserve **14–16%** of the open lattice by mission 30, and the widest corridor
+in the upper canyon is one or two cells. Every cell lost anywhere in the sweep is a cell a
+flight channel or risen rock now occupies.
 
-Four things make it structural rather than lucky. Each replaced a measured failure:
+### Nothing is reserved before it exists
+
+**Ground becomes forbidden on the mission its structure appears, and not one mission
+earlier.** A pad reserves its deck, its bench and its flight channel when the pad is built;
+a shaft reserves its mouth when it is driven. The forbidden set at mission *m* is derived
+from the pads and digs standing at mission *m*, and nothing else — `planColonies`
+re-rasterises the whole network on each step of its campaign walk.
+
+This replaced the opposite rule, and the trade is worth stating plainly because the old
+rule was load-bearing for a guarantee that is now gone. Rasterising the whole campaign's
+network once, from mission one, made the forbidden set monotonic: it could never grow, so
+growth could only ever add, so **a colony could never lose a cell** — structurally, not
+luckily. What it cost was a canyon full of keep-out for approaches nobody had flown. On
+mission 1 the player was looking at mission 30's airspace: around a third of the open
+lattice sterile before the second delivery, and every colony in the game grown around
+obstacles that were not there yet.
+
+So a colony can lose ground again, in exactly one way: a route appearing this mission
+through cells it already occupies (`growColony` drops those from `existing`). That is a
+legible event — the charter cleared its own approach — bounded by the width of one
+channel, and it happens where the player can watch it happen.
+
+**What replaced "never shrinks" is determinism.** A colony losing cells to a new approach
+is a campaign event; a colony losing *different* cells when the player retries the mission
+is unfairness they cannot argue with, because the world they crashed into is not the world
+they get back. `planColonies` is a pure function of (mission, seed, ledger), so a retry
+replays the identical demolition. `ColonyPlan.test.ts` asserts both halves: every cell
+that disappears is a cell a channel now occupies, and planning the same mission twice is
+byte-identical.
+
+A *decommissioned* pad keeps its reservation. That is not premature — the route was flown
+and the ground stayed clear the whole time it was — and releasing it would let a colony
+grow into a corridor that was open air a mission ago, which reads as structure appearing
+out of nothing rather than as a colony growing.
+
+Three things that were structural are still structural, and each replaced a measured
+failure:
 
 1. **Growth walks the campaign forward.** `planColonies` replays missions 1..N, each
    starting from what the last actually built, rather than deriving mission N alone.
@@ -24,24 +61,127 @@ Four things make it structural rather than lucky. Each replaced a measured failu
    reserves a route, and a route landing on a colony's home does not merely stop it, it
    moves the spore search and regrows a different colony. Sixteen shrink events across
    three seeds, including Helion dropping 45 cells to 9 the mission its own cavern route
-   appeared, and staying there for eleven missions.
-2. **Every route the campaign will ever have is reserved from mission one.** A colony is
-   drawn toward its own corp's pads, so it builds densely exactly where that corp's *next*
-   pad goes, and that pad's route then demolishes it. Twelve demolitions, one taking
-   Ixion's entire sixteen-cell colony to nothing at mission 2. The cost is a permanent gap
-   where a future approach will be, which reads as canyon.
-3. **The canyon is graded for the whole campaign at once** (`campaignPadSites`). Levelling
+   appeared, and staying there for eleven missions. This is what keeps a demolition a
+   *demolition* rather than a relocation.
+2. **The canyon is graded for the whole campaign at once** (`campaignPadSites`). Levelling
    a bench under a pad moves terrain; grading one mission at a time meant the ground a
    colony was grown on changed underneath it. Ixion's entire mission-1 colony relocated at
-   mission 2 when the first pad's bench appeared under it.
-4. **Growth reads the natural rock, excavations excluded** (`ColonySubstrate.ts`). Digging
+   mission 2 when the first pad's bench appeared under it. Note this is *grading*, not
+   reserving — the terrain has to be one shape for the whole replay or history rewrites
+   itself; airspace does not.
+3. **Growth reads the natural rock, excavations excluded** (`ColonySubstrate.ts`). Digging
    Kessler's shaft at mission 15 altered the ground near x=60 enough to flip a race Ixion
    had won for fourteen missions; twelve of its cells came back as Kessler's. Nothing was
    demolished — the cells were never built, by a colony recomputing a past it no longer
    had. Excavations only remove rock, so ignoring them makes the substrate a pure function
    of the seed.
 
-Cost: about 3ms per mission step, against a canyon build's 800ms.
+Cost: about 3ms per mission step, against a canyon build's 800ms. Re-rasterising per
+mission rather than once did not change that materially.
+
+### Paths collapse into one wherever one is present
+
+A climb that arrives in a column another route already occupies **adopts that route's
+points verbatim and stops** (`routeFor`). Above the merge the two are one polyline: one
+corridor, one reservation, however many pads share it. Routes are laid deepest-deck-first,
+so the longest climb establishes the trunk and everyone else joins it. Two roads running
+side by side up the same canyon are two corridors' worth of keep-out doing one corridor's
+job, and no player reads them as anything but a wide red band.
+
+**Joining and trunk-seeking are separate rules, and only the second is height-gated.**
+Joining a way that already exists happens at any height, because it costs nothing — the
+column is already reserved by whoever got there first. Bending toward the canyon's
+*centreline* when there is nothing to join is gated to `CONVERGE_ABOVE` (35% of lattice
+height), because that is the half that costs floor: a route leaning inward from row 0 puts
+the trunk on the same columns as `outpost-main`'s own deck and bench, and between them they
+leave no unreserved floor at all. Measured on seed 12345, rows 0 and 1 came out with two
+free cells in the entire canyon, both against the east wall — so Ixion, whose home is the
+middle of the floor, rooted on Kessler's wall instead and Kessler finished with one cell.
+
+Merging is what made convergence affordable at all. Steering every route at the middle
+*without* it is measurably worse than leaving them straight — 77 of 486 corp-missions under
+ten cells against 0 — because the diagonals cost ground on the way in and the routes still
+ended in separate columns.
+
+One consequence worth knowing: **a route is no longer fixed once laid.** A pad added this
+mission can re-lay the trunk, and the ways feeding it move with it, so ground is released
+as well as taken. That is why the demolition test walks consecutive missions rather than
+checkpoints — sample every fifth mission and a cell taken by a corridor at 17 reads as
+"lost to nothing" at 19, because by 19 the corridor has moved on.
+
+### The colony is three layers deep
+
+`COLONY_LAYERS` is `[-1, 0, 1]` — the play plane and one layer in front of and behind it,
+a cell-size apart. Every problem this model has fought is the same shortage, which is that
+a canyon cross-section has no spare volume: Ixion hemmed into a one-column slot, a corridor
+costing a charter its ground, free cells stranded in pockets nothing can reach. Three
+layers is three times the buildable volume without widening the canyon by a unit.
+
+**Only layer 0 is the play plane**, and the rule has to be one rule in three places or it
+is not a rule: it carries the colliders (`PhysicsWorld` is a 2D cross-section — `addBox`
+has no depth argument), it is the only layer `Layout.ts` judges, and it is the only one a
+flight channel reserves. The layers front and back therefore build *straight past* a
+corridor, which is most of what depth is for: a route becomes a slot cut through a deep
+mass rather than a gap the settlement politely grew around.
+
+**Depth is a last resort, and it has to be a rule rather than a weight.** A depth move can
+only be scored as a flat constant — the cell behind is the same column, the same row, the
+same distance from every attractor and every apex — and a flat constant competes with the
+*average* in-plane score rather than the best one, so it wins far more often than it looks
+like it should. At 0.45 colonies reached 65 cells while the play-plane face collapsed from
+40 to 12, with 121 of 441 corp-missions under a ten-cell face. Dropping the constant to
+0.05 only moved the number to 66. Gating it on viability instead — depth offered only when
+a tip has nothing worth doing on its own layer — got to 43, and gating it at the *colony*
+level (`budTips`, which is the only thing that looks at every cell a corp owns) got to
+**zero**, with the face back to a median of 39. A tip stuck in a corner must defer to the
+face the colony still has elsewhere; letting it turn backwards was worth twenty cells of
+silhouette a mission.
+
+**The rock profile is sampled per layer.** A canyon wall flares and wanders in z as well as
+y, so one profile for all three would put a module inside the wall on one layer and
+floating clear of it on another — invisible in a test, obvious on screen.
+
+**Depth is where flying well becomes visible, and this was not designed — it fell out.**
+A budget is `4 + 66·maturity + 16·quality`, and depth only unlocks once the face is full,
+so the sixteen cells that landing ranks are worth are almost exactly the cells that spill
+into the layers behind. A rank-C campaign spends its whole allowance on the face and stays
+one layer deep; an S campaign is two layers deep by the middle of the campaign. Measured on
+seed 631729407 at mission 16, Kessler is `z0:35` with no ranks and `z−12:17 / z0:34` with
+all S; by mission 30 it is `z−12:50 / z0:34` — more structure behind the play plane than on
+it, with the face still healthy. **Every sweep quoted in this document uses empty ranks**,
+so the figures here are the floor rather than the typical case.
+
+Rendering: one merged mesh set per corp *per layer*, so a layer can be dimmed and shrunk
+with distance (`LAYER_DIM`, `LAYER_SHRINK`) and the front layer faded (`FRONT_OPACITY`) so
+it cannot hide the lander. Transparency rather than culling — a hole where a building
+should be is worse than a translucent building. Only the play plane casts shadows.
+
+### Pads and floor bores are snapped to the lattice
+
+`snapToColumn` moves every authored pad and every floor-mounted bore onto the nearest
+column centre — at most half a cell of drift, on positions that were round numbers somebody
+typed in the first place. A wall bore is left alone: its `x` *is* the wall face, and the
+mouth ring, cave roof and bore geometry are all built from it.
+
+Keep-out is rasterised per cell, so an approach running *between* two columns takes both —
+twenty-four units of canyon for a corridor that needs twelve — and the deck keep-out either
+side does the same. With the reservations narrowed to what the layout rules actually
+require (the columns a deck genuinely overlaps, rather than `width/2 + cellSize/2`; one
+bore-width of headroom over a mouth, rather than a chimney to the rim), the whole network
+came down hard:
+
+| | before | after |
+|---|---|---|
+| reserved share of open lattice | 30–38% | **18–23%** |
+| widest corridor, upper canyon | 4 cells | **1–2 cells** |
+| median colony (441 corp-missions) | 33 | **37** |
+| corp-missions under ten cells | 7 | **0** |
+
+The mouth change needed `Layout.cappedFloorMouth` to grow a height test — it had none, so a
+colony module a hundred and fifty units up capped a shaft it could not reach, and the
+reservation had to run that high to stay a superset of the check. One bore-width above the
+lip is the honest reading of "at the doorway"; above that the descent is governed by the
+route check, which measures the real approach.
 
 ### Source, gravity and shape are separate, per corp
 
@@ -49,19 +189,96 @@ The three things that decide where a colony is and what it looks like are indepe
 knobs, which is what makes a corp's character something you configure rather than
 something you fight:
 
-- **Source** — its spore, where the colony starts (`sporeFor`).
-- **Gravity** — the point it leans toward as it grows (`apex`, weighted by `W_APEX`).
-  Wall corps lean at the lattice's top centre; Ixion leans at the canyon's own bottom
-  centre, because it is the outpost on the floor.
+- **Source** — its spore, where the colony starts (`sporeFor`). Home is the corp's own
+  side of the *canyon*, never its first pad's column: `outpost-main` sits at x −14, so
+  rooting Ixion at its pad shifts its whole search window west of centre and it goes
+  hunting on Helion's half.
+- **Gravity** — the points it leans toward as it grows (`apex`, weighted by `W_APEX`), and
+  a **set**, not one point, pulled to whichever is nearest. All three lean at the canyon's
+  top centre, which is what makes them arch in toward each other over the descent; for
+  Ixion that point is straight overhead, so the lean is a pure climb.
+
+  Ixion held the canyon's *bottom* centre for a while and it was wrong in a way the narrow
+  seeds make obvious: a gravity point on the floor makes every upward move score negative,
+  so a colony can only spend its budget sideways — and Ixion's budget arrives four missions
+  before either rival exists. On seed 631729407 it had 36 cells by mission 5, laid flat
+  across the east half of the floor and stopping dead at row 7, and Kessler landed at
+  mission 6 to find its ground already built on. It also contradicted the pine shape below.
+  What had made the floor point look necessary was a different bug — with skyward gravity
+  Ixion used to cross the canyon and climb the *far wall*, because a rival's roof counted as
+  footing and the trunk sealed the middle from row 0. Neither is true any more, and the
+  shared skyward point took median width-to-height from 0.27 to 0.50.
 - **Shape** — per-corp multipliers on the lateral preference and the height cost
   (`shape`). Ixion grows as a pine: the floor between the routes is all the width it will
   ever have, so it spends its budget upward instead of starving against the sides.
+
+**A corp's own mid-air pads are gravity points too.** A deck bolted to structure at row 12
+is somewhere the charter is obliged to be able to reach, so growth leans toward it, climbs
+to it, and the scaffolding that appears underneath is structure the colony built for its
+own reasons. The first attempt wrote those cells straight into the map beneath each raised
+deck — bypassing support, budget and build order, so the "scaffolding" could stand in mid
+air, belonged to no tip, and was invisible to every invariant the organism enforces.
+Expressing it as gravity costs one term and cannot produce anything the model would not
+have built anyway. Only pads genuinely in the air qualify: a deck down a bore or in a wall
+face reads as solid substrate, and pulling a colony at rock only leans it into the wall.
 
 **Spore selection must be nearest-first.** Picking the *roomiest* candidate instead was
 tried and is badly wrong: the roomiest ground in the canyon is whichever wall is least
 built on, so Ixion walked over and took the ground Helion was going to root in, and 75 of
 486 corp-missions fell under ten cells. Roominess survives only as a tie-break between
 candidates at equal distance.
+
+**A starved corp gets a second nucleus, and this is the mechanism that carries the floor.**
+A spore can land in a pocket that rock, a route and a bore mouth between them close off,
+and because growth resumes from what already stands, that corp is otherwise stuck with its
+bad start for the rest of the campaign. `ColonyPlan` offers another spore to any corp
+below `STARVED` of what it should have built; the new tip is added as a second front
+rather than replacing the work in progress.
+
+`growColony` used to refuse it — "already standing, no second spore" — which made the
+whole rescue path dead code and cost exactly what you would predict: Kessler spored into a
+dead pocket on seed 2135022333 and sat at **one cell from mission 10 to the end of the
+campaign**, the only corp-mission under ten cells in six seeds. Honouring the spore took it
+to 40 and took the count of starved corp-missions to zero.
+
+### A budget is capped by ground, not just by progress
+
+**A corp's allowance is `min(what the campaign earned it, what it can actually reach)`** —
+standing cells plus a flood fill out of them through free lattice (`reachableGround`).
+
+Earned-only was what turned the rescue mechanism into an invasion, and the narrow-canyon
+seeds show it plainly. On seed 631729407 Ixion is entitled to 45 cells by mission 30 and
+its slot on the canyon floor is *one column wide*, boxed by descent corridors on both
+sides. Permanently short of an allowance it had nowhere to spend, it read as permanently
+starved, took a new nucleus every mission, and walked outward until it was sitting across
+both other charters' walls — 45 cells in three disconnected masses. Capped, the same corp
+builds 12 and stops, Helion holds the west at 52 and Kessler the east at 50.
+
+The cap is what makes the starvation flag mean *boxed in* rather than *modest*. A corp in
+a small pocket is contained: its allowance shrinks to fit and it asks for nothing. A corp
+in a genuinely dead pocket has almost no reachable ground, so its cap sits at its standing
+count and it is starved — which is the case the rescue spore exists for.
+
+Two territory rules go with it:
+
+- **Only a corp's own structure carries its load** (`reachOf`). Rock holds anybody up; a
+  charter does not bolt its modules to a competitor's roof. Reading a rival's cell as
+  footing is a free storey, and Ixion took it — boxed into its one-column slot, the only
+  move left was up, and Helion's colony was the nearest thing to climb. Four rows deep
+  across Helion's roof. `W_RIVAL` cannot fix this: a scoring penalty does not compete with
+  the alternative being *no legal move at all*.
+- **A rescue spore may not land on a rival's doorstep** — the eight-neighbourhood, not just
+  the cell. The cell above a standing colony is as much an invasion as the cell itself.
+  `OUTPOST_RANGE` also has to actually bind: it used to bound the search's cost loop while
+  the per-candidate gate tested a limit that, for a corp already standing, was the whole
+  canyon.
+
+**Attraction to pads is a ramp, not a switch.** `homeward` fades in over six cells. Making
+it a step — full pull until one cell away, then nothing — was tried with `W_ATTRACT` at
+2.5 and starves colonies outright: any move away from a pad then scores −2.5 against a
+−0.3 death threshold, so a colony becomes a one-cell-wide filament aimed at its own pad
+and every tip dies on arrival. Kessler finished the campaign with a single cell on two of
+five seeds.
 
 ### Sideways branches
 
@@ -72,25 +289,36 @@ ground, a colony's own roof, or two neighbours all count as load-bearing.
 
 ### Open, with measurements
 
-- **Exits should lean toward the canyon's middle as they climb, and do not yet.** This is
-  the biggest single item. Each pad ascending in its own column slices the upper canyon
-  into as many narrow vertical strips as there are pads; colonies fill the strips, and
-  that — not anything in the growth rules — is why a colony comes out four times taller
-  than wide. Converging the routes on the canyon's real centreline measurably fixes it
-  (width/height 0.27 → 0.31–0.50, median colony 26 → 37 cells) but at today's capacity it
-  strangles whoever lives at the middle, which is Ixion by construction: 77 corp-missions
-  under ten cells, and 127 if the convergence is limited to the upper canyon — worse,
-  because colonies climb to rows 13–14 and that is precisely the ground it takes.
-- **Depth is the unlock.** Two or three z-layers multiply buildable volume without
-  touching the canyon's cross-section, which is exactly the capacity convergence spends.
-  These two should land together. The growth rules are written so a third axis is an
-  added neighbour set, not a rewrite.
-- **Ixion drifts off the canyon middle on some seeds** — 32 units west on seed
-  2135022333, because the middle is fully reserved there and the spore search walks
-  outward. Raising its gravity did not move it (the spore, not the growth, is what is
-  displaced); the fix belongs in how much of the middle the routes reserve.
+- **The free middle of the canyon is unreachable, and this is the next real problem.**
+  Reserved columns cut the open space into islands. A filament can never step through a
+  reserved cell, so a pocket of free cells with a channel between it and the nearest colony
+  stays empty for the whole campaign — on seed 12345 row 5 reads Helion, reserved, three
+  free, reserved, Ixion. Nor can anything *start* there: a spore needs a `surface` cell,
+  open air touching rock, and mid-canyon cells touch nothing. **Scaffold is the candidate
+  fix** — today it is only a render state (the last-built ring drawn as bare frame), and
+  making it a growth affordance would let a colony throw a cheap span toward an island and
+  build rooms off it. Channels stay absolute either way.
+- **Carving, rather than avoiding.** Growth currently treats channels as pre-existing walls
+  and fills what is left, which is why the free middle fragments into islands and why a
+  colony's shape is decided by corridors that were reserved before it started. The
+  alternative is to grow against rock only and *subtract* the network afterwards — the same
+  cells end up clear, but the settlement is one that grew and then had a lane cut through
+  it, which is both the mycelial read and the "narrow and walled" difficulty this document
+  already asks for. It needs a settle pass (carving out from under a mass leaves cells with
+  nothing supporting them, and the drop can cascade) and it means budget spent on cells that
+  are then cut away. Determinism is unaffected; subtraction is still a pure function of the
+  mission.
+- **A colony can be cut into disconnected pieces and nothing notices.** A route appearing
+  through the middle of one leaves two masses that still report as a single prop with a
+  single footprint. It looks fine and may even read well; it is simply not modelled.
+- **Ixion drifts off the canyon middle on some seeds**, because the middle is reserved
+  there and the spore search walks outward. Raising its gravity does not move it: the
+  spore, not the growth, is what is displaced.
 - **The colony should read wilder and more organic.** Still a regular stack of modules
   rather than a branched mass.
+- **The parallax backdrop rows are switched off** (`BACKDROP_ROWS_ENABLED`, `Colony.ts`)
+  while the grown shape is being tuned. They echo whatever the play plane is doing, so
+  they double every silhouette under evaluation. A viewing decision, not a verdict.
 
 Supersedes `procedural_colony_growth.md`, which stays as the design record of what was
 tried and what it cost. That model shipped and is live in the campaign; this one replaces

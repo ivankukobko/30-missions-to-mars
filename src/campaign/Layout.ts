@@ -274,14 +274,36 @@ function cappedFloorMouth(
    * obstruction is how the first draft of this rule decided the Kessler shaft was
    * sealed by the very pad it exists to deliver to.
    */
+  /**
+   * How far above the opening a structure still counts as standing in the doorway.
+   *
+   * This rule used to have no height test at all: any collider sharing the bore's x
+   * capped it, at any altitude, so a colony module a hundred and fifty units up sealed a
+   * shaft it could not reach. The consequence was not academic — the reservation that
+   * keeps growth out of a mouth had to run the full height of the canyon to stay a
+   * superset of this check, three columns from the floor to the rim, which on a narrow
+   * seed is most of the ground the outpost has.
+   *
+   * One bore-width above the lip is the honest reading of "at the doorway". Beyond that
+   * you are flying in the canyon rather than entering the hole, and the descent is
+   * already governed by the route check (`channelIntrusions`), which measures the real
+   * approach rather than a vertical column.
+   *
+   * Measured against the floor datum, the same y=0 approximation for ground level this
+   * module makes everywhere else — see `checkLayout`.
+   */
+  const headroom = d.halfWidth * 2;
+
   const blockerSpans: Array<{ prop: Prop; sx: [number, number] }> = [];
   for (const p of props) {
     if (!hasCollider(p) || occupants.some((pad) => pad === p)) continue;
     if (p.kind === 'colony') {
       for (const col of colonyCells(p, 0)) {
+        if (col.sy[0] >= headroom) continue;
         if (overlaps(col.sx, [west, east])) blockerSpans.push({ prop: p, sx: col.sx });
       }
     } else {
+      if (spanY(p)[0] >= headroom) continue;
       const sx = spanX(p, MARGIN);
       if (overlaps(sx, [west, east])) blockerSpans.push({ prop: p, sx });
     }
@@ -524,6 +546,10 @@ function channelIntrusions(props: Prop[], channels: Channel[], owner?: Map<Prop,
     for (const channel of channels) {
       let worst = 0;
       for (const cell of p.cells) {
+        // The play plane only — a channel is airspace at z=0, and the layers in front of
+        // and behind it carry no colliders and stand in nothing's way. Same rule as
+        // `colonyCells`; see its doc comment.
+        if (cell.z !== 0) continue;
         for (let i = 0; i + 1 < channel.points.length; i++) {
           const gap = pointToSegment(cell.x, cell.y, channel.points[i], channel.points[i + 1]) - half;
           if (gap < CHANNEL_HALF) worst = Math.max(worst, CHANNEL_HALF - gap);
@@ -569,10 +595,18 @@ function colonyCells(p: Extract<Prop, { kind: 'colony' }>, m: number = 0): Array
   sy: [number, number];
 }> {
   const half = p.cellSize / 2;
-  return p.cells.map((cell) => ({
-    sx: [cell.x - half - m, cell.x + half + m] as [number, number],
-    sy: [cell.y - half, cell.y + half] as [number, number],
-  }));
+  /**
+   * **The play plane only.** A colony is three layers deep (`COLONY_LAYERS`); the ones in
+   * front of and behind z=0 carry no colliders and stand in nobody's way, so every rule in
+   * this module — deck, corridor, mouth, channel — has to be blind to them. Judging them
+   * would report a pad blocked by a module the lander flies straight past.
+   */
+  return p.cells
+    .filter((cell) => cell.z === 0)
+    .map((cell) => ({
+      sx: [cell.x - half - m, cell.x + half + m] as [number, number],
+      sy: [cell.y - half, cell.y + half] as [number, number],
+    }));
 }
 
 /**

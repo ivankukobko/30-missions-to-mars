@@ -68,6 +68,29 @@ function frameMembers(cell: PlacedCell, size: number, z: number): THREE.BufferGe
   return out;
 }
 
+/**
+ * How much a layer is dimmed and shrunk per cell-size of depth away from the play plane.
+ *
+ * Aerial perspective doing the work a fog shader would: the layers are only twelve units
+ * apart, which the camera's own perspective barely separates at flight distance, so
+ * without this the three read as one crowded plane and the play plane stops being legible.
+ * Darkening the back and lightening nothing is deliberate — the canyon's fog already
+ * lifts distant surfaces, and a back layer that both dims *and* narrows looks further away
+ * than twelve units has any right to.
+ */
+const LAYER_DIM = 0.34;
+const LAYER_SHRINK = 0.12;
+
+/**
+ * The layer between the camera and the lander, faded so it cannot hide the vehicle.
+ *
+ * The one thing depth genuinely costs: a module at z = +cellSize sits in front of the play
+ * plane and would occlude the thing the player is flying. Transparency rather than culling,
+ * because a hole where a building should be is worse than a translucent building — the
+ * colony still reads as solid mass, the lander still reads as in front of it.
+ */
+const FRONT_OPACITY = 0.22;
+
 export function buildColonyCells(
   scene: THREE.Scene,
   corp: CorpId,
@@ -77,51 +100,102 @@ export function buildColonyCells(
   depth: number,
 ): THREE.Object3D[] {
   const theme = CORPS[corp];
-  const hulls: THREE.BufferGeometry[] = [];
-  const frames: THREE.BufferGeometry[] = [];
-  const walks: THREE.BufferGeometry[] = [];
+  const objects: THREE.Object3D[] = [];
 
+  /**
+   * One merged mesh set **per layer**, not one for the whole colony.
+   *
+   * Three times the meshes — nine per corp rather than three — and worth it twice over: a
+   * layer needs its own material to be dimmed or faded at all, and the front layer needs
+   * to be transparent independently of the two behind it. Still merged within a layer, so
+   * a few hundred cells stay a handful of draw calls rather than a few thousand.
+   */
+  const layers = new Map<number, PlacedCell[]>();
   for (const cell of cells) {
-    if (cell.scaffold) {
-      frames.push(...frameMembers(cell, cellSize, z));
-    } else {
-      const s = moduleScale(cell.links) * cellSize;
-      hulls.push(box(s, s, Math.min(s, depth), cell.x, cell.y, z));
-      // A collar on the roof so a module isn't a bare cube — cheap, and it is what makes
-      // a run of cans read as pressurised hardware rather than massing.
-      hulls.push(box(s * 0.42, s * 0.18, s * 0.42, cell.x, cell.y + s * 0.56, z));
-    }
-
-    // Walkways, drawn once per edge: only the +x and +y halves of each link pair.
-    const t = cellSize * 0.16;
-    if (cell.links & LINK.east) walks.push(box(cellSize, t, t, cell.x + cellSize / 2, cell.y, z));
-    if (cell.links & LINK.up) walks.push(box(t, cellSize, t, cell.x, cell.y + cellSize / 2, z));
+    const list = layers.get(cell.z) ?? [];
+    list.push(cell);
+    layers.set(cell.z, list);
   }
 
-  const objects: THREE.Object3D[] = [];
-  const add = (parts: THREE.BufferGeometry[], material: THREE.Material): void => {
-    if (parts.length === 0) return;
-    const merged = mergeGeometries(parts, false);
-    for (const part of parts) part.dispose();
-    if (!merged) return;
-    const mesh = new THREE.Mesh(merged, material);
-    mesh.castShadow = true;
-    scene.add(mesh);
-    objects.push(mesh);
-  };
+  for (const [layerZ, layerCells] of [...layers].sort((a, b) => a[0] - b[0])) {
+    const away = Math.abs(layerZ) / cellSize;
+    const front = layerZ > 0;
+    const shrink = 1 - LAYER_SHRINK * away;
+    const hulls: THREE.BufferGeometry[] = [];
+    const frames: THREE.BufferGeometry[] = [];
+    const walks: THREE.BufferGeometry[] = [];
+    const at = z + layerZ;
 
-  add(
-    hulls,
-    new THREE.MeshStandardMaterial({ color: theme.hull, roughness: 0.55, metalness: 0.18, flatShading: true }),
-  );
-  add(
-    frames,
-    new THREE.MeshStandardMaterial({ color: theme.hull, roughness: 0.85, metalness: 0.1, flatShading: true }),
-  );
-  add(
-    walks,
-    new THREE.MeshStandardMaterial({ color: theme.color, roughness: 0.4, metalness: 0.3, flatShading: true }),
-  );
+    for (const cell of layerCells) {
+      if (cell.scaffold) {
+        frames.push(...frameMembers(cell, cellSize * shrink, at));
+      } else {
+        const s = moduleScale(cell.links) * cellSize * shrink;
+        hulls.push(box(s, s, Math.min(s, depth), cell.x, cell.y, at));
+        // A collar on the roof so a module isn't a bare cube — cheap, and it is what makes
+        // a run of cans read as pressurised hardware rather than massing.
+        hulls.push(box(s * 0.42, s * 0.18, s * 0.42, cell.x, cell.y + s * 0.56, at));
+      }
+
+      // Walkways, drawn once per edge: only the +x and +y halves of each link pair. Links
+      // are within a layer by construction (`LINK` has no depth members), so a walkway
+      // never spans front to back — there is nothing to draw there that would read.
+      const t = cellSize * 0.16 * shrink;
+      if (cell.links & LINK.east) walks.push(box(cellSize, t, t, cell.x + cellSize / 2, cell.y, at));
+      if (cell.links & LINK.up) walks.push(box(t, cellSize, t, cell.x, cell.y + cellSize / 2, at));
+    }
+
+    const shade = (hex: number): THREE.Color => new THREE.Color(hex).multiplyScalar(1 - LAYER_DIM * away);
+    const fade = front ? { transparent: true, opacity: FRONT_OPACITY, depthWrite: false } : {};
+
+    const add = (parts: THREE.BufferGeometry[], material: THREE.Material): void => {
+      if (parts.length === 0) return;
+      const merged = mergeGeometries(parts, false);
+      for (const part of parts) part.dispose();
+      if (!merged) return;
+      const mesh = new THREE.Mesh(merged, material);
+      // Only the play plane casts: a shadow from a layer the player cannot see lands on
+      // the canyon floor with nothing above it to explain it.
+      mesh.castShadow = layerZ === 0;
+      // Behind everything opaque, so a faded front module never sorts in front of the
+      // lander's own geometry.
+      if (front) mesh.renderOrder = 1;
+      scene.add(mesh);
+      objects.push(mesh);
+    };
+
+    add(
+      hulls,
+      new THREE.MeshStandardMaterial({
+        color: shade(theme.hull),
+        roughness: 0.55,
+        metalness: 0.18,
+        flatShading: true,
+        ...fade,
+      }),
+    );
+    add(
+      frames,
+      new THREE.MeshStandardMaterial({
+        color: shade(theme.hull),
+        roughness: 0.85,
+        metalness: 0.1,
+        flatShading: true,
+        ...fade,
+      }),
+    );
+    add(
+      walks,
+      new THREE.MeshStandardMaterial({
+        color: shade(theme.color),
+        roughness: 0.4,
+        metalness: 0.3,
+        flatShading: true,
+        ...fade,
+      }),
+    );
+  }
+
   return objects;
 }
 

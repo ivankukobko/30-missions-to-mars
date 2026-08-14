@@ -523,8 +523,13 @@ export class CanyonGenerator {
    * `buildCanyon`/`buildProfile` already use internally, exposed here so a caller
    * outside the class can have it too.
    */
-  sampleFloorRow(xs: number[], includeDigs: boolean = true): number[] {
-    const row = this.row(0);
+  sampleFloorRow(xs: number[], includeDigs: boolean = true, z: number = 0): number[] {
+    // `z` defaults to the play plane, which is every caller but the colony substrate's
+    // front and back layers. A canyon wall is not a vertical sheet — it flares and wanders
+    // in depth as well as height — so a layer twelve units back genuinely has a different
+    // rock profile, and growing against the play plane's would put modules inside the wall
+    // on one layer and floating clear of it on another.
+    const row = this.row(z);
     return xs.map((x) => this.heightIn(x, row, includeDigs));
   }
 

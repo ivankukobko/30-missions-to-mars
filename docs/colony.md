@@ -36,6 +36,34 @@ reported as blocking its approach corridor. Nothing acted on the report, because
 consumer was a `console.warn` — which is the whole argument for the campaign layout check
 being a test rather than a log line.
 
+### Nothing is reserved before it exists
+
+**Ground becomes reserved on the mission its structure is built, and not one mission
+earlier.** A pad reserves its deck, its bench and its flight channel when the pad appears;
+a shaft reserves its mouth when it is driven. Before that the ground is ordinary canyon and
+the colonies may grow on it. `planColonies` re-rasterises the whole network on every step
+of its campaign walk, from the pads and digs standing at that step.
+
+This was not always the rule and the difference is worth keeping written down, because the
+alternative is genuinely tempting. Reserving the whole campaign's network once, from
+mission one, makes the forbidden set monotonic — it can only ever shrink the buildable
+canyon, never a standing colony — so a colony can never lose a cell. That guarantee is real
+and it is bought at a real price: on mission 1 the player is looking at mission 30's
+airspace, roughly a third of the canyon sterile for approaches nobody has flown, and every
+colony in the game grown around obstacles that are not there.
+
+So a new approach can demolish what stood in it. That is a legible event — the charter
+cleared its own ground — bounded by the width of one channel. What has to hold instead is
+**determinism**: the world is a pure function of (mission, seed, ledger), so a player who
+retries after a crash gets back the identical canyon, demolitions included. A colony losing
+*different* cells on a retry is the one kind of unfairness they cannot argue with.
+
+A decommissioned pad keeps its reservation. That is not premature — the route was flown and
+the ground stayed clear the whole time it was — and releasing it would let a colony grow
+into a corridor that was open air a mission ago.
+
+See `docs/plans/mycelial_colony_growth.md` for how growth consumes this.
+
 The campaign runs in six phases: the descent, the corporations arriving, the corridor
 closing, the digging, the abyss opening, and the gauntlet.
 

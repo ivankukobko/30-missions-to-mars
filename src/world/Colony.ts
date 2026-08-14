@@ -132,6 +132,16 @@ const BACKDROP_LATTICE_ROWS = 3;
 const BACKDROP_MAX_BAYS = 4;
 
 /**
+ * Off while the grown colony's own shape is being tuned.
+ *
+ * The parallax rows echo whatever the play plane is doing (`buildBackdropColony`), so
+ * they double every silhouette under evaluation and make it genuinely hard to tell what
+ * the growth model just produced from what is depth. They cost nothing to switch back on
+ * and nothing about them is in question — this is a viewing decision, not a verdict.
+ */
+const BACKDROP_ROWS_ENABLED = false;
+
+/**
  * The navigation radar's moving parts.
  *
  * It sits a little *behind* the play plane. In front would have been worse than it
@@ -579,7 +589,7 @@ export class Colony {
     this.radar = null;
 
     this.buildClaimMarkers(canyon);
-    this.buildBackdropColony(props, canyon);
+    if (BACKDROP_ROWS_ENABLED) this.buildBackdropColony(props, canyon);
 
     for (const prop of props) {
       switch (prop.kind) {
@@ -641,9 +651,14 @@ export class Colony {
 
   private buildPad(prop: Extract<Prop, { kind: 'pad' }>, canyon: CanyonGenerator): void {
     const corp = CORPS[prop.corp];
+    const groundY = canyon.heightAt(prop.x, 0, true);
     // A ground pad rests just above the terrain rather than flush with it, so the
     // pad collider is the only surface at touchdown height.
-    const y = prop.y ?? canyon.floorAt(prop.x) + 1.3;
+    const y = prop.y ?? groundY + 1.3;
+
+    const deckZ = zSurface(DEPTH.pad);
+
+
 
     const deck = new THREE.Mesh(
       new THREE.BoxGeometry(prop.width, 0.9, DEPTH.pad),
@@ -653,7 +668,6 @@ export class Colony {
         metalness: 0.18,
       }),
     );
-    const deckZ = zSurface(DEPTH.pad);
     deck.position.set(prop.x, y - 0.45, deckZ);
     deck.receiveShadow = true;
     this.scene.add(deck);
@@ -884,8 +898,15 @@ export class Colony {
     // the channel network (`ColonyChannels.ts`) rather than by gaps in the massing, so
     // there is no case where the player needs to pass through a colony cell, and a
     // frame that stops you is the safer of the two ways to be wrong.
+    //
+    // **Only the play plane gets a collider.** The physics world is a 2D cross-section at
+    // z=0 — `addBox` has no depth argument, so a cell twelve units behind the plane would
+    // otherwise contribute a collider indistinguishable from one standing in the lane. The
+    // layers front and back are scenery, they are the only part of the colony `Layout.ts`
+    // does not judge either, and the two facts have to stay the same fact.
     const half = prop.cellSize / 2;
     for (const cell of prop.cells) {
+      if (cell.z !== 0) continue;
       this.physics.addBox(cell.x, cell.y, half, half, 'structure');
     }
   }

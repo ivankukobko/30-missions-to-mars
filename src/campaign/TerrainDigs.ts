@@ -1,5 +1,6 @@
 import type { Excavation } from '../world/CanyonGenerator.ts';
 import type { Prop } from '../world/Colony.ts';
+import { snapToColumn } from '../world/ColonyLattice.ts';
 
 /**
  * A dig anchored to the real canyon wall rather than an authored `x`.
@@ -73,6 +74,12 @@ const WALL_INSET = 6;
  *  sink just past a wall face. Own half-width added on top at the call site, so a wider
  *  dig automatically keeps its far edge clear too, not just its centre. */
 const FLOOR_CLEARANCE = 20;
+
+/** How far a pad bolted to a dig's far end stands proud of it — see `applyDigAttachments`.
+ *  Above the 1.3 a ground pad uses, and for a reason that is about reading rather than
+ *  physics: a bore's floor and its pad are the same colour in the same dark, so the deck
+ *  needs enough separation to throw a shadow of its own. */
+const DIG_PAD_LIFT = 3;
 
 /**
  * How far *further* into the wall (past the mouth itself) to sample for the bore's own
@@ -154,7 +161,20 @@ export function resolveTerrainAnchoredDigs(digs: DigEntry[], terrain: WallTerrai
     // sits at increasing x, -1 = west wall at decreasing x). A wall mount pushes past
     // the edge, into the rock; a floor mount pulls back the opposite way, staying on
     // flat floor clear of the blend — never both, never straddling it.
-    const x = onFloor ? wallX - side * (d.halfWidth + FLOOR_CLEARANCE) : wallX + side * WALL_INSET;
+    /**
+     * A floor bore is snapped to the colony lattice; a wall bore is not.
+     *
+     * A shaft driven straight down is a vertical corridor like any other, and an unsnapped
+     * one straddles two columns for its whole height — plus the mouth keep-out either
+     * side of it, which is the single widest reservation in the canyon. Half a cell of
+     * drift along a floor that was chosen for being flat costs nothing.
+     *
+     * A wall bore's `x` *is* the wall face, measured from terrain, and the mouth ring, the
+     * cave roof and the bore's own geometry are all built from it. Moving it six units
+     * would put the opening somewhere the rock is not.
+     */
+    const raw = onFloor ? wallX - side * (d.halfWidth + FLOOR_CLEARANCE) : wallX + side * WALL_INSET;
+    const x = onFloor ? snapToColumn(raw) : raw;
     // A floor mount keeps `Excavation`'s own straight-down default explicitly (not
     // omitted) so the endpoint formula below is one expression for both branches,
     // rather than a floor-mount special case that has to agree with it by hand.
@@ -196,6 +216,12 @@ export function applyDigAttachments(props: Prop[], endpoints: Map<string, DigEnd
       console.warn(`Prop attached to unknown dig "${p.attachToDig}"`);
       return p;
     }
-    return { ...p, x: end.x, y: end.y };
+    // A pad stands *on* the bore's end, not in it. Landing flush with the floor it rests
+    // on is the same mistake a ground pad avoids with its own 1.3 of lift (`buildPad`) —
+    // deck and rock end up coplanar, the platform loses its own shadow and silhouette, and
+    // at the bottom of a dark shaft it stops reading as a structure at all. A little more
+    // than the ground case, because down a bore there is no horizon behind it to separate
+    // the two. A roof gets none of this: it hangs from the far end, it does not rest on it.
+    return { ...p, x: end.x, y: p.kind === 'pad' ? end.y + DIG_PAD_LIFT : end.y };
   });
 }

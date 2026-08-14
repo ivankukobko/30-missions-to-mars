@@ -2,6 +2,7 @@ import type { Prop } from '../world/Colony.ts';
 import type { CorpId } from '../world/CanyonSpec.ts';
 import type { AirframeId } from '../entities/Airframe.ts';
 import { resolveLayout } from './Layout.ts';
+import { snapToColumn } from '../world/ColonyLattice.ts';
 import type { DigEntry } from './TerrainDigs.ts';
 
 /** What the cargo physically looks like strapped under the lander. */
@@ -69,6 +70,8 @@ export interface Mission {
    * one `docs/colony.md` already argued was worth the cost.
    */
   decommissions?: string[];
+  /** Optional cell count override per corp for this mission (e.g. capping Mission 1 outpost to 3 blocks). */
+  colonyBudget?: Partial<Record<CorpId, number>>;
 }
 
 /**
@@ -142,7 +145,12 @@ export function pad(
     kind: 'pad',
     id,
     corp,
-    x,
+    // Authored x is intent, not a measurement — every pad in the ledger is a round number
+    // somebody typed. Snapping it to the colony lattice costs at most half a cell of
+    // drift and stops the pad's own keep-out straddling two columns; see `snapToColumn`.
+    // A pad whose x comes from a dig is snapped at resolution instead (`TerrainDigs`), so
+    // that it stays on the bore's axis rather than being moved off it here.
+    x: attachToDig === undefined && xFromDig === undefined ? snapToColumn(x) : x,
     width: padWidth(width),
     ...(y === undefined ? {} : { y }),
     ...(attachToDig === undefined ? {} : { attachToDig }),
@@ -160,425 +168,26 @@ export function pad(
  * the airspace between them closes. Then the digging starts, and the game turns
  * downward: floor, then excavation, then the abyss that used to be the boundary.
  */
-export const MISSIONS: Mission[] = [
-  // ---------------------------------------------------- I. The Descent (1-4)
-  {
-    id: 1,
-    client: 'outpost',
-    payload: { name: 'Navigation Radar', mass: 0.5, shape: 'sphere' },
-    fuel: 405,
-    start: { x: 0, y: 1290 },
-    // No address. The thing that tells a lander where addresses *are* is the cargo.
-    target: null,
-    failDepth: -60,
-    brief:
-      '<b>UPLINK</b> · established<br/><b>IXION OUTPOST</b><br/>Welcome to Coprates Chasma. We are the only thing at the bottom of this canyon, and we intend to stay that way.<br/><br/>You are carrying our navigation radar. Until it is standing on the floor of this chasm you have no altimeter, no ranging and no target bearing — so put it down somewhere, anywhere, in one piece. Where you set it down is where it stays, and everything we do afterwards is measured from it.<br/><br/><b>OBJECTIVE</b> Descend past the rim. Land intact on open ground.',
-  },
-  {
-    id: 2,
-    client: 'outpost',
-    payload: { name: 'Core Samples', mass: 0.4 },
-    fuel: 380,
-    start: { x: -4, y: 1250 },
-    target: 'outpost-main',
-    failDepth: -60,
-    brief:
-      '<b>IXION OUTPOST</b><br/>Radar is up and slaved to your feed — altitude, range and target bearing, all of it off the mast you set down yesterday. Our pad is in as well, so from here on you are flying to an address.<br/><br/>You placed it better than the specification asked for. We have started calling you the navigator. It is not a rank anyone here has the standing to award, but it has stuck.<br/><br/>Second run. Watch your descent rate — the canyon floor is not forgiving and neither is the west wall.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.',
-    adds: {
-      props: [pad('outpost', 'outpost-main', -14, 16)],
-    },
-  },
-  {
-    id: 3,
-    client: 'outpost',
-    payload: { name: 'Water Reclaimer', mass: 0.8 },
-    fuel: 370,
-    start: { x: 4, y: 1230 },
-    target: 'outpost-main',
-    failDepth: -60,
-    brief:
-      '<b>IXION OUTPOST</b><br/>Heavier load today, navigator. Mass makes the airframe slow to answer — start your corrections earlier than the figures suggest.<br/><br/>The lag is worse than the mass number implies. We have never worked out why.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.',
-  },
-  {
-    id: 4,
-    client: 'outpost',
-    payload: { name: 'Claim Filings', mass: 0.2 },
-    fuel: 350,
-    start: { x: -5, y: 1250 },
-    target: 'outpost-main',
-    failDepth: -60,
-    brief:
-      '<b>IXION OUTPOST</b><br/>Two extraction charters cleared orbit this morning. Helion to our west, Kessler to our east.<br/><br/>We filed first. It will not matter, navigator, but it will be on the record — and the record is the only thing we have that they cannot dig up.<br/><br/><b>OBJECTIVE</b> Deliver the filings before the corporate survey lands.',
-  },
+import { parse } from 'yaml';
+import rawMissionsYaml from './missions.yaml?raw';
 
-  // ------------------------------------------------ II. The Corporations (5-9)
-  {
-    id: 5,
-    client: 'helion',
-    payload: { name: 'Drill Head', mass: 1.2 },
-    fuel: 380,
-    start: { x: -7, y: 1250 },
-    target: 'helion-crest',
-    failDepth: -60,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>You fly for us now. Our crest platform is live on the west approach — bring the drill head in on the platform, not the outpost slab. We pay for addresses, not effort.<br/><br/><b>OBJECTIVE</b> Deliver to HELION CREST.',
-    // Bare pad, no platform under it — the colony grown at Helion's own anchor is what
-    // will eventually stand under this height; early in Helion's arc it hasn't grown
-    // that far yet, and the pad simply reads as "not built up to yet," the same as any
-    // pad whose supporting structure the ledger hasn't authored (mission 1's radar has
-    // no platform either). Height kept at the deck's old level (66 + 1) so nothing about
-    // the approach changes.
-    adds: { props: [pad('helion', 'helion-crest', -34, 14, 67)] },
-  },
-  {
-    id: 6,
-    client: 'kessler',
-    payload: { name: 'Seismic Array', mass: 0.9 },
-    fuel: 385,
-    start: { x: 7, y: 1250 },
-    target: 'kessler-crest',
-    failDepth: -60,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Helion drills sideways. We drill down. East tower is up and the deck is waiting.<br/><br/>You will be flying one of ours. Nothing that goes down a bore has any business turning, so it does not. Try not to bend it, tin can — the frame costs more than the contract does.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER CREST.',
-    // Bare pad, same convention as helion-crest above.
-    adds: { props: [pad('kessler', 'kessler-crest', 34, 14, 73)] },
-  },
-  {
-    id: 7,
-    client: 'helion',
-    payload: { name: 'Coolant Cells', mass: 1.1 },
-    fuel: 365,
-    start: { x: 3, y: 1210 },
-    target: 'helion-crest',
-    failDepth: -60,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>Kessler has started building toward the centre line. So have we. Mind the new mast on your approach.<br/><br/><b>OBJECTIVE</b> Deliver coolant to HELION CREST.',
-  },
-  {
-    id: 8,
-    client: 'kessler',
-    payload: { name: 'Bore Casing', mass: 1.5 },
-    fuel: 400,
-    start: { x: -11, y: 1230 },
-    target: 'kessler-crest',
-    failDepth: -60,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Casing is heavy and you start on the wrong side of the canyon.<br/><br/>Cross high or cross low, tin can, but cross deliberately. Drifting through the middle is how you meet the gantry Helion put up.<br/><br/><b>OBJECTIVE</b> Carry the casing east to KESSLER CREST.',
-  },
-  {
-    id: 9,
-    client: 'outpost',
-    payload: { name: 'Legal Injunction', mass: 0.2 },
-    fuel: 340,
-    start: { x: 0, y: 1190 },
-    target: 'outpost-main',
-    failDepth: -60,
-    brief:
-      '<b>IXION OUTPOST</b><br/>They are building on our sightlines. This injunction will be ignored, but it will be <i>filed</i>.<br/><br/>You will have noticed the approach is tighter than it was. That is not your handling, navigator. That is the canyon closing, and it will keep closing.<br/><br/><b>OBJECTIVE</b> Return to the outpost pad.',
-  },
+interface RawMissionSpec {
+  missions: Mission[];
+}
 
-  // ------------------------------------------------ III. The Corridor (10-14)
-  {
-    id: 10,
-    client: 'helion',
-    payload: { name: 'Pipeline Segment', mass: 1.6 },
-    fuel: 405,
-    start: { x: -13, y: 1230 },
-    target: 'helion-crest',
-    failDepth: -60,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>We are spanning the west approach. Once this goes up, the gap under it is your only clean line in.<br/><br/><b>OBJECTIVE</b> Deliver the segment to HELION CREST.',
-  },
-  {
-    id: 11,
-    client: 'kessler',
-    payload: { name: 'Winch Assembly', mass: 1.3 },
-    fuel: 390,
-    start: { x: 13, y: 1210 },
-    target: 'kessler-crest',
-    failDepth: -60,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Our own span goes up today. Helion will call it provocation. It is a winch.<br/><br/>Mind it on the way in, tin can. It went up this morning and it is not on the chart you flew last time.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER CREST.',
-  },
-  {
-    id: 12,
-    client: 'outpost',
-    payload: { name: 'Atmosphere Scrubber', mass: 1.4 },
-    fuel: 385,
-    start: { x: -8, y: 1170 },
-    target: 'outpost-main',
-    failDepth: -60,
-    brief:
-      '<b>IXION OUTPOST</b><br/>Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open, and it is open because we filed for it.<br/><br/>Heavy load, navigator, and a narrower corridor than the last time you flew it.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.',
-  },
-  {
-    id: 13,
-    client: 'helion',
-    payload: { name: 'Cutting Charges', mass: 0.7 },
-    fuel: 360,
-    start: { x: 11, y: 1170 },
-    target: 'helion-crest',
-    failDepth: -60,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>Charges are light but you are crossing the whole canyon under two spans to get here. Fuel is not generous.<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CREST.',
-  },
-  {
-    id: 14,
-    client: 'kessler',
-    payload: { name: 'Shaft Liner', mass: 1.7 },
-    fuel: 405,
-    start: { x: 0, y: 1170 },
-    target: 'kessler-crest',
-    failDepth: -60,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Last surface delivery. Tomorrow we open the floor.<br/><br/>Heaviest thing you have carried for us, tin can, and the deck has not grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER CREST.',
-  },
+const parsed = parse(rawMissionsYaml) as RawMissionSpec;
 
-  // -------------------------------------------------- IV. The Digging (15-19)
-  {
-    id: 15,
-    client: 'kessler',
-    payload: { name: 'Excavator Core', mass: 1.5 },
-    fuel: 405,
-    start: { x: 5, y: 1150 },
-    target: 'kessler-crest',
-    failDepth: -95,
-    brief:
-      '<b>KESSLER DEEP</b><br/>The shaft is open. Do not go down it yet — there is nothing down there to land on and the walls are unlined.<br/><br/>The core goes on the crest deck, same as always. Look at the hole on your way past if you like. It is the last time it will be that shallow.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER CREST.',
-    adds: {
-      digs: [{ anchorToWall: 'east', mount: 'floor', halfWidth: 12, depth: 58, id: 'kessler-shaft' }],
-    },
-  },
-  {
-    id: 16,
-    client: 'kessler',
-    payload: { name: 'Shaft Lighting', mass: 0.6 },
-    fuel: 390,
-    start: { x: 0, y: 1130 },
-    target: 'kessler-shaft',
-    failDepth: -95,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Pad is in at the shaft floor. Fifty-eight metres below the canyon, walls close on both sides.<br/><br/>Come down slow and come down straight, tin can. Light load today, and that is deliberate — I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Descend the shaft. Deliver to KESSLER SHAFT.',
-    adds: {
-      // x/y are the pre-resolution placeholder — `attachToDig` repositions this to
-      // `kessler-shaft`'s real, wall-anchored endpoint once terrain exists. Same
-      // pattern as Helion's cavern pad (`Game.loadMission`'s `applyDigAttachments`).
-      props: [pad('kessler', 'kessler-shaft', 60, 12, -58, 'kessler-shaft')],
-    },
-  },
-  {
-    id: 17,
-    client: 'helion',
-    payload: { name: 'Lateral Bore Rig', mass: 1.8 },
-    fuel: 420,
-    start: { x: -14, y: 1150 },
-    target: 'helion-crest',
-    failDepth: -95,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>Kessler dug a hole. We are digging a room. Heaviest rig you have carried — respect the inertia.<br/><br/><b>OBJECTIVE</b> Deliver the rig to HELION CREST.',
-    adds: {
-      // Wall-anchored, not a fixed x: this bore goes into the wall itself (horizontal,
-      // roughly orthogonal to the local rock face) rather than straight down into the
-      // floor, and the canyon's centreline wanders enough by seed that a fixed "near
-      // the wall" x used to land on open floor on some seeds and inside solid rock on
-      // others — see `TerrainDigs.ts`. `id` is what the mission-18/19 props below
-      // resolve their own position from, once this bore's real endpoint is known.
-      digs: [{ anchorToWall: 'west', halfWidth: 10, depth: 46, id: 'helion-cavern' }],
-    },
-  },
-  {
-    id: 18,
-    client: 'helion',
-    payload: { name: 'Roof Bracing', mass: 1.2 },
-    fuel: 405,
-    start: { x: -2, y: 1130 },
-    target: 'helion-crest',
-    failDepth: -95,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>Bracing goes over the west excavation. After today that pit has a ceiling, and getting under it is a flying problem.<br/><br/><b>OBJECTIVE</b> Deliver bracing to HELION CREST.',
-    adds: {
-      // Half-width 3 against a dig of 10, so the bracing spans the middle of the pad
-      // and still leaves a real slot either side. At the authored 9 it sealed the hole:
-      // one unit of clearance for a 1.24 hull. See MIN_MOUTH in Layout.ts. x/y are the
-      // pre-resolution placeholder — `attachToDig` moves this to the real cavern bore's
-      // end once `Game.loadMission` resolves it (see `TerrainDigs.ts`).
-      props: [{ kind: 'caveRoof', corp: 'helion', x: -48, halfWidth: 1, y: -12, attachToDig: 'helion-cavern' }],
-    },
-  },
-  {
-    id: 19,
-    client: 'helion',
-    payload: { name: 'Ore Processor', mass: 1.6 },
-    fuel: 430,
-    start: { x: 4, y: 1130 },
-    target: 'helion-cavern',
-    failDepth: -95,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>The cavern pad is lit. You will have to fly beneath the bracing and level off inside — no vertical approach, the roof is in the way.<br/><br/><b>OBJECTIVE</b> Enter the west cavern. Deliver to HELION CAVERN.',
-    adds: {
-      props: [pad('helion', 'helion-cavern', -48, 12, -12, 'helion-cavern')],
-    },
-    // The crest deck stood directly over this cavern. Nothing lands on it again — every
-    // Helion run from here on is inside the wall — and leaving it up capped the only way
-    // down to a two-unit slot. See `decommissions`.
-    decommissions: ['helion-crest'],
-  },
-
-  // --------------------------------------------------- V. The Abyss (20-24)
-  {
-    id: 20,
-    client: 'kessler',
-    payload: { name: 'Anchor Pylons', mass: 1.5 },
-    fuel: 420,
-    start: { x: 0, y: 1130 },
-    target: 'kessler-shaft',
-    failDepth: -190,
-    brief:
-      '<b>KESSLER DEEP</b><br/>We are sinking the main shaft. The hole you have spent five missions landing beside goes down another hundred and thirty metres tonight.<br/><br/>Pylons anchor the lining. If they are not seated, everything we put below them comes back up the hard way.<br/><br/><b>OBJECTIVE</b> Deliver pylons to KESSLER SHAFT.',
-    adds: {
-      // Headframe over the shaft, and the shaft itself driven far deeper. Same anchor
-      // and `id` as the mission-15 record — `mergeDigs` collapses them into one bore
-      // (it matches by resolved `x` proximity, which the two records now agree on
-      // deterministically per seed, both resolving from the same wall anchor) and
-      // takes the deeper of the two, so this simply extends the existing shaft down.
-      digs: [{ anchorToWall: 'east', mount: 'floor', halfWidth: 12, depth: 172, id: 'kessler-shaft' }],
-    },
-  },
-  {
-    id: 21,
-    client: 'kessler',
-    payload: { name: 'Descent Cable', mass: 1.0 },
-    fuel: 430,
-    start: { x: -4, y: 1130 },
-    target: 'kessler-ledge',
-    failDepth: -190,
-    brief:
-      '<b>KESSLER DEEP</b><br/>First platform is bolted into the shaft wall, forty-six metres down.<br/><br/>Line up over the mouth and descend straight. The shaft is barely wider than your gear and there is no room to correct once you are inside it. Get it wrong above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER LEDGE.',
-    // Held against the east wall rather than centred in the shaft. Centred, its 19-unit
-    // apron left two 7.5-unit slots either side of it — both passable, neither obviously
-    // the way through, and every descent to the pads below became a guess. Against the
-    // wall it leaves one unambiguous 13-unit chute down the west side, which is also
-    // what the brief has always claimed: bolted into the shaft wall.
-    /**
-     * A bare pad on the bore's centreline, not a deck against its wall.
-     *
-     * Two corrections in one. No apron, because a platform's skirt made a slab filling
-     * most of a 24-wide bore — unflyable, and the thing forcing the bore to stay a
-     * straight rectangle. And centred, because the bore now narrows and wanders: the band
-     * guaranteed clear at every depth is only `x +/- (half - wander)`, about 18 wide, so a
-     * pad held against the wall had its outer edge inside rock and lost 17% of its
-     * approach. Centred, an 11-wide pad fits that band with room either side.
-     */
-    // `xFromDig`, not `attachToDig`: this pad sits at its own fixed depth partway down
-    // the bore, not at the bore's own endpoint — see `xFromDig`'s doc comment
-    // (`Colony.ts`). `x: 60` is the pre-resolution placeholder.
-    adds: { props: [pad('kessler', 'kessler-ledge', 60, 11, -45, undefined, 'kessler-shaft')] },
-  },
-  {
-    id: 22,
-    client: 'helion',
-    payload: { name: 'Counterclaim Beacon', mass: 0.8 },
-    fuel: 420,
-    start: { x: 16, y: 1110 },
-    target: 'helion-cavern',
-    failDepth: -190,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>Kessler is down the shaft. We are contesting it. Take this beacon to our cavern and then, for your own sake, stay out of the arbitration.<br/><br/><b>OBJECTIVE</b> Cross the canyon. Deliver to HELION CAVERN.',
-  },
-  {
-    id: 23,
-    client: 'kessler',
-    payload: { name: 'Pressure Rig', mass: 1.7 },
-    fuel: 445,
-    start: { x: 0, y: 1110 },
-    target: 'kessler-ledge',
-    failDepth: -190,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Heavy rig, and the ledge is narrow.<br/><br/>This is the run that sorts the good units from scrap, tin can. Better ones than you have come apart on that ledge.<br/><br/><b>OBJECTIVE</b> Deliver the rig to KESSLER LEDGE.',
-  },
-  {
-    id: 24,
-    client: 'outpost',
-    payload: { name: 'Evacuation Order', mass: 0.2 },
-    fuel: 365,
-    start: { x: -16, y: 1110 },
-    target: 'outpost-main',
-    failDepth: -190,
-    brief:
-      '<b>IXION OUTPOST</b><br/>Both charters have hit the same seam from opposite sides. We have recommended evacuation. Nobody has acknowledged it.<br/><br/>We are aware you fly for them as well, navigator. It has never been held against you. You go where the contract sends you, which is a thing we have in common.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.',
-  },
-
-  // ------------------------------------------------- VI. The Gauntlet (25-30)
-  {
-    id: 25,
-    client: 'kessler',
-    payload: { name: 'Deep Lighting Rig', mass: 1.1 },
-    fuel: 430,
-    start: { x: 5, y: 1110 },
-    target: 'kessler-deep',
-    failDepth: -320,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Second platform, a hundred and forty-two metres down. Below the ledge the shaft squeezes and the fog goes black.<br/><br/>Trust the altimeter, not the optical feed. Down there the two will disagree, and the altimeter will be the one that is right.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER DEEP.',
-    // Bare pad on the centreline, for the same reasons as kessler-ledge — and the same
-    // `xFromDig`, not `attachToDig`, for the same reason.
-    adds: { props: [pad('kessler', 'kessler-deep', 60, 11, -141, undefined, 'kessler-shaft')] },
-  },
-  {
-    id: 26,
-    client: 'helion',
-    payload: { name: 'Seam Charges', mass: 1.4 },
-    fuel: 420,
-    start: { x: 19, y: 1090 },
-    target: 'helion-cavern',
-    failDepth: -320,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>Full crossing, west cavern, under the bracing. You have done every piece of this before. Not all on one tank.<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CAVERN.',
-  },
-  {
-    id: 27,
-    client: 'kessler',
-    payload: { name: 'Containment Shell', mass: 1.9 },
-    fuel: 460,
-    start: { x: -11, y: 1090 },
-    target: 'kessler-deep',
-    failDepth: -320,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Heaviest object anyone has flown in this canyon. West wall to the bottom of the shaft, through everything both charters have built.<br/><br/>I would not hand this run to anyone else. Take the weight down slowly and do not let it get ahead of you.<br/><br/><b>OBJECTIVE</b> Deliver the shell to KESSLER DEEP.',
-  },
-  {
-    id: 28,
-    client: 'outpost',
-    payload: { name: 'Core Archive', mass: 1.0 },
-    fuel: 390,
-    start: { x: 20, y: 1070 },
-    target: 'outpost-main',
-    failDepth: -320,
-    brief:
-      '<b>IXION OUTPOST</b><br/>We are shutting down. Everything the outpost learned about this canyon is in that archive — every sounding, every core, the mast calibration, all of it.<br/><br/>Fly it home one last time, navigator.<br/><br/>The radar stays up. We are leaving it powered and the charters can use it or not. You will still have your bearings after we are gone, which seemed the least we could do.<br/><br/><b>OBJECTIVE</b> Return the archive to the outpost pad.',
-  },
-  {
-    id: 29,
-    client: 'helion',
-    payload: { name: 'Arbitration Writ', mass: 0.3 },
-    fuel: 350,
-    start: { x: 0, y: 1070 },
-    target: 'helion-cavern',
-    failDepth: -320,
-    brief:
-      '<b>HELION EXTRACTION</b><br/>The outpost is dark. The seam is ours and Kessler disputes it. Light cargo, thin margins, and a canyon that no longer has an easy line through it.<br/><br/><b>OBJECTIVE</b> Deliver the writ to HELION CAVERN.',
-  },
-  {
-    id: 30,
-    client: 'kessler',
-    payload: { name: 'Final Charge', mass: 1.8 },
-    fuel: 445,
-    start: { x: -18, y: 1070 },
-    target: 'kessler-deep',
-    failDepth: -320,
-    brief:
-      '<b>KESSLER DEEP</b><br/>Thirtieth run. West wall to the floor of the shaft, and every structure in between was put there by you.<br/><br/>Take it down, navigator.<br/><br/><b>OBJECTIVE</b> Deliver the charge to KESSLER DEEP.',
-  },
-];
+export const MISSIONS: Mission[] = parsed.missions.map((m) => {
+  if (m.adds?.props) {
+    m.adds.props = m.adds.props.map((p) => {
+      if (p.kind === 'pad') {
+        return pad(p.corp, p.id, p.x, p.width, p.y, p.attachToDig, p.xFromDig);
+      }
+      return p;
+    });
+  }
+  return m;
+});
 
 export const MISSION_COUNT = MISSIONS.length;
 

@@ -1,6 +1,6 @@
 import { hash01 } from './Noise.ts';
 import type { CorpId } from './CanyonSpec.ts';
-import type { Lattice } from './ColonyLattice.ts';
+import { COLONY_LAYERS as LAYERS, type Lattice, type Layer } from './ColonyLattice.ts';
 import type { SubstrateField } from './ColonySubstrate.ts';
 
 /**
@@ -42,6 +42,19 @@ export interface OrganismCell {
 }
 
 /**
+ * Moves between layers, which the `LINK` mask deliberately does not describe.
+ *
+ * A link is what the renderer reads to pick a module shape and to draw a walkway, and
+ * both of those are decisions about the *face* of the colony — a connection running away
+ * from the camera has no silhouette to contribute and no walkway anyone can see. Depth is
+ * volume, not more of the same drawing.
+ */
+const DEPTH_DIRS = [
+  { dc: 0, dr: 0, dl: 1 },
+  { dc: 0, dr: 0, dl: -1 },
+] as const;
+
+/**
  * One built cell in world space, which is all anything downstream of generation needs —
  * the renderer, the colliders and `Layout.ts` all work in world units, so the lattice
  * stops at the boundary of this module rather than leaking onward the way the previous
@@ -51,6 +64,9 @@ export interface PlacedCell {
   /** Cell centre. */
   x: number;
   y: number;
+  /** Cell centre in depth. Zero is the play plane — the only layer that gets colliders,
+   *  and the only one `Layout.ts` judges. See `COLONY_LAYERS`. */
+  z: number;
   /** `LINK` bitmask — which neighbours this cell is joined to. */
   links: number;
   /** Part of the growing edge: drawn as bare frame, built hull next mission. */
@@ -78,12 +94,20 @@ export interface GrowthInput {
    *  centre" bias with a reason. */
   attractors: Partial<Record<CorpId, Array<{ x: number; y: number }>>>;
   /**
-   * Per-corp gravity: the point a colony leans toward as it grows, weighted by `W_APEX`.
-   * Defaults to the top centre of the lattice. A corp on the canyon floor wants the
-   * canyon's *own* bottom centre instead — see `ColonyPlan`, which is the only thing that
-   * knows where the canyon actually is.
+   * Per-corp gravity: the points a colony leans toward as it grows, weighted by `W_APEX`.
+   * Defaults to the top centre of the lattice.
+   *
+   * **A set rather than a single point**, because a colony has more than one reason to
+   * lean. It wants the open middle of the canyon, and it wants to get *under its own
+   * elevated pads* — a deck bolted to structure at row 12 is a place the corp has to
+   * build up to, and saying so here is what puts scaffolding beneath it. The pull is to
+   * the nearest of them, so the points compete locally rather than averaging into a
+   * direction that satisfies neither.
+   *
+   * Which points those are is `ColonyPlan`'s business — it is the only thing that knows
+   * where the canyon is and which pads are standing in mid-air.
    */
-  apex?: Partial<Record<CorpId, { x: number; y: number }>>;
+  apex?: Partial<Record<CorpId, Array<{ x: number; y: number }>>>;
   /**
    * Per-corp shape. `lateral` scales the preference for spreading sideways, `height` the
    * cost of climbing — both multipliers on the shared weights, both defaulting to 1.
@@ -98,7 +122,7 @@ export interface GrowthInput {
    * whichever side had room and ended up 32 units off the canyon's middle, leaning into
    * Helion's ground.
    */
-  shape?: Partial<Record<CorpId, { lateral?: number; height?: number; gravity?: number }>>;
+  shape?: Partial<Record<CorpId, { lateral?: number; height?: number; gravity?: number; depth?: number }>>;
   seed: number;
   /**
    * What these colonies had already built, from the previous mission. Growth *continues*
@@ -177,6 +201,23 @@ const W_APEX = 0.55;
 const W_LATERAL = 0.7;
 
 /**
+ * What a move into the layer in front or behind is worth, flat.
+ *
+ * Sized against the play-plane terms, and the sizing is the whole difficulty. A move on the
+ * play plane pays the height cost and the rival penalty and earns a surface bonus only
+ * where it touches rock, so its *typical* score is far lower than its best score — which
+ * means a flat depth reward competes with the average, not the maximum, and wins far more
+ * often than it looks like it should.
+ *
+ * Measured at 0.45: colonies grew to ~65 cells but their play-plane face collapsed from
+ * about 40 cells to 12, and 121 of 441 corp-missions had a face under ten. The canyon
+ * filled with volume nobody can see while the silhouette the player actually flies past
+ * thinned out. Depth has to be what a tip does when the face in front of it is finished or
+ * fenced — a last resort, not a preference — so it sits barely above `MIN_SCORE`.
+ */
+const W_DEPTH = 0.05;
+
+/**
  * How far a run of structure may reach with nothing under it before it needs a leg.
  *
  * The rule that produces sideways branches at all. Support otherwise means rock, ground,
@@ -222,9 +263,32 @@ const CORP_SALT: Record<CorpId, number> = { outpost: 0, helion: 4001, kessler: 8
 interface Tip {
   col: number;
   row: number;
+  layer: number;
   corp: CorpId;
   life: number;
   lastDir: number;
+  /**
+   * Whether this tip is allowed to build into another layer.
+   *
+   * Only a tip budded *after* the colony has run out of viable work on the layers it
+   * already occupies carries this — see the rebud in the step loop. A per-tip gate is not
+   * enough on its own: a tip in a corner has no viable move while the colony still has
+   * plenty of face left elsewhere, and letting that tip turn backwards was worth twenty
+   * cells of silhouette a mission. The question has to be asked of the whole colony, and
+   * `budTips` is the only place that looks at the whole colony.
+   */
+  depth: boolean;
+}
+
+/** A scored, legal move — a cell the tip could claim next. */
+interface Move {
+  col: number;
+  row: number;
+  layer: number;
+  link: number;
+  back: number;
+  score: number;
+  reach: number;
 }
 
 export function growColony(input: GrowthInput): Map<number, OrganismCell> {
@@ -246,23 +310,36 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
   /** Per cell, how far it sits from something that carries load — see `reachOf`. */
   const reach = new Map<number, number>();
 
-  /** Where each colony leans. The lattice's top centre unless a caller says otherwise. */
-  const defaultApex = {
-    x: lattice.worldX((lattice.colLo + lattice.colHi) / 2),
-    y: lattice.worldY(lattice.rows - 1),
+  /** Where each colony leans. The lattice's top third, on centre, unless told otherwise. */
+  const defaultApex = [
+    {
+      x: lattice.worldX((lattice.colLo + lattice.colHi) / 2),
+      y: lattice.worldY(Math.round(lattice.rows * (2 / 3))),
+    },
+  ];
+  const apexOf = (corp: CorpId): Array<{ x: number; y: number }> => {
+    const own = apexFor[corp];
+    return own && own.length > 0 ? own : defaultApex;
   };
-  const apexOf = (corp: CorpId): { x: number; y: number } => apexFor[corp] ?? defaultApex;
 
-  const at = (col: number, row: number): OrganismCell | undefined =>
-    lattice.inBounds(col, row) ? cells.get(lattice.index(col, row)) : undefined;
+  const at = (col: number, row: number, layer: number): OrganismCell | undefined =>
+    lattice.inBounds(col, row) && LAYERS.includes(layer as Layer)
+      ? cells.get(lattice.key(col, row, layer))
+      : undefined;
+
 
   /** Distance from a cell to the nearest piece of this corp's own hardware, in cells.
    *  Only ever compared against itself one step away, so an exact metric would buy
    *  nothing over this. */
-  /** Distance to this corp's own gravity point, in world units — see `W_APEX`. */
+  /** Distance to the nearest of this corp's gravity points, in world units — see
+   *  `W_APEX`. Nearest rather than summed, so a colony under one of its own elevated
+   *  decks is not still being tugged at by the canyon's middle behind it. */
   function apexPull(corp: CorpId, col: number, row: number): number {
-    const apex = apexOf(corp);
-    return Math.hypot(apex.x - lattice.worldX(col), apex.y - lattice.worldY(row));
+    const x = lattice.worldX(col);
+    const y = lattice.worldY(row);
+    let best = Infinity;
+    for (const apex of apexOf(corp)) best = Math.min(best, Math.hypot(apex.x - x, apex.y - y));
+    return best;
   }
 
   function pull(corp: CorpId, col: number, row: number): number {
@@ -285,16 +362,36 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
    * forced the old model into level floor-standing rows, and its slightly-looser cousin
    * ("below, or against rock, or two neighbours") still left a strand with no legal move
    * but upward. Allowing a bounded reach is what lets an arm leave a strand sideways.
+   *
+   * **Only a corp's own structure carries its load.** Rock is rock and holds anybody up,
+   * but a charter does not bolt its modules to a competitor's roof, and letting it read
+   * one as footing is not a small licence — it is a free storey. Ixion took it: boxed into
+   * a one-column slot on the floor of seed 631729407 by the corridors either side of it,
+   * the only move left was up, and Helion's colony was the nearest thing to climb. It
+   * finished the campaign four rows deep across Helion's roof. `W_RIVAL` was supposed to
+   * discourage this, but a scoring penalty cannot compete with the alternative being *no
+   * legal move at all*.
    */
-  function reachOf(col: number, row: number): number | null {
-    if (substrate.isSolid(col, row - 1) || at(col, row - 1)) return 0;
+  function reachOf(corp: CorpId, col: number, row: number, layer: number): number | null {
+    // Rock is measured from the canyon's own cross-section and so holds up every layer
+    // alike — a shelf at this column and row is a shelf at all three depths. The
+    // approximation is deliberate: sampling terrain at ±cellSize would make the substrate
+    // depend on z for a few units of profile difference and buy nothing anyone can see.
+    if (substrate.isSolid(col, row - 1, layer) || at(col, row - 1, layer)?.corp === corp) return 0;
     for (const d of DIRS) {
-      if (substrate.isSolid(col + d.dc, row + d.dr)) return 0;
+      if (substrate.isSolid(col + d.dc, row + d.dr, layer)) return 0;
     }
     const neighbours: number[] = [];
     for (const d of DIRS) {
-      const n = at(col + d.dc, row + d.dr);
-      if (n) neighbours.push(reach.get(lattice.index(col + d.dc, row + d.dr)) ?? 0);
+      const n = at(col + d.dc, row + d.dr, layer);
+      if (n?.corp === corp) neighbours.push(reach.get(lattice.key(col + d.dc, row + d.dr, layer)) ?? 0);
+    }
+    // A cell directly in front of or behind one of its own is braced by it, at no
+    // cantilever cost — the two share a full face, which is a better connection than the
+    // edge contact a sideways neighbour gives. This is what lets a colony thicken.
+    for (const d of DEPTH_DIRS) {
+      const n = at(col, row, layer + d.dl);
+      if (n?.corp === corp) neighbours.push(reach.get(lattice.key(col, row, layer + d.dl)) ?? 0);
     }
     if (neighbours.length === 0) return null;
     // Two supports share the load, so a span between them counts as one step from the
@@ -304,19 +401,19 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     return next <= MAX_CANTILEVER ? next : null;
   }
 
-  function rivals(corp: CorpId, col: number, row: number): number {
+  function rivals(corp: CorpId, col: number, row: number, layer: number): number {
     let n = 0;
     for (const d of DIRS) {
-      const other = at(col + d.dc, row + d.dr);
+      const other = at(col + d.dc, row + d.dr, layer);
       if (other && other.corp !== corp) n++;
     }
     return n;
   }
 
-  function claim(corp: CorpId, col: number, row: number, cellReach: number): void {
+  function claim(corp: CorpId, col: number, row: number, layer: number, cellReach: number): void {
     const order = built.get(corp) ?? 0;
-    cells.set(lattice.index(col, row), { corp, order, links: 0 });
-    reach.set(lattice.index(col, row), cellReach);
+    cells.set(lattice.key(col, row, layer), { corp, order, links: 0 });
+    reach.set(lattice.key(col, row, layer), cellReach);
     built.set(corp, order + 1);
   }
 
@@ -325,10 +422,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
    * merely penalised — for being out of bounds, rock, forbidden, already claimed, or
    * unsupported, so no weight tuning can ever talk the organism into a channel.
    */
-  function candidates(
-    tip: Tip,
-    step: number,
-  ): Array<{ col: number; row: number; link: number; back: number; score: number; reach: number }> {
+  function candidates(tip: Tip, step: number, allowDepth = false): Move[] {
     const here = pull(tip.corp, tip.col, tip.row);
     /**
      * The pull toward a corp's own hardware fades once it has arrived. Without this a
@@ -339,35 +433,90 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
      * built two cells and nothing else from mission 8 onward.
      */
     const homeward = Math.min(1, here / 6);
-    const scored: Array<{ col: number; row: number; link: number; back: number; score: number; reach: number }> = [];
+    const scored: Move[] = [];
+
+    /** Legal at all? Rejected outright — never merely penalised — so no weight tuning can
+     *  ever talk the organism into a channel. */
+    const open = (col: number, row: number, layer: number): boolean => {
+      // The layer bound is checked *here* and not left to `at`, which answers "is this
+      // cell taken" with `undefined` for a layer that does not exist — indistinguishable
+      // from "free". Without this a tip walks off the back of the lattice, and because
+      // `key` packs the layer into a fixed number of slots per column, a cell at layer 2
+      // collides with a real cell in the next column: growth order stopped being a prefix
+      // of itself, reach walks reported cells three bays from load, and a colony climbed
+      // to the rim through keys that were never really there.
+      if (!LAYERS.includes(layer as Layer)) return false;
+      if (!lattice.inBounds(col, row)) return false;
+      if (substrate.isSolid(col, row, layer)) return false;
+      // **The play plane only.** A flight channel is airspace at z=0; the layers in front
+      // of and behind it are not in anyone's way, and letting them build past a corridor
+      // is most of what depth is for — a route becomes a slot cut through a deep mass
+      // rather than a gap the settlement grew around.
+      if (layer === 0 && forbidden(col, row)) return false;
+      return !at(col, row, layer);
+    };
+
     for (const d of DIRS) {
       const col = tip.col + d.dc;
       const row = tip.row + d.dr;
-      if (!lattice.inBounds(col, row)) continue;
-      if (substrate.isSolid(col, row)) continue;
-      if (forbidden(col, row)) continue;
-      if (at(col, row)) continue;
-      const cellReach = reachOf(col, row);
+      if (!open(col, row, tip.layer)) continue;
+      const cellReach = reachOf(tip.corp, col, row, tip.layer);
       if (cellReach === null) continue;
       // Rock *or its own roof*: adding a storey to what it already built is ordinary
       // construction and should not score as badly as reaching into open air. Without
       // this a colony squeezed off the floor by its own pads' channels — Ixion, which
       // sits in the middle of the canyon surrounded by them — has no scoring move left
       // anywhere and stops at a handful of cells.
-      const footing = substrate.at(col, row) === 'surface' || at(col, row - 1)?.corp === tip.corp;
+      const footing = substrate.at(col, row, tip.layer) === "surface" || at(col, row - 1, tip.layer)?.corp === tip.corp;
       const score =
         W_SURFACE * (footing ? 1 : 0) +
         W_ATTRACT * homeward * (here - pull(tip.corp, col, row)) +
         W_LATERAL * (shape[tip.corp]?.lateral ?? 1) * (d.dr === 0 ? 1 : 0) +
         W_STRAIGHT * (d.link === tip.lastDir ? 1 : 0) -
         W_HEIGHT * (shape[tip.corp]?.height ?? 1) * (row / lattice.rows) ** 2 -
-        W_RIVAL * rivals(tip.corp, col, row) +
+        W_RIVAL * rivals(tip.corp, col, row, tip.layer) +
         W_APEX *
           (shape[tip.corp]?.gravity ?? 1) *
           ((apexPull(tip.corp, tip.col, tip.row) - apexPull(tip.corp, col, row)) / lattice.cellSize) +
-        W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.index(col, row), step, 1);
-      scored.push({ col, row, link: d.link, back: d.back, score, reach: cellReach });
+        W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(col, row, tip.layer), step, 1);
+      scored.push({ col, row, layer: tip.layer, link: d.link, back: d.back, score, reach: cellReach });
     }
+
+    /**
+     * **Depth is offered only when the layer a tip is on has nowhere worth going.**
+     *
+     * A rule rather than a weight, because a weight cannot express it. None of the terms
+     * above means anything across a layer — the cell behind is the same column, the same
+     * row, the same distance from every attractor and every apex — so a depth move can
+     * only ever be scored as a flat constant, and a flat constant competes with the
+     * *average* in-plane score rather than the best one. Tuned to 0.45 that filled the
+     * canyon with volume nobody can see: colonies reached 65 cells while the play-plane
+     * face collapsed from about 40 to 12, on 121 of 441 corp-missions under ten. Dropping
+     * it to 0.05 only moved the number (66).
+     *
+     * The real requirement was never a preference, it was an order: fill the face, then
+     * thicken. Gating on `viable` says exactly that and needs no constant to hold the line
+     * — a tip goes backwards when it is finished or fenced, which is precisely where the
+     * canyon has no width left to give it.
+     */
+    // `viable` reads the *first* option, so the sort has to happen before the question is
+    // asked rather than once at the end.
+    scored.sort((a, b) => b.score - a.score);
+    if (!allowDepth || viable(scored)) return scored;
+
+    for (const d of DEPTH_DIRS) {
+      const layer = tip.layer + d.dl;
+      if (!open(tip.col, tip.row, layer)) continue;
+      const cellReach = reachOf(tip.corp, tip.col, tip.row, layer);
+      if (cellReach === null) continue;
+      const score =
+        W_DEPTH * (shape[tip.corp]?.depth ?? 1) +
+        W_SURFACE * (substrate.at(tip.col, tip.row, layer) === "surface" ? 1 : 0) -
+        W_HEIGHT * (shape[tip.corp]?.height ?? 1) * (tip.row / lattice.rows) ** 2 +
+        W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(tip.col, tip.row, layer), step, 3);
+      scored.push({ col: tip.col, row: tip.row, layer, link: 0, back: 0, score, reach: cellReach });
+    }
+
     return scored.sort((a, b) => b.score - a.score);
   }
 
@@ -385,22 +534,27 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
    * built nothing that mission" failure the previous model kept producing from a
    * different cause.
    */
-  function budTips(corp: CorpId, step: number, count: number): Tip[] {
-    const viableCells: Array<{ index: number; order: number }> = [];
-    for (const [index, cell] of cells) {
+  function budTips(corp: CorpId, step: number, count: number, allowDepth = false): Tip[] {
+    const viableCells: Array<{ key: number; order: number }> = [];
+    for (const [key, cell] of cells) {
       if (cell.corp !== corp) continue;
-      const col = lattice.colOf(index);
-      const row = lattice.rowOf(index);
-      if (!viable(candidates({ col, row, corp, life: 1, lastDir: 0 }, step))) continue;
-      viableCells.push({ index, order: cell.order });
+      const col = lattice.keyCol(key);
+      const row = lattice.keyRow(key);
+      const layer = lattice.keyLayer(key);
+      if (!viable(candidates({ col, row, layer, corp, life: 1, lastDir: 0, depth: allowDepth }, step, allowDepth))) {
+        continue;
+      }
+      viableCells.push({ key, order: cell.order });
     }
     viableCells.sort((a, b) => b.order - a.order);
-    return viableCells.slice(0, count).map(({ index }) => ({
-      col: lattice.colOf(index),
-      row: lattice.rowOf(index),
+    return viableCells.slice(0, count).map(({ key }) => ({
+      col: lattice.keyCol(key),
+      row: lattice.keyRow(key),
+      layer: lattice.keyLayer(key),
       corp,
       life: TIP_LIFE,
       lastDir: 0,
+      depth: allowDepth,
     }));
   }
 
@@ -414,16 +568,18 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
    * of reappearing in the middle of finished structure.
    */
   if (existing) {
-    for (const [index, cell] of existing) {
-      const col = lattice.colOf(index);
-      const row = lattice.rowOf(index);
+    for (const [key, cell] of existing) {
+      const col = lattice.keyCol(key);
+      const row = lattice.keyRow(key);
+      const layer = lattice.keyLayer(key);
       if (!lattice.inBounds(col, row)) continue;
-      if (substrate.isSolid(col, row) || forbidden(col, row)) continue; // demolished
-      cells.set(index, { ...cell });
+      if (substrate.isSolid(col, row)) continue; // buried
+      if (layer === 0 && forbidden(col, row)) continue; // demolished by a route
+      cells.set(key, { ...cell });
       // Carried-forward cells are load-bearing by the fact that they are standing: their
       // own reach was checked the mission they were built, and nothing has been removed
       // from under them (growth is strictly additive — see `ColonyPlan`).
-      reach.set(index, 0);
+      reach.set(key, 0);
       built.set(cell.corp, Math.max(built.get(cell.corp) ?? 0, cell.order + 1));
     }
     for (const corp of built.keys()) {
@@ -432,14 +588,36 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     }
   }
 
+  /**
+   * A spore is honoured even when the corp is already standing.
+   *
+   * The rule here used to be "already standing — no second spore", and it silently killed
+   * the only mechanism that can rescue a colony from a bad start. `ColonyPlan` offers a
+   * second spore *only* to a corp badly short of what it should have built by now, so by
+   * the time one arrives the corp is by definition stuck; refusing it means a filament
+   * that spored into a dead pocket on mission 2 stays one cell for the remaining
+   * twenty-eight missions. Measured exactly that: Kessler on seed 2135022333, one cell
+   * from mission 10 to the end of the campaign, and the only corp-mission under ten cells
+   * in six seeds.
+   *
+   * Nothing about the never-shrink side of the ledger changes — a spore only ever adds a
+   * cell — and the corp cannot get two, because the caller offers at most one per mission.
+   */
   for (const spore of spores) {
-    if (corps.includes(spore.corp)) continue; // already standing — no second spore
     if (!lattice.inBounds(spore.col, spore.row)) continue;
     if (substrate.isSolid(spore.col, spore.row) || forbidden(spore.col, spore.row)) continue;
-    if (at(spore.col, spore.row)) continue; // a rival got here first
-    claim(spore.corp, spore.col, spore.row, 0);
-    tips.set(spore.corp, [{ col: spore.col, row: spore.row, corp: spore.corp, life: TIP_LIFE, lastDir: 0 }]);
-    corps.push(spore.corp);
+    // A nucleus always lands on the play plane — that is where the ground the spore search
+    // measured actually is, and a colony that started behind the camera would appear from
+    // nowhere as far as the player is concerned.
+    if (at(spore.col, spore.row, 0)) continue; // a rival got here first
+    claim(spore.corp, spore.col, spore.row, 0, 0);
+    // Added to whatever the corp is already working on rather than replacing it — a
+    // rescue nucleus is a second front, not a restart.
+    tips.set(spore.corp, [
+      ...(tips.get(spore.corp) ?? []),
+      { col: spore.col, row: spore.row, layer: 0, corp: spore.corp, life: TIP_LIFE, lastDir: 0, depth: false },
+    ]);
+    if (!corps.includes(spore.corp)) corps.push(spore.corp);
   }
 
   // One step advances every live tip of every corp once, in a stable order — the corps
@@ -452,7 +630,10 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       if ((built.get(corp) ?? 0) >= budget[corp]) continue;
       let live = tips.get(corp) ?? [];
       if (live.length === 0) {
+        // Face first, then depth. Only when *no* cell this colony owns has anywhere worth
+        // going on its own layer does it start building in front of or behind itself.
         live = budTips(corp, step, 1);
+        if (live.length === 0) live = budTips(corp, step, 1, true);
         if (live.length === 0) continue; // nowhere left to build — contained, not an error
       }
       active = true;
@@ -463,24 +644,34 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
           next.push(tip);
           continue;
         }
-        const options = candidates(tip, step);
+        const options = candidates(tip, step, tip.depth);
         if (!viable(options) || tip.life <= 0) continue; // tip dies
 
         const move = options[0];
-        claim(corp, move.col, move.row, move.reach);
+        claim(corp, move.col, move.row, move.layer, move.reach);
         tip.col = move.col;
         tip.row = move.row;
+        tip.layer = move.layer;
         tip.lastDir = move.link;
         tip.life--;
         next.push(tip);
 
         const room = next.length + 1 <= MAX_TIPS;
-        const branch = hash01(seed + CORP_SALT[corp], lattice.index(move.col, move.row), step, 2) < BRANCH_CHANCE;
+        const branch =
+          hash01(seed + CORP_SALT[corp], lattice.key(move.col, move.row, move.layer), step, 2) < BRANCH_CHANCE;
         if (room && branch && options.length > 1 && (built.get(corp) ?? 0) < budget[corp]) {
           const side = options[1];
-          if (!at(side.col, side.row)) {
-            claim(corp, side.col, side.row, side.reach);
-            next.push({ col: side.col, row: side.row, corp, life: Math.round(TIP_LIFE * 0.7), lastDir: side.link });
+          if (!at(side.col, side.row, side.layer)) {
+            claim(corp, side.col, side.row, side.layer, side.reach);
+            next.push({
+              col: side.col,
+              row: side.row,
+              layer: side.layer,
+              corp,
+              life: Math.round(TIP_LIFE * 0.7),
+              lastDir: side.link,
+              depth: tip.depth,
+            });
           }
         }
       }
@@ -500,12 +691,13 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
    * demolished out from under its neighbours: the answer is simply recomputed from who is
    * actually still standing.
    */
-  for (const [index, cell] of cells) {
-    const col = lattice.colOf(index);
-    const row = lattice.rowOf(index);
+  for (const [key, cell] of cells) {
+    const col = lattice.keyCol(key);
+    const row = lattice.keyRow(key);
+    const layer = lattice.keyLayer(key);
     let links = 0;
     for (const d of DIRS) {
-      if (at(col + d.dc, row + d.dr)?.corp === cell.corp) links |= d.link;
+      if (at(col + d.dc, row + d.dr, layer)?.corp === cell.corp) links |= d.link;
     }
     cell.links = links;
   }

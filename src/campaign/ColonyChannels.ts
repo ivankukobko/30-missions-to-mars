@@ -6,15 +6,27 @@ import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
 
 /**
  * The flight-route network, and the one hard guarantee the colony is built around:
- * **every pad ever built keeps a permanent channel to the rim, and no colony cell may
- * enter it.**
+ * **every pad that has been built keeps a permanent channel to the rim, and no colony cell
+ * may enter it.**
  *
- * Three things make this stronger than the corridor rule it replaces, which reserved a
+ * **Nothing here is reserved before the structure that needs it exists.** This module is
+ * handed the pads and digs standing at one mission and answers for that mission only;
+ * `ColonyPlan` re-runs it on every step of its campaign walk. A pad reserves its deck, its
+ * bench and its channel on the mission it is built. A shaft reserves its mouth on the
+ * mission it is driven. Until then that ground is ordinary canyon and the colonies are
+ * free to grow on it — which does mean a new approach can demolish what stood in it. See
+ * `planColonies` for why that trade was taken and what replaced the guarantee it cost.
+ *
+ * Four things make this stronger than the corridor rule it replaces, which reserved a
  * vertical column over the *currently targeted* pad's core:
  *
- *   - Every live pad keeps one, forever, so the canyon accumulates a route network all
- *     later growth has to respect rather than one mission's approach at a time.
+ *   - Every live pad keeps one for the rest of the campaign, so the canyon accumulates a
+ *     route network all later growth has to respect rather than one mission's approach at
+ *     a time.
  *   - A route is a polyline, not a column, so it can jog around rock as it climbs.
+ *   - Routes *merge*: a climb that reaches a column another route already occupies adopts
+ *     that route's points and becomes it, so the upper canyon carries one shared trunk
+ *     rather than one keep-out strip per pad.
  *   - A route follows the way a pad is actually reached — down a bore, out through a
  *     wall mouth — instead of assuming every approach comes straight down. The old rule
  *     got Helion's cavern wrong for exactly that reason: straight up from that deck is
@@ -70,26 +82,65 @@ const DECK_UNDER = 5;
 const BENCH_HALF = 19;
 
 /**
- * Margin outside a bore's own opening that must also stay clear — the same "a structure
- * at the doorway is a structure in the way" rule the pre-growth layout checks applied to
- * a dig, and the same value.
+ * Half-width of the lane down the middle of a bore's opening that must stay clear.
  *
- * A mouth needs clearance across *its own width*, which is not the same as the width of
- * the route that descends through it: Kessler's shaft opens 24 units across while its
- * route reserves the one 12-unit column it flies down. Once the route was narrowed to
- * that column, colony grew over the rest of the opening and `checkLayout` correctly
- * reported the mouth as capped — 1.8 units of way in against the 5 it requires.
+ * **A lane, not the whole opening.** The rule this replaces reserved `halfWidth +
+ * MOUTH_LANE` either side — for Kessler's shaft, three columns held from the mouth to the
+ * rim, the single widest reservation in the canyon and most of Ixion's ground on a narrow
+ * seed. It was not needed. `Layout.cappedFloorMouth` does not require the opening to be
+ * *empty*; it measures the widest surviving gap and asks for `MIN_MOUTH` (5). Reserving
+ * the column the mouth sits on leaves a clear way one cell wide — twelve units — whatever
+ * the colony does with the rest of the opening.
+ *
+ * Any value under half a cell reserves that one column, so this is really a statement that
+ * the lane is narrower than a cell rather than a tuned number. It goes wider only if the
+ * mouth straddles two columns, which for a floor bore it no longer does: those are snapped
+ * to the lattice at resolution (`TerrainDigs`).
  */
-const MOUTH_LANE = 2;
+const MOUTH_LANE = 3;
 
 /** How far a route may drift sideways per row it climbs. One column per row is 45°,
  *  which is plenty of room to dodge a wall and still be a descent rather than a
  *  slalom the player is asked to thread blind. */
 const DRIFT_PER_ROW = 1;
 
+/**
+ * How far a route may cross *in one row* to reach a way that already exists.
+ *
+ * Drifting toward a trunk at `DRIFT_PER_ROW` is right when there is nothing there yet —
+ * the route is choosing a direction. It is wrong when the way is already built, because
+ * every row spent creeping toward it is a row with two corridors in it. Measured on seed
+ * 631729407 at mission 18: four ways converging a column per row put seven reserved
+ * columns in one row and five in the next, a funnel the width of the canyon, and the
+ * routes did not become one until three rows above the decks they left.
+ *
+ * Crossing in a single row makes that a traverse — leave the deck, cross, climb — which is
+ * both a shape a pilot flies and one row of keep-out instead of three. Each column crossed
+ * still has to be open (`openness`), so this cannot cut a route through rock.
+ */
+const JOIN_REACH = 5;
+
 /** How far either side the ascent looks when judging which column is most open. Beyond
  *  this the answer stops changing the choice and only costs samples. */
 const OPENNESS_REACH = 4;
+
+/**
+ * The height, as a fraction of the lattice, above which routes start looking for each
+ * other. Below it every route climbs in its own column, straight up from its own deck.
+ *
+ * Not a taste decision — the canyon floor is the one place that cannot afford a shared
+ * corridor. Converging from row 0 was tried and it seals the bottom of the canyon: the
+ * merged trunk lands on the same few columns as `outpost-main`'s own deck and bench, and
+ * between them they leave *no* unreserved floor at all. Measured on seed 12345, rows 0 and
+ * 1 came out with two free cells in the whole canyon, both against the east wall — so
+ * Ixion, whose home is the middle of the floor, rooted on Kessler's wall instead and
+ * Kessler finished the campaign with one cell.
+ *
+ * Starting the merge partway up costs nothing anyone can see. The pads are all low; the
+ * part of a descent a player actually reads as "the way in" is the upper canyon, and that
+ * is exactly the part that collapses to a single trunk.
+ */
+const CONVERGE_ABOVE = 0.35;
 
 export interface Channel {
   padId: string;
@@ -190,48 +241,57 @@ function openness(substrate: SubstrateField, col: number, row: number): number {
 }
 
 /**
- * One pad's route: out of whatever it sits inside, then up to the rim, drifting at most
- * `DRIFT_PER_ROW` columns per row toward whichever column is most open. Deterministic —
- * a pure function of the seed's terrain — and the same route every mission for as long
- * as the pad stands, which is what makes it a *permanent* channel rather than one
- * mission's approach.
- */
-/**
- * The canyon's most open column across the upper half of the lattice — where a shared
- * flight trunk would go, and a fair proxy for "where the traffic is".
- *
-/**
  * The canyon's own middle — midway between its two floor edges, which wander by seed, so
  * this is the real centreline rather than world x=0 or the middle of the lattice array.
  *
- * Routes *should* lean toward it as they climb rather than each ascending in its own
- * column — that is what stops the network slicing the upper canyon into as many narrow
- * vertical strips as there are pads, which is why a colony currently comes out four times
- * taller than wide (width-to-height 0.27; 0.31–0.50 with convergence, and median colony
- * size 26 → 37).
- *
- * It is not wired up, and the reason is measured rather than assumed: at today's capacity
- * the two things cannot both be had. Converging from the floor strangles whoever lives at
- * the canyon's middle — Ixion, by construction — for 77 of 486 corp-missions under ten
- * cells against 0 without it. Converging only in the upper canyon is *worse* (127), because
- * colonies climb to rows 13–14 and that is precisely the ground it takes. Rooting spores
- * by how much free space surrounds them (`ColonyPlan`) recovered a third of it and no more.
- *
- * The missing ingredient is capacity, not cleverness. Depth — two or three z-layers —
- * multiplies buildable volume without touching the canyon's cross-section, which is exactly
- * what convergence spends. See docs/plans/mycelial_colony_growth.md; these two land
- * together.
+ * Where the first route to climb any given row heads, and therefore where the shared
+ * trunk ends up: every later route steers at whatever way is already going up, and only
+ * falls back to this when there is nothing yet to join. See `routeFor`.
  */
 function trunkColumn(lattice: Lattice, terrain: ChannelTerrain): number {
   return lattice.colAt((terrain.floorEdgeAt(0, -1) + terrain.floorEdgeAt(0, 1)) / 2);
 }
 
+/**
+ * A row of an already-built route, and everything that route does from there to the rim.
+ *
+ * This is what lets one route *become* another rather than merely run beside it: a climb
+ * that arrives in an occupied column adopts that column's tail verbatim and stops, so the
+ * two are the same polyline above the merge — identical points, one reserved corridor.
+ */
+interface Join {
+  col: number;
+  row: number;
+  tail: Array<{ x: number; y: number }>;
+}
+
+/**
+ * One pad's route: out of whatever it sits inside, then up to the rim — **joining any way
+ * that is already climbing rather than opening a second one beside it.**
+ *
+ * Routes used to ascend independently, each in its own column, and the cost is the whole
+ * reason the upper canyon had nothing left in it: N pads sliced the lattice into N
+ * vertical keep-out strips, and a colony got whatever slivers were left between them. A
+ * merged network reserves one corridor for as many pads as share it, which is both what
+ * the canyon looks like from the air and considerably cheaper in ground.
+ *
+ * Merging is what makes convergence affordable at all. Steering every route at the
+ * canyon's middle *without* it was measured as strictly worse than leaving them straight —
+ * 77 of 486 corp-missions under ten cells, against 0 — because the diagonals cost ground
+ * on the way in and then still ended in separate columns. The steering here is the same
+ * idea; what changed is that arriving now costs nothing, because the route that got there
+ * first is already paid for.
+ *
+ * Deterministic: a pure function of the seed's terrain and the order pads are routed in,
+ * which `buildChannels` fixes. The same route every mission for as long as the pad stands.
+ */
 function routeFor(
   pad: Pad,
   digs: Excavation[],
   lattice: Lattice,
   substrate: SubstrateField,
   terrain: ChannelTerrain,
+  joins: Join[],
 ): Channel {
   const deckY = deckOf(pad, lattice, terrain);
   const points: Array<{ x: number; y: number }> = [{ x: pad.x, y: deckY + DECK_CLEAR }];
@@ -253,28 +313,74 @@ function routeFor(
   }
 
   const start = points[points.length - 1];
+  const trunk = trunkColumn(lattice, terrain);
+  const startRow = Math.max(0, lattice.rowAt(start.y) + 1);
+  const needed = Math.ceil((CHANNEL_HALF + lattice.cellSize / 2) / lattice.cellSize);
+  /** Rows this route climbed on its own, for later routes to join. Recorded only up to a
+   *  merge: above one, an identical entry already exists from the route it merged into. */
+  const mine: Array<{ col: number; row: number; at: number }> = [];
   let col = lattice.colAt(start.x);
-  for (let row = Math.max(0, lattice.rowAt(start.y) + 1); row < lattice.rows; row++) {
+
+  for (let row = startRow; row < lattice.rows; row++) {
+    /**
+     * Whatever is already climbing through this row.
+     *
+     * **If there is a way here, take it — at any height.** Two roads running side by side
+     * up the same canyon are two corridors' worth of keep-out doing one corridor's job,
+     * and no player reads them as anything but a wide red band.
+     *
+     * Seeking the canyon's *middle* when there is no way to join is the separate half, and
+     * it stays gated to `CONVERGE_ABOVE`, because that is the half that costs floor. A
+     * route bending toward the centreline from row 0 puts the trunk on the same columns as
+     * `outpost-main`'s own deck and bench, and between them they leave no unreserved floor
+     * at all — seed 12345 came out with two free cells across rows 0 and 1, both against
+     * the east wall, and Ixion rooted on Kessler's face instead. Joining costs nothing by
+     * comparison: the column is already reserved by whoever got there first.
+     */
+    const ways = joins.filter((j) => j.row === row);
+    let target: number | null = null;
+    if (ways.length > 0) {
+      let nearest = Infinity;
+      for (const way of ways) {
+        const d = Math.abs(way.col - col);
+        if (d < nearest) {
+          nearest = d;
+          target = way.col;
+        }
+      }
+    } else if (row >= lattice.rows * CONVERGE_ABOVE) {
+      target = trunk;
+    }
+    if (target !== null && col !== target) {
+      // Joining an existing way crosses in one row; choosing a direction with nothing to
+      // join drifts a column at a time. See `JOIN_REACH`.
+      const budget = ways.length > 0 ? JOIN_REACH : DRIFT_PER_ROW;
+      const dir = col < target ? 1 : -1;
+      for (let n = 0; n < budget && col !== target; n++) {
+        const step = col + dir;
+        if (!lattice.inBounds(step, row) || openness(substrate, step, row) < needed) break;
+        col = step;
+      }
+    }
+
     /**
      * Climb straight unless this column is genuinely too tight, and only then take the
      * most open neighbour.
      *
      * The rule that was here — always move to whichever of the three candidates is *most*
-     * open — is subtly and expensively wrong, and the measurement is unambiguous. A route
-     * leaving a wall mouth is next to rock, so "more open" points inward every row, and
-     * the route drifts a column per row for as long as the gap keeps widening. Its
-     * clearance volume is the union of that whole diagonal sweep, so one route sterilised
-     * a band thirteen columns wide instead of a tube two wide: on seed 1, Helion's own
-     * cavern route (mission 19, deck at x=-134) wiped out the entire west wall, and
-     * Helion — whose home *is* the west wall — dropped from 45 cells to 1 for the rest of
-     * the campaign, along with Ixion beside it.
+     * open — is subtly and expensively wrong. A route leaving a wall mouth is next to
+     * rock, so "more open" points inward every row, and the route drifts a column per row
+     * for as long as the gap keeps widening. Its clearance volume is the union of that
+     * whole diagonal sweep, so one route sterilised a band thirteen columns wide instead
+     * of a tube two wide: on seed 1, Helion's own cavern route (mission 19, deck at
+     * x=-134) wiped out the entire west wall, and Helion — whose home *is* the west wall —
+     * dropped from 45 cells to 1 for the rest of the campaign, along with Ixion beside it.
      *
-     * `NEEDED` is what the channel actually has to have, not what it would prefer: enough
+     * `needed` is what the channel actually has to have, not what it would prefer: enough
      * open columns to hold its own clearance volume. Above that, extra room buys nothing
      * and costs a colony its ground.
      */
-    const NEEDED = Math.ceil((CHANNEL_HALF + lattice.cellSize / 2) / lattice.cellSize);
-    if (openness(substrate, col, row) < NEEDED) {
+    if (openness(substrate, col, row) < needed) {
       let bestCol = col;
       let bestScore = -Infinity;
       for (let d = -DRIFT_PER_ROW; d <= DRIFT_PER_ROW; d++) {
@@ -289,9 +395,19 @@ function routeFor(
       }
       col = bestCol;
     }
+
+    // Arrived on a way that is already going up: become it. Everything above this point is
+    // literally the other route's own points, so the two share one corridor to the rim.
+    const merged = ways.find((w) => w.col === col);
+    if (merged) {
+      points.push(...merged.tail);
+      break;
+    }
+    mine.push({ col, row, at: points.length });
     points.push({ x: lattice.worldX(col), y: lattice.worldY(row) });
   }
 
+  for (const { col: c, row, at } of mine) joins.push({ col: c, row, tail: points.slice(at) });
   return { padId: pad.id, points };
 }
 
@@ -304,7 +420,24 @@ export function buildChannels(
 ): ChannelNetwork {
   const pads = props.filter((p): p is Pad => p.kind === 'pad');
   const trunkCol = trunkColumn(lattice, terrain);
-  const channels = pads.map((pad) => routeFor(pad, digs, lattice, substrate, terrain));
+
+  /**
+   * Deepest deck first, and the order is load-bearing rather than incidental: routes join
+   * whichever way is already climbing (`routeFor`), so whoever goes first lays the trunk
+   * everyone else merges into. The deepest pad is the one with the whole canyon left to
+   * climb, so its route is the longest — start anywhere else and the trunk begins partway
+   * up with nothing under it for the floor pads to join.
+   *
+   * Ties break on `id` so the order is a function of the ledger, not of array order.
+   */
+  const ordered = [...pads].sort(
+    (a, b) => deckOf(a, lattice, terrain) - deckOf(b, lattice, terrain) || (a.id < b.id ? -1 : 1),
+  );
+  const joins: Join[] = [];
+  const routed = new Map<string, Channel>();
+  for (const pad of ordered) routed.set(pad.id, routeFor(pad, digs, lattice, substrate, terrain, joins));
+  // Back into ledger order, so a caller reading `channels[i]` gets the pad it expects.
+  const channels = pads.map((pad) => routed.get(pad.id)!);
 
   const blocked = new Uint8Array(lattice.cols * lattice.rows);
   const mark = (col: number, row: number): void => {
@@ -359,10 +492,47 @@ export function buildChannels(
      * the check can flag, which is the only relationship between the two that can never
      * produce a violation.
      */
-    const lo = Math.min(deckY, 0) - DECK_UNDER;
-    const hi = Math.max(deckY, 0) + DECK_CLEAR;
-    const half = pad.width / 2 + lattice.cellSize / 2;
-    for (let col = lattice.colAt(pad.x - half); col <= lattice.colAt(pad.x + half); col++) {
+    /**
+     * Every height the deck is read at, spanned together.
+     *
+     * Three of them, and leaving any out has been measured to produce a violation:
+     *
+     *   - `deckY`, this module's own reading, **snapped down to the lattice** — which is
+     *     the one that bites. `kessler-crest` is authored at y 73 and snaps to 68, so a
+     *     band computed from the snapped value alone stops at 71 and leaves the cell at
+     *     73.9–85.9 legal here and a `deck` violation in `Layout.ts`. Seen on four of the
+     *     ten mission/seed pairs checked.
+     *   - The pad's *real* height, which is what `Layout` measures an elevated pad at.
+     *   - `y = 0`, but only for a pad resting on the ground: `Layout.checkLayout` has no
+     *     terrain, so it models those as sitting at zero — a documented approximation it
+     *     has always made. A pad bolted to structure in mid-air carries an authored height
+     *     and is judged there, so including zero for those would reserve the entire column
+     *     beneath it, which is exactly the ground its own scaffolding has to grow up.
+     *
+     * Covering all of them makes the reservation a superset of what the check can flag,
+     * which is the only relationship between the two that can never produce a violation.
+     */
+    const real = pad.y ?? terrain.heightAt(pad.x, 0, false);
+    const heights = pad.y === undefined ? [deckY, real, 0] : [deckY, real];
+    const lo = Math.min(...heights) - DECK_UNDER;
+    const hi = Math.max(...heights) + DECK_CLEAR;
+    /**
+     * Exactly the columns whose cells would actually overlap the deck, tested rather than
+     * approximated by a half-width.
+     *
+     * The approximation was `pad.width / 2 + cellSize / 2`, which for a 12-wide pad is a
+     * full cell either side — three columns of keep-out for a deck that occupies one. With
+     * pads snapped to the lattice (`snapToColumn`) the honest answer is usually a single
+     * column, because `Layout`'s own deck rule asks whether a cell's span overlaps the
+     * pad's footprint, and a cell in the next column along only ever *touches* it.
+     */
+    const footprint: [number, number] = [pad.x - pad.width / 2, pad.x + pad.width / 2];
+    const reach = Math.ceil((pad.width / 2 + lattice.cellSize / 2) / lattice.cellSize);
+    const centre = lattice.colAt(pad.x);
+    for (let col = centre - reach; col <= centre + reach; col++) {
+      const cellLo = lattice.worldX(col) - lattice.cellSize / 2;
+      const cellHi = lattice.worldX(col) + lattice.cellSize / 2;
+      if (cellHi <= footprint[0] || cellLo >= footprint[1]) continue;
       for (let row = 0; row < lattice.rows; row++) {
         const cy = lattice.worldY(row);
         if (cy + lattice.cellSize / 2 <= lo) continue;
@@ -383,24 +553,34 @@ export function buildChannels(
   }
 
   /**
-   * Every bore's opening, kept clear across its full width from the mouth upward. The
-   * route through it only reserves the column it descends; this is what keeps the rest of
-   * the opening — and the airspace directly over it, where a colony could otherwise build
-   * a lid — from being closed in.
+   * Every bore's opening, kept clear across its full width — **for one bore-width above
+   * the lip, not to the rim.**
+   *
+   * The height is not a taste call: it mirrors `Layout.cappedFloorMouth`'s own `headroom`
+   * exactly, so this stays the superset of what that check can flag, which is the only
+   * relationship between a reservation and a check that can never produce a violation. If
+   * the two ever disagree it is this comment that is wrong.
+   *
+   * It used to run the full height of the lattice, because the check used to have no
+   * height test — a colony module a hundred and fifty units up sealed a shaft it could
+   * not reach, so the keep-out had to go that high too. Three columns from floor to rim,
+   * per occupied bore, and on seed 631729407 that was three of the four reserved columns
+   * in the whole canyon. Above the headroom the route itself is still reserved, one column
+   * wide, which is what stops anything roofing the descent.
    */
   for (const dig of digs) {
     const mouth = mouthOf(dig, terrain);
     const half = dig.halfWidth + MOUTH_LANE;
     // Only a bore somebody is actually sent down. `Layout.ts`'s own mouth rule asks the
     // same question first, and for the same reason — a hole with no pad in it is a hole
-    // nobody is flying into, and reserving a full-height column over every bore the
-    // campaign ever drives is what starved the colonies when this was written without the
-    // test: three columns to the rim, per dig, from mission one.
+    // nobody is flying into, and reserving over every bore the campaign ever drives is
+    // what starved the colonies when this was written without the test.
     const occupied = pads.some((p) => Math.abs(p.x - mouth.x) < half && (p.y === undefined || p.y < 0));
     if (!occupied) continue;
     const from = Math.max(0, lattice.rowAt(mouth.y));
+    const to = lattice.rowAt(mouth.y + dig.halfWidth * 2);
     for (let col = lattice.colAt(mouth.x - half); col <= lattice.colAt(mouth.x + half); col++) {
-      for (let row = from; row < lattice.rows; row++) mark(col, row);
+      for (let row = from; row <= to && row < lattice.rows; row++) mark(col, row);
     }
   }
 

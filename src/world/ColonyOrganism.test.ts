@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildLattice, type Lattice } from './ColonyLattice.ts';
+import { buildLattice, COLONY_LAYERS as LAYERS, type Lattice } from './ColonyLattice.ts';
 import { growColony, LINK, type OrganismCell, type Spore } from './ColonyOrganism.ts';
 import type { SubstrateField } from './ColonySubstrate.ts';
 import type { CorpId } from './CanyonSpec.ts';
@@ -77,16 +77,44 @@ describe('determinism', () => {
 });
 
 describe('reserved airspace', () => {
-  it('never builds in a forbidden cell, whatever the seed', () => {
+  /**
+   * **On the play plane.** A flight channel is airspace at z=0; the layers in front of and
+   * behind it are not in anyone's way, and building past a corridor is most of what depth
+   * is for — it turns a route into a slot cut through a deep mass rather than a gap the
+   * settlement politely grew around. So the guarantee is exact rather than blanket, and
+   * this asserts it in both directions: nothing at z=0, something behind.
+   */
+  it('never builds in a forbidden cell on the play plane, whatever the seed', () => {
     // A vertical slab through the middle of the colony's reach, which is the shape a
     // flight channel actually takes.
     const forbidden = (_r: number, col: number): boolean => Math.abs(col - 3) <= 1;
     for (let seed = 0; seed < 40; seed++) {
       const { cells, lattice: grid } = grow({ seed, forbidden: (col, row) => forbidden(row, col) });
       for (const index of cells.keys()) {
-        expect(Math.abs(grid.colOf(index) - 3), `seed ${seed}`).toBeGreaterThan(1);
+        if (grid.keyLayer(index) !== 0) continue;
+        expect(Math.abs(grid.keyCol(index) - 3), `seed ${seed}`).toBeGreaterThan(1);
       }
     }
+  });
+
+  /**
+   * Depth is a *last* resort, so the case that exercises it is a colony with more budget
+   * than face: a pocket three columns wide, walled by reserved airspace on both sides, and
+   * an allowance far larger than that pocket can hold on one layer. On open ground a colony
+   * never runs out of viable in-plane work and correctly never goes backwards, which is why
+   * this cannot be asserted against the default flat substrate.
+   */
+  it('thickens into the layers behind when the face is full', () => {
+    const { cells, lattice: grid } = grow({
+      budget: { outpost: 70 },
+      forbidden: (col) => Math.abs(col) > 1,
+    });
+    const offPlane = [...cells.keys()].filter((i) => grid.keyLayer(i) !== 0);
+
+    expect(offPlane.length).toBeGreaterThan(0);
+    // And what it built there is genuinely past the channel it could not cross on the
+    // play plane — the whole reason depth is worth having.
+    expect([...cells.keys()].every((i) => grid.keyLayer(i) !== 0 || Math.abs(grid.keyCol(i)) <= 1)).toBe(true);
   });
 
   /**
@@ -106,7 +134,8 @@ describe('reserved airspace', () => {
       ],
       forbidden: (col) => col === 0,
     });
-    const cols = [...cells.keys()].map((i) => grid.colOf(i));
+    // The play plane is where the descent is, so it is the only layer this asks about.
+    const cols = [...cells.keys()].filter((i) => grid.keyLayer(i) === 0).map((i) => grid.keyCol(i));
 
     expect(cols.some((c) => c < 0)).toBe(true);
     expect(cols.some((c) => c > 0)).toBe(true);
@@ -138,11 +167,12 @@ describe('nothing floats', () => {
       const depth = new Map<number, number>();
       const queue: number[] = [];
       for (const index of cells.keys()) {
-        const col = grid.colOf(index);
-        const row = grid.rowOf(index);
+        const col = grid.keyCol(index);
+        const row = grid.keyRow(index);
+        const layer = grid.keyLayer(index);
         const grounded =
           substrate.isSolid(col, row - 1) ||
-          cells.has(grid.index(col, row - 1)) ||
+          cells.has(grid.key(col, row - 1, layer)) ||
           DIRS.some(([dc, dr]) => substrate.isSolid(col + dc, row + dr));
         if (grounded) {
           depth.set(index, 0);
@@ -151,11 +181,25 @@ describe('nothing floats', () => {
       }
       for (let i = 0; i < queue.length; i++) {
         const index = queue[i];
-        const col = grid.colOf(index);
-        const row = grid.rowOf(index);
+        const col = grid.keyCol(index);
+        const row = grid.keyRow(index);
+        const layer = grid.keyLayer(index);
+        // Depth neighbours count as steps too: a cell braced only by the one in front of
+        // or behind it is supported, and a walk that ignored that would report it
+        // floating. See `reachOf`.
+        const around: number[] = [];
         for (const [dc, dr] of DIRS) {
-          if (!grid.inBounds(col + dc, row + dr)) continue;
-          const n = grid.index(col + dc, row + dr);
+          if (grid.inBounds(col + dc, row + dr)) around.push(grid.key(col + dc, row + dr, layer));
+        }
+        // Depth neighbours count as steps too: a cell braced only by the one in front of
+        // or behind it is supported, and a walk that ignored that would report it
+        // floating. Bounded to real layers — `key` packs the layer into a fixed number of
+        // slots per column, so a key one layer past the last one is a *different column's*
+        // cell rather than nothing. See `reachOf`.
+        for (const dl of [1, -1]) {
+          if (LAYERS.includes((layer + dl) as (typeof LAYERS)[number])) around.push(grid.key(col, row, layer + dl));
+        }
+        for (const n of around) {
           if (!cells.has(n) || depth.has(n)) continue;
           depth.set(n, depth.get(index)! + 1);
           queue.push(n);
@@ -164,7 +208,7 @@ describe('nothing floats', () => {
       for (const index of cells.keys()) {
         expect(
           depth.get(index),
-          `seed ${seed} cell ${grid.colOf(index)},${grid.rowOf(index)} is unsupported`,
+          `seed ${seed} cell ${grid.keyCol(index)},${grid.keyRow(index)} is unsupported`,
         ).toBeLessThanOrEqual(MAX_CANTILEVER);
       }
     }
@@ -195,7 +239,7 @@ describe('growth order is the campaign clock', () => {
 describe('climbing', () => {
   it('creeps up a rock face instead of only spreading along the floor', () => {
     const { cells, lattice: grid } = grow({ substrate: cliff(4), spores: [{ corp: 'outpost', col: 3, row: 0 }] });
-    const highest = Math.max(...[...cells.keys()].map((i) => grid.rowOf(i)));
+    const highest = Math.max(...[...cells.keys()].map((i) => grid.keyRow(i)));
 
     expect(highest).toBeGreaterThan(1);
   });
@@ -221,7 +265,7 @@ describe('climbing', () => {
         spores: [{ corp: 'outpost', col: 3, row: 0 }],
         budget: { outpost: 90 },
       });
-      const highest = Math.max(...[...cells.keys()].map((i) => grid.rowOf(i)));
+      const highest = Math.max(...[...cells.keys()].map((i) => grid.keyRow(i)));
 
       expect(highest, `seed ${seed}`).toBeLessThan(rows - 1);
     }
@@ -254,8 +298,11 @@ describe('three organisms, one canyon', () => {
     });
 
     for (const [index, cell] of cells) {
-      const col = grid.colOf(index);
-      const row = grid.rowOf(index);
+      const col = grid.keyCol(index);
+      const row = grid.keyRow(index);
+      // Links live *within* a layer — `LINK` has no depth members, deliberately, because a
+      // connection running away from the camera has no silhouette and no walkway to draw.
+      const layer = grid.keyLayer(index);
       for (const [link, back, dc, dr] of [
         [LINK.east, LINK.west, 1, 0],
         [LINK.west, LINK.east, -1, 0],
@@ -263,8 +310,8 @@ describe('three organisms, one canyon', () => {
         [LINK.down, LINK.up, 0, -1],
       ] as const) {
         if ((cell.links & link) === 0) continue;
-        const other = cells.get(grid.index(col + dc, row + dr));
-        expect(other, `cell ${col},${row} links to nothing`).toBeDefined();
+        const other = cells.get(grid.key(col + dc, row + dr, layer));
+        expect(other, `cell ${col},${row},${layer} links to nothing`).toBeDefined();
         expect(other!.corp).toBe(cell.corp);
         expect(other!.links & back).toBeTruthy();
       }
