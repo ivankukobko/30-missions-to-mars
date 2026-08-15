@@ -49,6 +49,19 @@ interface Saved {
    * that already survives a reload — see `invertThrusters`.
    */
   invertThrusters: boolean;
+  /**
+   * Muted effects and muted music, kept apart.
+   *
+   * Two flags rather than one, because they are switched for different reasons: effects
+   * off is usually "I am in a quiet room", music off is "I do not like this score". A
+   * player who wants the second should not have to take the first — the engine note is
+   * the vehicle telling them what it is doing.
+   *
+   * Preferences rather than campaign state, filed here for the reason `invertThrusters`
+   * already gives: there is exactly one place that survives a reload.
+   */
+  mutedSfx: boolean;
+  mutedMusic: boolean;
 }
 
 const KEY = 'mtm.progress.v1';
@@ -89,6 +102,8 @@ function fresh(): Saved {
     ranks: {},
     points: {},
     invertThrusters: false,
+    mutedSfx: false,
+    mutedMusic: false,
   };
 }
 
@@ -141,6 +156,10 @@ export class Progress {
         // Absent in saves written before the second airframe existed, which is every
         // save this change lands on. Default rather than discard the whole record.
         invertThrusters: parsed.invertThrusters === true,
+        // Absent on every save written before the pause menu, so both default to
+        // unmuted — which is what those players already had.
+        mutedSfx: parsed.mutedSfx === true,
+        mutedMusic: parsed.mutedMusic === true,
       };
     } catch {
       return fresh();
@@ -202,6 +221,21 @@ export class Progress {
     this.save();
   }
 
+  /** What the pause menu's audio switches were left at. */
+  get audioPrefs(): { sfx: boolean; music: boolean } {
+    return { sfx: this.data.mutedSfx, music: this.data.mutedMusic };
+  }
+
+  setMutedSfx(muted: boolean): void {
+    this.data.mutedSfx = muted;
+    this.save();
+  }
+
+  setMutedMusic(muted: boolean): void {
+    this.data.mutedMusic = muted;
+    this.save();
+  }
+
   rankFor(missionId: number): Rank | null {
     return this.data.ranks[String(missionId)] ?? null;
   }
@@ -239,8 +273,25 @@ export class Progress {
     this.save();
   }
 
+  /**
+   * Wipes the campaign — but not the player.
+   *
+   * Audio and control preferences are carried across. They are facts about the person
+   * and the room they are sitting in, not about a run: someone who muted the music and
+   * then rolled a new canyon has said nothing about wanting it back, and having it start
+   * up again reads as a bug rather than a fresh start. The same argument retires the
+   * control mapping, which is a fact about how their hands work.
+   *
+   * This is the seam that save slots will widen — see docs/plans/main_menu.md, where the
+   * preferences move out of the slot record entirely for the same reason.
+   */
   reset(): void {
-    this.data = fresh();
+    const kept = {
+      invertThrusters: this.data.invertThrusters,
+      mutedSfx: this.data.mutedSfx,
+      mutedMusic: this.data.mutedMusic,
+    };
+    this.data = { ...fresh(), ...kept };
     this.save();
   }
 

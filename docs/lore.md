@@ -22,9 +22,60 @@ No brief addresses a human pilot; there is no seat, no stick and no cockpit. Wha
 
 **The name is earned, not assigned.** Mission 1 addresses you as nothing — you have not done anything yet. You plant Ixion's navigation radar, and because `setMastX` freezes that position for the rest of the campaign it is the one structure in the canyon the player sited themselves. From mission 2 Ixion calls you *the navigator*, after the navigation you built them. They explain it once and never again.
 
-**Kessler uses one name, and repetition is the point.** *Tin can* appears in roughly half his twelve runs and is absent from every genuinely lethal one — missions 21, 25 and 27, where he is concentrating on keeping you intact. The omission does more work than the word. A rotating set of insults was considered and rejected: a nickname that never repeats is a thesaurus, not a relationship, and it leaves nothing to measure the ending against.
+**Kessler uses one name, and repetition is the point.** *Tin can* appears in five of his eleven runs and is absent from every genuinely lethal one — missions 21, 25 and 27, where he is concentrating on keeping you intact. The omission does more work than the word. A rotating set of insults was considered and rejected: a nickname that never repeats is a thesaurus, not a relationship, and it leaves nothing to measure the ending against.
 
 **There is exactly one deviation in the campaign.** Ixion goes off the air at mission 28. At mission 30 — the last brief in the game — Kessler calls you *navigator*, the only time he ever uses it, two missions after the only client who ever thought you were a someone stopped transmitting. It is never explained and the player is never told to notice. `Missions.test.ts` asserts all of it, because prose drifts.
+
+### The Carrier
+
+Mission 30 is the only brief in the game that somebody interrupts.
+
+Kessler is mid-sentence — counting who is left on the canyon, the outpost dark two runs
+back — when a card arrives headed **IXION OUTPOST**, carrying one sentence and nothing
+else: *"We are the only thing at the bottom of this canyon, and we intend to stay that
+way."* It is the second sentence of mission 1, the same string, and the first thing the
+player ever read. Kessler's next card opens `...say again.`, gets nothing, picks up the
+exact word he was cut off on, and finishes the job.
+
+Three things hold it up, and all three are asserted:
+
+- **Verbatim, or it is a reference rather than a recurrence.** A paraphrase would read as
+  the writer pointing at mission 1. The identical string reads as the channel doing
+  something.
+- **The line carries no name.** Mission 1 addresses you as nothing, so there is no
+  *navigator* in it for Kessler to have picked up off the air. His use of the name three
+  cards later stays his own choice, uncaused — which is the whole of the deviation above.
+- **He never investigates.** No speculation, no explanation, not then and not ever. The
+  last human voice on the canyon hears the first one, asks it to repeat, and detonates the
+  charge anyway. *Say again* rather than *repeat*, because on an industrial channel
+  *repeat* means do it again, which is an unfortunate thing to say while holding a Final
+  Charge.
+
+Whether the mast is looping a stored ident, or something is still down there, is never
+raised. Ixion left the radar powered at mission 28 and said so; that is the whole of the
+mechanism the game offers.
+
+### Ixion in the Middle Third
+
+Missions 15, 19 and 30 carry a card the client did not send. All three are the outpost.
+
+The problem they solve was made by fixing something else. Helion used to be a wry human
+who supplied most of the warmth in missions 13–23; rewriting them as a machine-generated
+form was right for Helion and left that stretch colder than it had ever been, with Ixion
+already absent from it. The outpost is a client again at mission 23 — one delivery, the
+lander's only appearance between 12 and 24 — but missions 15 to 21 all build the shaft and
+cavern chain and cannot change hands without breaking it.
+
+So Ixion arrives in them as a **voice rather than a client**, which is the better reading
+anyway: an outpost too broke to commission flights but still transmitting is its decline
+shown instead of reported. It watches Kessler open the floor at 15 (*"nobody filed for
+it… we are not asking you to choose"*) and the surface empty at 19, after Helion's deck
+goes dark.
+
+A cut-in never has the last word. The client resumes and still gives the address, because
+the mission is still theirs. And a card wears its **sender's** livery, not the client's —
+without that, `IXION OUTPOST` would appear in Kessler's blue, which is the one thing an
+interruption must not look like.
 
 ---
 
@@ -46,8 +97,18 @@ Three distinct parties share Coprates Chasma, each claiming a specific domain ac
 - **Identity**: A major commercial extraction charter operating along the West canyon wall.
 - **Philosophy**: Lateral expansion and cliff face excavation (*"Helion drills sideways"*).
 - **Architecture**: High crest platforms, wall gantries, structural towers, and deep horizontal caverns carved into cliff walls.
-- **Vehicle**: TD-4 Lander (entering wall caverns requires pitch-over maneuverability and manual attitude control).
-- **Voice**: Nobody. Auto-generated contract text with the fields filled in — not cold out of cruelty, cold because no human was ever involved. Classifies you by function and carries a line for whether you are expected back. *(Not yet written: Helion's ten briefs are still in the original register.)*
+- **Vehicle**: HD-7 Sidewinder (attitude locked and translation decoupled — a wall cavern is entered level and sideways, with no attitude to recover).
+- **Voice**: Nobody. Auto-generated contract text with the fields filled in — not cold out of cruelty, cold because no human was ever involved. All ten briefs are one form under one contract number, 4471-C, amended: `ASSET CLASS`, `CONSIGNMENT`, `DESTINATION`, `ROUTE NOTE`, `RETURN EXPECTED`.
+
+Three rules keep it reading as a machine rather than as a terse employee, and `Missions.test.ts` holds all three:
+
+- **No second person, and no first.** The other two charters address you — that is what their names for you are *for*. Helion has no *you* and no *we* in ten contracts. One of either puts somebody on the other end of the link, and there is not supposed to be anybody there.
+- **One weight throughout.** No emphasis anywhere in the body, including on `RETURN EXPECTED: NO`, which is on the first contract and every one after it. Bolding it would mean somebody had decided it mattered.
+- **The form drifts, because nobody maintains it.** Revisions climb 1 → 11 and skip 10, which was generated and never sent. `ATTRITION: WITHIN TOLERANCE` arrives at 26 and never leaves. And the drift is structural, not just textual: a contract is two cards — manifest, then `CONDITIONS OF CARRIAGE` — until the arbitration annex exists at mission 22, from which point it is three. The annex is always **last**, so the final eight Helion runs begin descent from a page of boilerplate that has nothing to do with flying.
+
+The card breaks are authoring, not formatting. Each one is a beat, and a card holding four sentences has spent that beat on nothing — so no Helion card exceeds 240 visible characters, and the objective sits on the conditions card where the route note is, not alone. The form was written as a single card first and read as a wall: seven fields and a three-sentence route note arriving together, which is the exact shape the card sequence exists to break up.
+
+Helion has no arc because Helion has no character. What changes across the campaign is the paperwork. A wry, clipped middle manager was the original register and was cut: it made Helion a third person with opinions, which left the canyon with three voices and no silence in it.
 
 ### 3. Kessler Deep (*East Wall & Floor Shafts*)
 

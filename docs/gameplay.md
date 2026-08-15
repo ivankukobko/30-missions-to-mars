@@ -10,6 +10,34 @@ touchdown, and killing it is the first job of every run.
 (1.9t → mass 2.05) gets 17.6 u/s² against 6 of gravity, a net 11.6, which sheds entry
 velocity in ~365 of the ~550 units available. Light cargo brakes in under 160.
 
+### Uplink
+
+The first three seconds are not yours. The vehicle was released before you were connected
+to it, so a mission opens already falling with **UPLINK ESTABLISHING** on screen and the
+controls dead — the input system registers the keys, and the vehicle ignores them. Then
+the game holds and the brief appears; `BEGIN DESCENT` hands over control.
+
+**Nothing of the vehicle's is on screen for any of it** — no console, no augmented layer,
+only the status line. The console belongs to the airframe and you are not connected to the
+airframe yet; drawing its instruments mid-handshake says the opposite of what the sequence
+is for.
+
+So the console's own 900 ms boot sweep plays when the console appears, at `BEGIN DESCENT`.
+It runs off `consoleTime` — `missionTime` minus a mark taken when the HUD comes up — not
+off `missionTime` itself, which would fire it at mission load while nothing was drawn. The
+mark is taken at `begin` rather than when the handshake completes, because the brief sits
+between the two and a sweep started at the handshake would be over before the player
+stopped reading. The augmented layer arrives at the same moment, for the same reason: it
+is the AI's projection onto a vehicle it has connected to.
+
+It costs no altitude budget. Three seconds of free fall is ~190 units and leaves the
+vehicle at 73 u/s, and that is what already happened: burning at entry altitude only buys
+a longer fight with gravity, so the uplink takes away a thing nobody was doing.
+
+Three seconds rather than the whole descent-from-the-sky shot, because this is a landing
+game and missions are re-flown a great deal. The sequence plays on every attempt, retries
+included — at this length that is a beat rather than a toll.
+
 ## Controls
 
 The same three inputs drive both vehicles; what they mean depends on which one you are

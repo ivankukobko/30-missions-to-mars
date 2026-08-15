@@ -473,6 +473,27 @@ export class CanyonGenerator {
   }
 
   /**
+   * Room to the rock either side, for a vehicle inside a bore. `null` anywhere else —
+   * which is most of a mission, since a hauler descends to a shaft before it enters one.
+   *
+   * The null is the useful half of this contract. The bore-clearance gauge is the one
+   * instrument on the KD-9's panel with nothing to say in open air, and an instrument
+   * that keeps reading while its quantity is undefined is worse than one that visibly
+   * goes dark: it asserts a wall that is not there. `null` is what lets the gauge fade
+   * rather than lie.
+   *
+   * Bores never overlap — the layout rules reserve entry lanes around each dig — so the
+   * first hit is the only hit, and there is no tie to break.
+   */
+  clearanceAt(x: number, y: number): { left: number; right: number } | null {
+    for (const shaft of this.shafts) {
+      const clear = shaft.clearanceAt(x, y);
+      if (clear) return clear;
+    }
+    return null;
+  }
+
+  /**
    * The real, lowest point of the canyon's natural floor across its full width at the
    * play plane — digs excluded, so a shaft's own pit never counts (a colony's own grid
    * has to rest on rock everywhere, not float over wherever a bore happens to go). This

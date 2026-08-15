@@ -13,8 +13,16 @@ missions:
     failDepth: -60
     colonyBudget:
       outpost: 3
-    brief: >-
-      <b>UPLINK</b> · established<br/><b>IXION OUTPOST</b><br/>Welcome to Coprates Chasma. We are the only thing at the bottom of this canyon, and we intend to stay that way.<br/><br/>You are carrying our navigation radar. Until it is standing on the floor of this chasm you have no altimeter, no ranging and no target bearing — so put it down somewhere, anywhere, in one piece. Where you set it down is where it stays, and everything we do afterwards is measured from it.<br/><br/><b>OBJECTIVE</b> Descend past the rim. Land intact on open ground.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          Welcome to Coprates Chasma. We are the only thing at the bottom of this canyon, and we intend to stay that way.
+      - sender: IXION OUTPOST
+        content: >-
+          You are carrying our navigation radar. Until it is standing on the floor of this chasm you have no altimeter, no ranging and no target bearing — so put it down somewhere, anywhere, in one piece.
+      - sender: IXION OUTPOST
+        content: >-
+          Where you set it down is where it stays, and everything we do afterwards is measured from it.<br/><br/><b>OBJECTIVE</b> Descend past the rim. Land intact on open ground.
 
   - id: 2
     client: outpost
@@ -25,8 +33,16 @@ missions:
     start: { x: -4, y: 1250 }
     target: outpost-main
     failDepth: -60
-    brief: >-
-      <b>IXION OUTPOST</b><br/>Radar is up and slaved to your feed — altitude, range and target bearing, all of it off the mast you set down yesterday. Our pad is in as well, so from here on you are flying to an address.<br/><br/>You placed it better than the specification asked for. We have started calling you the navigator. It is not a rank anyone here has the standing to award, but it has stuck.<br/><br/>Second run. Watch your descent rate — the canyon floor is not forgiving and neither is the west wall.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          Radar is up and slaved to your feed — altitude, range and target bearing, all of it off the mast you set down yesterday. Our pad is in as well, so from here on you are flying to an address.
+      - sender: IXION OUTPOST
+        content: >-
+          You placed it better than the specification asked for. We have started calling you the navigator. It is not a rank anyone here has the standing to award, but it has stuck.
+      - sender: IXION OUTPOST
+        content: >-
+          Second run. Watch your descent rate — the canyon floor is not forgiving and neither is the west wall.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.
     adds:
       props:
         - kind: pad
@@ -46,8 +62,13 @@ missions:
     start: { x: 4, y: 1230 }
     target: outpost-main
     failDepth: -60
-    brief: >-
-      <b>IXION OUTPOST</b><br/>Heavier load today, navigator. Mass makes the airframe slow to answer — start your corrections earlier than the figures suggest.<br/><br/>The lag is worse than the mass number implies. We have never worked out why.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          Heavier load today, navigator. Mass makes the airframe slow to answer — start your corrections earlier than the figures suggest.
+      - sender: IXION OUTPOST
+        content: >-
+          The lag is worse than the mass number implies. We have never worked out why.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
 
   - id: 4
     client: outpost
@@ -58,8 +79,13 @@ missions:
     start: { x: -5, y: 1250 }
     target: outpost-main
     failDepth: -60
-    brief: >-
-      <b>IXION OUTPOST</b><br/>Two extraction charters cleared orbit this morning. Helion to our west, Kessler to our east.<br/><br/>We filed first. It will not matter, navigator, but it will be on the record — and the record is the only thing we have that they cannot dig up.<br/><br/><b>OBJECTIVE</b> Deliver the filings before the corporate survey lands.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          Two extraction charters cleared orbit this morning. Helion to our west, Kessler to our east.
+      - sender: IXION OUTPOST
+        content: >-
+          We filed first. It will not matter, navigator, but it will be on the record — and the record is the only thing we have that they cannot dig up.<br/><br/><b>OBJECTIVE</b> Deliver the filings before the corporate survey lands.
 
   - id: 5
     client: helion
@@ -70,8 +96,21 @@ missions:
     start: { x: -7, y: 1250 }
     target: helion-crest
     failDepth: -60
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>You fly for us now. Our crest platform is live on the west approach — bring the drill head in on the platform, not the outpost slab. We pay for addresses, not effort.<br/><br/><b>OBJECTIVE</b> Deliver to HELION CREST.
+    # A charter's first mission normally gets FIRST_MISSION_CELLS — three cells, so the
+    # canyon the player first sees reads as unclaimed. That is right for mission 1 and
+    # wrong the moment a corp's *first* mission also raises a deck: the crest sits six
+    # rows up and three cells cannot reach it, so the platform this brief calls "live"
+    # hung in mid-air with a 56-unit gap beneath it. Thirty is what mission 7 grants
+    # anyway, and at that budget the stack closes to within a deck's own thickness.
+    colonyBudget:
+      helion: 30
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 1 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7 SIDEWINDER<br/>FRAME NOTE: ATTITUDE LOCKED. NOTHING TO RECOVER.<br/>CONSIGNMENT: DRILL HEAD<br/>DESTINATION: HELION CREST — WEST APPROACH
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: THE IXION SLAB IS NOT A HELION ADDRESS.<br/>DELIVERY TO IT DOES NOT DISCHARGE THIS CONTRACT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the drill head to HELION CREST.
     adds:
       props:
         - kind: pad
@@ -92,8 +131,17 @@ missions:
     start: { x: 7, y: 1250 }
     target: kessler-crest
     failDepth: -60
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Helion drills sideways. We drill down. East tower is up and the deck is waiting.<br/><br/>You will be flying one of ours. Nothing that goes down a bore has any business turning, so it does not. Try not to bend it, tin can — the frame costs more than the contract does.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER CREST.
+    # Kessler's own first mission raises its own deck — the same case as mission 5, and it
+    # was floating on every seed measured. See the note there.
+    colonyBudget:
+      kessler: 30
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          Helion drills sideways. We drill down. East tower is up and the deck is waiting.
+      - sender: KESSLER DEEP
+        content: >-
+          You will be flying one of ours. Nothing that goes down a bore has any business turning, so it does not. Try not to bend it, tin can — the frame costs more than the contract does.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER CREST.
     adds:
       props:
         - kind: pad
@@ -114,8 +162,13 @@ missions:
     start: { x: 3, y: 1210 }
     target: helion-crest
     failDepth: -60
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>Kessler has started building toward the centre line. So have we. Mind the new mast on your approach.<br/><br/><b>OBJECTIVE</b> Deliver coolant to HELION CREST.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 2 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: COOLANT CELLS<br/>DESTINATION: HELION CREST
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: BOTH CHARTERS ARE BUILDING TOWARD THE CENTRE LINE.<br/>CORRIDOR CLEARANCE REDUCES ON EVERY SUBSEQUENT CONTRACT. IT IS NOT REPLANNED BETWEEN THEM.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver coolant to HELION CREST.
 
   - id: 8
     client: kessler
@@ -126,8 +179,13 @@ missions:
     start: { x: -11, y: 1230 }
     target: kessler-crest
     failDepth: -60
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Casing is heavy and you start on the wrong side of the canyon.<br/><br/>Cross high or cross low, tin can, but cross deliberately. Drifting through the middle is how you meet the gantry Helion put up.<br/><br/><b>OBJECTIVE</b> Carry the casing east to KESSLER CREST.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          Casing is heavy and you start on the wrong side of the canyon.
+      - sender: KESSLER DEEP
+        content: >-
+          Cross high or cross low, tin can, but cross deliberately. Drifting through the middle is how you meet the gantry Helion put up.<br/><br/><b>OBJECTIVE</b> Carry the casing east to KESSLER CREST.
 
   - id: 9
     client: outpost
@@ -138,8 +196,13 @@ missions:
     start: { x: 0, y: 1190 }
     target: outpost-main
     failDepth: -60
-    brief: >-
-      <b>IXION OUTPOST</b><br/>They are building on our sightlines. This injunction will be ignored, but it will be <i>filed</i>.<br/><br/>You will have noticed the approach is tighter than it was. That is not your handling, navigator. That is the canyon closing, and it will keep closing.<br/><br/><b>OBJECTIVE</b> Return to the outpost pad.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          They are building on our sightlines. This injunction will be ignored, but it will be <i>filed</i>.
+      - sender: IXION OUTPOST
+        content: >-
+          You will have noticed the approach is tighter than it was. That is not your handling, navigator. That is the canyon closing, and it will keep closing.<br/><br/><b>OBJECTIVE</b> Return to the outpost pad.
 
   - id: 10
     client: helion
@@ -150,8 +213,13 @@ missions:
     start: { x: -13, y: 1230 }
     target: helion-crest
     failDepth: -60
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>We are spanning the west approach. Once this goes up, the gap under it is your only clean line in.<br/><br/><b>OBJECTIVE</b> Deliver the segment to HELION CREST.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 3 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: PIPELINE SEGMENT<br/>DESTINATION: HELION CREST
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: TRANSIT CROSSES AIRSPACE CLAIMED BY KESSLER DEEP.<br/>NO DECONFLICTION AGREEMENT IS IN FORCE. NONE IS SOUGHT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the segment to HELION CREST.
 
   - id: 11
     client: kessler
@@ -162,8 +230,13 @@ missions:
     start: { x: 13, y: 1210 }
     target: kessler-crest
     failDepth: -60
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Our own span goes up today. Helion will call it provocation. It is a winch.<br/><br/>Mind it on the way in, tin can. It went up this morning and it is not on the chart you flew last time.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER CREST.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          Our own span goes up today. Helion will call it provocation. It is a winch.
+      - sender: KESSLER DEEP
+        content: >-
+          Mind it on the way in, tin can. It went up this morning and it is not on the chart you flew last time.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER CREST.
 
   - id: 12
     client: outpost
@@ -174,8 +247,13 @@ missions:
     start: { x: -8, y: 1170 }
     target: outpost-main
     failDepth: -60
-    brief: >-
-      <b>IXION OUTPOST</b><br/>Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open, and it is open because we filed for it.<br/><br/>Heavy load, navigator, and a narrower corridor than the last time you flew it.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open, and it is open because we filed for it.
+      - sender: IXION OUTPOST
+        content: >-
+          Heavy load, navigator, and a narrower corridor than the last time you flew it.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.
 
   - id: 13
     client: helion
@@ -186,8 +264,13 @@ missions:
     start: { x: 11, y: 1170 }
     target: helion-crest
     failDepth: -60
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>Charges are light but you are crossing the whole canyon under two spans to get here. Fuel is not generous.<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CREST.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 4 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: CUTTING CHARGES<br/>DESTINATION: HELION CREST<br/>PRIOR CONSIGNMENTS ON ROUTE: DRILL HEAD · COOLANT CELLS · PIPELINE SEGMENT
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: OBSTRUCTION BY PRIOR CONSIGNMENTS IS NOT A HELION LIABILITY.<br/>FUEL ALLOWANCE: MINIMUM VIABLE<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CREST.
 
   - id: 14
     client: kessler
@@ -198,8 +281,13 @@ missions:
     start: { x: 0, y: 1170 }
     target: kessler-crest
     failDepth: -60
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Last surface delivery. Tomorrow we open the floor.<br/><br/>Heaviest thing you have carried for us, tin can, and the deck has not grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER CREST.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          Last surface delivery. Tomorrow we open the floor.
+      - sender: KESSLER DEEP
+        content: >-
+          Heaviest thing you have carried for us, tin can, and the deck has not grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER CREST.
 
   - id: 15
     client: kessler
@@ -210,8 +298,16 @@ missions:
     start: { x: 5, y: 1150 }
     target: kessler-crest
     failDepth: -95
-    brief: >-
-      <b>KESSLER DEEP</b><br/>The shaft is open. Do not go down it yet — there is nothing down there to land on and the walls are unlined.<br/><br/>The core goes on the crest deck, same as always. Look at the hole on your way past if you like. It is the last time it will be that shallow.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER CREST.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          The shaft is open. Do not go down it yet — there is nothing down there to land on and the walls are unlined.
+      - sender: IXION OUTPOST
+        content: >-
+          That bore is four hundred metres from our foundation slab and nobody filed for it.<br/><br/>Fly the contract, navigator. We are not asking you to choose.
+      - sender: KESSLER DEEP
+        content: >-
+          The core goes on the crest deck, same as always. Look at the hole on your way past if you like. It is the last time it will be that shallow.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER CREST.
     adds:
       digs:
         - id: kessler-shaft
@@ -229,8 +325,13 @@ missions:
     start: { x: 0, y: 1130 }
     target: kessler-shaft
     failDepth: -95
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Pad is in at the shaft floor. Fifty-eight metres below the canyon, walls close on both sides.<br/><br/>Come down slow and come down straight, tin can. Light load today, and that is deliberate — I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Descend the shaft. Deliver to KESSLER SHAFT.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          Pad is in at the shaft floor. Fifty-eight metres below the canyon, walls close on both sides.
+      - sender: KESSLER DEEP
+        content: >-
+          Come down slow and come down straight, tin can. Light load today, and that is deliberate — I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Descend the shaft. Deliver to KESSLER SHAFT.
     adds:
       props:
         - kind: pad
@@ -252,8 +353,13 @@ missions:
     start: { x: -14, y: 1150 }
     target: helion-crest
     failDepth: -95
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>Kessler dug a hole. We are digging a room. Heaviest rig you have carried — respect the inertia.<br/><br/><b>OBJECTIVE</b> Deliver the rig to HELION CREST.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 5 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: LATERAL BORE RIG<br/>DESTINATION: HELION CREST<br/>EXCAVATION AUTHORISED: WEST WALL, HORIZONTAL. HELION DOES NOT SINK SHAFTS.
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: HEAVIEST CONSIGNMENT CARRIED UNDER THIS CONTRACT TO DATE.<br/>INERTIA IS NOT A FAULT CONDITION.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the rig to HELION CREST.
     adds:
       digs:
         - id: helion-cavern
@@ -270,8 +376,13 @@ missions:
     start: { x: -2, y: 1130 }
     target: helion-crest
     failDepth: -95
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>Bracing goes over the west excavation. After today that pit has a ceiling, and getting under it is a flying problem.<br/><br/><b>OBJECTIVE</b> Deliver bracing to HELION CREST.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 6 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ROOF BRACING<br/>DESTINATION: HELION CREST
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: THE BRACING CLOSES THE WEST EXCAVATION OVERHEAD ON INSTALLATION.<br/>FROM THE NEXT CONTRACT THAT WORKING IS LATERAL APPROACH ONLY. NO VERTICAL DESCENT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver bracing to HELION CREST.
     adds:
       props:
         - kind: caveRoof
@@ -290,8 +401,16 @@ missions:
     start: { x: 4, y: 1130 }
     target: helion-cavern
     failDepth: -95
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>The cavern pad is lit. You will have to fly beneath the bracing and level off inside — no vertical approach, the roof is in the way.<br/><br/><b>OBJECTIVE</b> Enter the west cavern. Deliver to HELION CAVERN.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 7 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ORE PROCESSOR<br/>DESTINATION: HELION CAVERN — WEST WALL, INTERIOR<br/>HELION CREST: DECOMMISSIONED. DECK LIGHTING OFF.
+      - sender: IXION OUTPOST
+        content: >-
+          The Helion deck went dark this morning. They are in the wall now, and Kessler is in the floor.<br/><br/>Everything that stood on the surface of this canyon when you arrived is underground or is us, navigator.
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: APPROACH BENEATH THE BRACING AND LEVEL OFF INSIDE.<br/>THE ROOF INSTALLED UNDER REV 6 IS LOAD-BEARING AND WILL NOT YIELD.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Enter the west cavern. Deliver to HELION CAVERN.
     adds:
       props:
         - kind: pad
@@ -315,8 +434,13 @@ missions:
     start: { x: 0, y: 1130 }
     target: kessler-shaft
     failDepth: -190
-    brief: >-
-      <b>KESSLER DEEP</b><br/>We are sinking the main shaft. The hole you have spent five missions landing beside goes down another hundred and thirty metres tonight.<br/><br/>Pylons anchor the lining. If they are not seated, everything we put below them comes back up the hard way.<br/><br/><b>OBJECTIVE</b> Deliver pylons to KESSLER SHAFT.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          We are sinking the main shaft. The hole you have spent five missions landing beside goes down another hundred and thirty metres tonight.
+      - sender: KESSLER DEEP
+        content: >-
+          Pylons anchor the lining. If they are not seated, everything we put below them comes back up the hard way.<br/><br/><b>OBJECTIVE</b> Deliver pylons to KESSLER SHAFT.
     adds:
       digs:
         - id: kessler-shaft
@@ -334,8 +458,13 @@ missions:
     start: { x: -4, y: 1130 }
     target: kessler-ledge
     failDepth: -190
-    brief: >-
-      <b>KESSLER DEEP</b><br/>First platform is bolted into the shaft wall, forty-six metres down.<br/><br/>Line up over the mouth and descend straight. The shaft is barely wider than your gear and there is no room to correct once you are inside it. Get it wrong above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER LEDGE.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          First platform is bolted into the shaft wall, forty-six metres down.
+      - sender: KESSLER DEEP
+        content: >-
+          Line up over the mouth and descend straight. The shaft is barely wider than your gear and there is no room to correct once you are inside it. Get it wrong above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER LEDGE.
     adds:
       props:
         - kind: pad
@@ -357,20 +486,35 @@ missions:
     start: { x: 16, y: 1110 }
     target: helion-cavern
     failDepth: -190
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>Kessler is down the shaft. We are contesting it. Take this beacon to our cavern and then, for your own sake, stay out of the arbitration.<br/><br/><b>OBJECTIVE</b> Cross the canyon. Deliver to HELION CAVERN.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 8 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: COUNTERCLAIM BEACON<br/>DESTINATION: HELION CAVERN
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: KESSLER DEEP HAS ESTABLISHED WORKINGS BELOW THE FLOOR LINE.<br/>THE SEAM IS CONTESTED.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Cross the canyon. Deliver to HELION CAVERN.
+      - sender: ANNEX A — ARBITRATION
+        content: >-
+          THE CARRIER IS NOT A PARTY TO THESE PROCEEDINGS AND HAS NO STANDING TO BE HEARD IN THEM.
 
   - id: 23
-    client: kessler
+    client: outpost
     payload:
-      name: Pressure Rig
-      mass: 1.7
-    fuel: 445
+      name: Reclaimer Parts
+      mass: 0.5
+      # "reclaimer" would infer a rig; this is a box of spares for one.
+      shape: crate
+    fuel: 375
     start: { x: 0, y: 1110 }
-    target: kessler-ledge
+    target: outpost-main
     failDepth: -190
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Heavy rig, and the ledge is narrow.<br/><br/>This is the run that sorts the good units from scrap, tin can. Better ones than you have come apart on that ledge.<br/><br/><b>OBJECTIVE</b> Deliver the rig to KESSLER LEDGE.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          The water reclaimer you brought down on your third run has failed. Twenty runs is longer than it was ever rated for, and there is no replacement to be had at a price this outpost can still meet.
+      - sender: IXION OUTPOST
+        content: >-
+          So: parts. The lightest load we have ever sent you for, navigator, and that is not consideration — it is the size of what we can afford.<br/><br/><b>OBJECTIVE</b> Bring the parts to the outpost pad.
 
   - id: 24
     client: outpost
@@ -381,8 +525,13 @@ missions:
     start: { x: -16, y: 1110 }
     target: outpost-main
     failDepth: -190
-    brief: >-
-      <b>IXION OUTPOST</b><br/>Both charters have hit the same seam from opposite sides. We have recommended evacuation. Nobody has acknowledged it.<br/><br/>We are aware you fly for them as well, navigator. It has never been held against you. You go where the contract sends you, which is a thing we have in common.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          Both charters have hit the same seam from opposite sides. We have recommended evacuation. Nobody has acknowledged it.
+      - sender: IXION OUTPOST
+        content: >-
+          We are aware you fly for them as well, navigator. It has never been held against you. You go where the contract sends you, which is a thing we have in common.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.
 
   - id: 25
     client: kessler
@@ -393,8 +542,13 @@ missions:
     start: { x: 5, y: 1110 }
     target: kessler-deep
     failDepth: -320
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Second platform, a hundred and forty-two metres down. Below the ledge the shaft squeezes and the fog goes black.<br/><br/>Trust the altimeter, not the optical feed. Down there the two will disagree, and the altimeter will be the one that is right.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER DEEP.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          Second platform, a hundred and forty-two metres down. Below the ledge the shaft squeezes and the fog goes black.
+      - sender: KESSLER DEEP
+        content: >-
+          Trust the altimeter, not the optical feed. Down there the two will disagree, and the altimeter will be the one that is right.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER DEEP.
     adds:
       props:
         - kind: pad
@@ -416,8 +570,16 @@ missions:
     start: { x: 19, y: 1090 }
     target: helion-cavern
     failDepth: -320
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>Full crossing, west cavern, under the bracing. You have done every piece of this before. Not all on one tank.<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CAVERN.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 9 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: SEAM CHARGES<br/>DESTINATION: HELION CAVERN<br/>ATTRITION: WITHIN TOLERANCE
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: FULL CANYON CROSSING, THEN LATERAL ENTRY BENEATH THE BRACING.<br/>EVERY SEGMENT OF THIS TRANSIT HAS BEEN FLOWN BEFORE. NO SINGLE CONTRACT HAS COMBINED THEM.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CAVERN.
+      - sender: ANNEX A — ARBITRATION
+        content: >-
+          PROCEEDINGS CONTINUE. THE CARRIER IS NOT A PARTY.
 
   - id: 27
     client: kessler
@@ -428,8 +590,13 @@ missions:
     start: { x: -11, y: 1090 }
     target: kessler-deep
     failDepth: -320
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Heaviest object anyone has flown in this canyon. West wall to the bottom of the shaft, through everything both charters have built.<br/><br/>I would not hand this run to anyone else. Take the weight down slowly and do not let it get ahead of you.<br/><br/><b>OBJECTIVE</b> Deliver the shell to KESSLER DEEP.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          Heaviest object anyone has flown in this canyon. West wall to the bottom of the shaft, through everything both charters have built.
+      - sender: KESSLER DEEP
+        content: >-
+          I would not hand this run to anyone else. Take the weight down slowly and do not let it get ahead of you.<br/><br/><b>OBJECTIVE</b> Deliver the shell to KESSLER DEEP.
 
   - id: 28
     client: outpost
@@ -440,8 +607,16 @@ missions:
     start: { x: 20, y: 1070 }
     target: outpost-main
     failDepth: -320
-    brief: >-
-      <b>IXION OUTPOST</b><br/>We are shutting down. Everything the outpost learned about this canyon is in that archive — every sounding, every core, the mast calibration, all of it.<br/><br/>Fly it home one last time, navigator.<br/><br/>The radar stays up. We are leaving it powered and the charters can use it or not. You will still have your bearings after we are gone, which seemed the least we could do.<br/><br/><b>OBJECTIVE</b> Return the archive to the outpost pad.
+    messages:
+      - sender: IXION OUTPOST
+        content: >-
+          We are shutting down. Everything the outpost learned about this canyon is in that archive — every sounding, every core, the mast calibration, all of it.
+      - sender: IXION OUTPOST
+        content: >-
+          Fly it home one last time, navigator.
+      - sender: IXION OUTPOST
+        content: >-
+          The radar stays up. We are leaving it powered and the charters can use it or not. You will still have your bearings after we are gone, which seemed the least we could do.<br/><br/><b>OBJECTIVE</b> Return the archive to the outpost pad.
 
   - id: 29
     client: helion
@@ -452,8 +627,16 @@ missions:
     start: { x: 0, y: 1070 }
     target: helion-cavern
     failDepth: -320
-    brief: >-
-      <b>HELION EXTRACTION</b><br/>The outpost is dark. The seam is ours and Kessler disputes it. Light cargo, thin margins, and a canyon that no longer has an easy line through it.<br/><br/><b>OBJECTIVE</b> Deliver the writ to HELION CAVERN.
+    messages:
+      - sender: HELION EXTRACTION
+        content: >-
+          CONTRACT 4471-C · REV 11 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ARBITRATION WRIT<br/>DESTINATION: HELION CAVERN<br/>ATTRITION: WITHIN TOLERANCE<br/>IXION OUTPOST: NO LONGER A PARTY. FILINGS OF RECORD RETAINED.
+      - sender: CONDITIONS OF CARRIAGE
+        content: >-
+          ROUTE NOTE: THIN MARGINS. NO CLEAN LINE REMAINS.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the writ to HELION CAVERN.
+      - sender: ANNEX A — ARBITRATION
+        content: >-
+          PROCEEDINGS CONTINUE. THE SEAM IS HELION'S BY PRIOR WORKING. KESSLER DEEP DISPUTES BY PRIOR DEPTH.<br/>THE CARRIER IS NOT A PARTY, HAS NO STANDING, AND IS NOT ENTITLED TO NOTICE OF THE OUTCOME.
 
   - id: 30
     client: kessler
@@ -464,5 +647,13 @@ missions:
     start: { x: -18, y: 1070 }
     target: kessler-deep
     failDepth: -320
-    brief: >-
-      <b>KESSLER DEEP</b><br/>Thirtieth run. West wall to the floor of the shaft, and every structure in between was put there by you.<br/><br/>Take it down, navigator.<br/><br/><b>OBJECTIVE</b> Deliver the charge to KESSLER DEEP.
+    messages:
+      - sender: KESSLER DEEP
+        content: >-
+          Thirtieth run. West wall to the floor of the shaft, and every structure in between was put there by you.<br/><br/>Nobody else is on this canyon now. The outpost went dark two runs back, so it is you, me and a hundred and forty metres of—
+      - sender: IXION OUTPOST
+        content: >-
+          We are the only thing at the bottom of this canyon, and we intend to stay that way.
+      - sender: KESSLER DEEP
+        content: >-
+          ...say again.<br/><br/>—of hole. Take it down, navigator.<br/><br/><b>OBJECTIVE</b> Deliver the charge to KESSLER DEEP.

@@ -7,13 +7,50 @@ import {
   cargoShape,
   getMission,
   worldAt,
+  resolveBriefCards,
 } from './Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
+import { CORPS } from '../world/CanyonSpec.ts';
 import { checkLayout } from './Layout.ts';
 import { mergeDigs, type Excavation } from '../world/CanyonGenerator.ts';
 import { resolveTerrainAnchoredDigs, applyDigAttachments, type WallTerrain } from './TerrainDigs.ts';
 import { CANYON } from '../world/CanyonSpec.ts';
 import type { Prop } from '../world/Colony.ts';
+
+/**
+ * Everything the player is shown for a mission, one string.
+ *
+ * Voice is asserted against this rather than against `brief`, because a mission authored
+ * as `messages` has no `brief` to read and the rules about who says what to whom are
+ * about what arrives on screen, not about which field it was authored in.
+ */
+const transmission = (m: (typeof MISSIONS)[number]): string =>
+  resolveBriefCards(m)
+    .map((c) => c.body)
+    .join(' ');
+
+const CORP_NAMES = new Set(Object.values(CORPS).map((c) => c.name));
+
+/**
+ * The cards the mission's own client sent.
+ *
+ * A brief can carry a card from somebody else — the outpost cutting into a charter's
+ * contract at 15, 19 and 30 — and a rule about how Kessler talks must be neither failed
+ * nor satisfied by something Ixion said inside one of his briefs.
+ *
+ * A sender that is not a charter at all (Helion's `CONDITIONS OF CARRIAGE`, its annex) is
+ * that client's own paperwork, not a second voice.
+ */
+const ownCards = (m: (typeof MISSIONS)[number]) =>
+  resolveBriefCards(m).filter(
+    (c) => c.title === CORPS[m.client].name || !CORP_NAMES.has(c.title),
+  );
+
+/** What the client itself said, cut-ins excluded. */
+const clientVoice = (m: (typeof MISSIONS)[number]): string =>
+  ownCards(m)
+    .map((c) => c.body)
+    .join(' ');
 
 /** Mission ids, for table-driven cases. */
 const IDS = MISSIONS.map((m) => m.id);
@@ -73,7 +110,26 @@ describe('campaign table', () => {
 
   it('writes a brief with an objective for every mission', () => {
     for (const m of MISSIONS) {
-      expect(m.brief, `mission ${m.id}`).toContain('OBJECTIVE');
+      expect(transmission(m), `mission ${m.id}`).toContain('OBJECTIVE');
+    }
+  });
+
+  it('puts the address on one card, and last unless paperwork follows it', () => {
+    // The objective is a line inside what the employer said rather than a card of its
+    // own, and normally it is the last thing said, because that card carries the button.
+    //
+    // The exception is a Helion contract that has grown an arbitration annex. There the
+    // boilerplate deliberately comes after the instruction, so the descent begins from a
+    // page with nothing about flying on it. That is the whole point of the annex, so it
+    // is asserted rather than tidied away.
+    for (const m of MISSIONS) {
+      const cards = resolveBriefCards(m);
+      const carrying = cards.filter((c) => c.body.includes('<b>OBJECTIVE</b>'));
+      expect(carrying.length, `mission ${m.id}`).toBe(1);
+
+      const last = cards.length - 1;
+      const annexed = cards[last].title.startsWith('ANNEX');
+      expect(cards.indexOf(carrying[0]), `mission ${m.id}`).toBe(annexed ? last - 1 : last);
     }
   });
 
@@ -292,7 +348,7 @@ describe('resolved layout is legal for the whole campaign', () => {
 });
 
 describe('who the briefs are talking to', () => {
-  const briefs = MISSIONS.map((m) => ({ id: m.id, client: m.client, text: m.brief }));
+  const briefs = MISSIONS.map((m) => ({ id: m.id, client: m.client, text: clientVoice(m) }));
 
   /**
    * You are an autonomous guidance package, not a person in a seat. Briefs are prose and
@@ -350,26 +406,31 @@ describe('airframe assignment', () => {
     }
   });
 
-  it('sends clients out on their specific airframes after mission 5', () => {
+  it('sends every client out on its own airframe, with no exceptions', () => {
     for (const m of MISSIONS) {
       const expected =
-        m.id < 6
-          ? 'lander'
-          : m.client === 'helion'
-            ? 'helion'
-            : m.client === 'kessler'
-              ? 'hauler'
-              : 'lander';
+        m.client === 'helion' ? 'helion' : m.client === 'kessler' ? 'hauler' : 'lander';
       expect(airframeFor(m)).toBe(expected);
     }
   });
 
   it('opens the campaign on the lander, so the tutorial teaches one scheme', () => {
-    // Five runs of rotate-and-thrust before the twin appears at 6.
-    for (const id of [1, 2, 3, 4, 5]) {
+    // Four Ixion contracts of rotate-and-thrust before another frame appears at all.
+    for (const id of [1, 2, 3, 4]) {
       expect(airframeFor(getMission(id)!)).toBe('lander');
     }
+    // The order the unfamiliar frames arrive in is deliberate: translation first, which
+    // has nothing to recover, then the twin, which needs its control mapping explained.
+    expect(airframeFor(getMission(5)!)).toBe('helion');
     expect(airframeFor(getMission(6)!)).toBe('hauler');
+  });
+
+  it("hands over a frame on the client's own first contract, not a mission later", () => {
+    // Mission 5's brief opens "You fly for us now". It has to be true when it is read.
+    for (const client of ['helion', 'kessler'] as const) {
+      const first = MISSIONS.find((m) => m.client === client)!;
+      expect(airframeFor(first)).toBe(airframeFor(MISSIONS.filter((m) => m.client === client)[1]!));
+    }
   });
 
   it('does not meet the twin until the lander has been flown a while', () => {
@@ -570,6 +631,191 @@ describe('cargoShape', () => {
     const allowed = ['crate', 'drum', 'sphere', 'rig'];
     for (const m of MISSIONS) {
       expect(allowed, `mission ${m.id}`).toContain(cargoShape(m.payload));
+    }
+  });
+});
+
+describe('brief cards', () => {
+  it('gives every mission a transmission', () => {
+    for (const m of MISSIONS) {
+      expect(resolveBriefCards(m).length, `mission ${m.id}`).toBeGreaterThanOrEqual(1);
+    }
+  });
+
+  it('names a sender on every card, and never repeats it into the body', () => {
+    for (const m of MISSIONS) {
+      for (const c of resolveBriefCards(m)) {
+        expect(c.title.trim(), `mission ${m.id}`).not.toBe('');
+        expect(c.body.trim(), `mission ${m.id}`).not.toBe('');
+        // The card paints the sender itself; leaving it in the prose shows it twice.
+        expect(c.body.startsWith('<b>' + c.title), `mission ${m.id}`).toBe(false);
+      }
+    }
+  });
+
+  it('lets the outpost cut into somebody else\'s contract, and only there', () => {
+    // The three interruptions in the campaign. 15 is Kessler opening the floor, 19 is
+    // Helion abandoning the surface, and 30 is the one nobody can be sending.
+    const cutIn = MISSIONS.filter((m) =>
+      resolveBriefCards(m).some((c) => CORP_NAMES.has(c.title) && c.title !== CORPS[m.client].name),
+    );
+    expect(cutIn.map((m) => m.id)).toEqual([15, 19, 30]);
+    for (const m of cutIn) {
+      const outsiders = resolveBriefCards(m).filter(
+        (c) => CORP_NAMES.has(c.title) && c.title !== CORPS[m.client].name,
+      );
+      // Never the last word: the client resumes, and the address is still theirs to give.
+      // On 19 they resume in their own paperwork rather than in their name, which is why
+      // this compares against the client's last card and not against the corp name.
+      const cards = resolveBriefCards(m);
+      const own = ownCards(m);
+      expect(cards[cards.length - 1], `mission ${m.id}`).toStrictEqual(own[own.length - 1]);
+      for (const c of outsiders) expect(c.title, `mission ${m.id}`).toBe('IXION OUTPOST');
+    }
+  });
+
+  it('gives mission 1 the last word, in mission 30, unchanged', () => {
+    // The first sentence the player ever read, returning as the last — verbatim, because
+    // a paraphrase is a reference and the same string is a recurrence. It carries no
+    // name, which is what keeps Kessler's "navigator" three cards later his own choice
+    // rather than something he picked up off the channel.
+    const LINE =
+      'We are the only thing at the bottom of this canyon, and we intend to stay that way.';
+
+    const carrying = MISSIONS.filter((m) => transmission(m).includes(LINE));
+    expect(carrying.map((m) => m.id)).toEqual([1, 30]);
+
+    const card = resolveBriefCards(MISSIONS[29]).find((c) => c.body.includes(LINE))!;
+    expect(card.title).toBe('IXION OUTPOST');
+    expect(card.body).toBe(LINE);
+    expect(card.body).not.toMatch(/navigator/i);
+  });
+
+  it('repeats a person across their cards, and lets a document change heading', () => {
+    // A charter with somebody behind it is the same somebody on card three, so the
+    // eyebrow repeats. That is also what will make a *changed* sender legible on the day
+    // a rival cuts in mid-brief: the name is on every card, so a different one is a
+    // visible event rather than a detail only the first card ever carried.
+    //
+    // Helion is not a person but a form, and a form's pages are headed by their section,
+    // so its headings move instead.
+    for (const m of MISSIONS) {
+      const titles = ownCards(m).map((c) => c.title);
+      if (m.client === 'helion') {
+        expect(new Set(titles).size, `mission ${m.id}`).toBe(titles.length);
+      } else {
+        expect([...new Set(titles)], `mission ${m.id}`).toEqual([CORPS[m.client].name]);
+      }
+    }
+  });
+
+  it('never crams a card, anywhere in the campaign', () => {
+    // A page turn is a beat. This is the cap that stops one being spent on a wall of
+    // text, and it holds for prose as well as for Helion's form — the longest card in
+    // the campaign is 228.
+    for (const m of MISSIONS) {
+      for (const card of resolveBriefCards(m)) {
+        const visible = card.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        expect(visible.length, `mission ${m.id}, card "${card.title}"`).toBeLessThan(240);
+      }
+    }
+  });
+
+  it('prefers authored messages, with whatever senders they name', () => {
+    // The form new missions should be written in: any number of cards, and a sender that
+    // need not be the client — a rival cutting in is expressible here and was not in the
+    // single-string brief.
+    const authored = {
+      ...MISSIONS[0],
+      messages: [
+        { sender: 'KESSLER DEEP', content: '<b>Hello</b> traveller.' },
+        { sender: 'IXION OUTPOST', content: 'Ignore them.' },
+      ],
+    };
+    const cards = resolveBriefCards(authored);
+
+    expect(cards.map((c) => c.title)).toEqual(['KESSLER DEEP', 'IXION OUTPOST']);
+    expect(cards[0].body).toBe('<b>Hello</b> traveller.');
+  });
+});
+
+/**
+ * Ixion and Kessler are people, and a person can be characterised by what they say.
+ * Helion is nobody — auto-generated contract text with the fields filled in — so the
+ * characterisation has to live in the *shape* of the document instead. These hold the
+ * shape, because a sentence with a human rhythm would read as a Helion employee and
+ * there is not supposed to be one.
+ */
+describe('the Helion contract form', () => {
+  const helion = MISSIONS.filter((m) => m.client === 'helion');
+
+  it('never speaks to anyone', () => {
+    // The other two charters address you; that is the whole point of what they call you.
+    // Helion's absence of a second person is the same device with nothing behind it, and
+    // one stray "you" is all it takes to put a person on the other end of the link.
+    expect(helion.length).toBe(10);
+    for (const m of helion) {
+      expect(`M${m.id}: ${clientVoice(m)}`).not.toMatch(
+        /\b(you|your|yours|we|us|our|ours)\b/i,
+      );
+    }
+  });
+
+  it('files every contract under one number, revised', () => {
+    // A conversation does not have revisions. Ten contracts sharing 4471-C says the seam
+    // claim is one long document that nobody has reopened, only amended.
+    for (const m of helion) {
+      expect(clientVoice(m), `mission ${m.id}`).toMatch(/CONTRACT 4471-C · REV \d+ · AUTO/);
+    }
+  });
+
+  it('only ever revises forward', () => {
+    // Monotonic, and deliberately not contiguous: rev 10 was generated and never sent.
+    const revs = helion.map((m) => Number(/REV (\d+)/.exec(clientVoice(m))![1]));
+    for (let i = 1; i < revs.length; i++) {
+      expect(revs[i], `mission ${helion[i].id}`).toBeGreaterThan(revs[i - 1]);
+    }
+  });
+
+  it('gives no word more weight than any other', () => {
+    // Everything sits at one weight, including the line about whether the airframe is
+    // expected back. Emphasis would mean somebody chose what mattered.
+    for (const m of helion) {
+      const body = clientVoice(m).replace('<b>OBJECTIVE</b>', '');
+      expect(body, `mission ${m.id}`).not.toContain('<b>');
+    }
+  });
+
+  /**
+   * A page turn is a beat, and these are the two rules that stop it being spent on
+   * nothing. The form was authored as one card first and it read as a wall: seven fields
+   * and a three-sentence route note arriving together, which is exactly the shape the
+   * card sequence exists to break up.
+   */
+  it('never crams a card', () => {
+    for (const m of helion) {
+      for (const card of resolveBriefCards(m)) {
+        const visible = card.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+        expect(visible.length, `mission ${m.id}, card "${card.title}"`).toBeLessThan(240);
+      }
+    }
+  });
+
+  it('grows a page when the paperwork does', () => {
+    // Helion has no arc because Helion has no character, so the drift has to be visible
+    // in the document itself. The arbitration annex earns its own card the moment it
+    // exists, at 22 — and it is the *last* card, so from there on the descent begins
+    // from a page of boilerplate that has nothing to do with flying.
+    const pages = new Map(helion.map((m) => [m.id, ownCards(m)]));
+    for (const [id, cards] of pages) {
+      expect(cards.length, `mission ${id}`).toBe(id >= 22 ? 3 : 2);
+      if (id >= 22) expect(cards[cards.length - 1].title).toBe('ANNEX A — ARBITRATION');
+    }
+  });
+
+  it('budgets for not getting the airframe back, from the first contract onward', () => {
+    for (const m of helion) {
+      expect(clientVoice(m), `mission ${m.id}`).toContain('RETURN EXPECTED: NO');
     }
   });
 });

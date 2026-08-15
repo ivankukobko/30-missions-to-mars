@@ -271,3 +271,64 @@ describe('the canyon has the shape the spec describes', () => {
     }
   });
 });
+
+/**
+ * The bore-clearance query the KD-9's centring gauge reads.
+ *
+ * Asserted as properties rather than pinned numbers: the bore meanders on seeded noise,
+ * so the figures move whenever the terrain does, but the sense of the reading must not.
+ * A mirrored left/right here would draw a hauler drifting onto the west wall as one
+ * drifting off it — a gauge that is wrong in the one direction its pilot cannot argue
+ * with, and which no screenshot would catch.
+ */
+describe('bore clearance', () => {
+  // The shared canyon digs one bore: x = 10, half-width 12, running 172 down from its
+  // mouth. `build` puts the mouth `depth` above the pit floor `heightAt` reports.
+  const MOUTH_Y = -174.794065357 + 172;
+  const INSIDE_Y = MOUTH_Y - 60;
+
+  it('reads nothing in open air, so the gauge can go dark instead of lying', () => {
+    expect(canyon.clearanceAt(10, MOUTH_Y + 40)).toBeNull();
+    expect(canyon.clearanceAt(10, MOUTH_Y - 400)).toBeNull();
+  });
+
+  it('reads nothing beside the bore, at a depth where the bore exists', () => {
+    expect(canyon.clearanceAt(10 + 400, INSIDE_Y)).toBeNull();
+    expect(canyon.clearanceAt(10 - 400, INSIDE_Y)).toBeNull();
+  });
+
+  it('reports room on both sides from inside', () => {
+    const clear = canyon.clearanceAt(10, INSIDE_Y);
+
+    expect(clear).not.toBeNull();
+    expect(clear!.left).toBeGreaterThan(0);
+    expect(clear!.right).toBeGreaterThan(0);
+  });
+
+  it('gives away on one side exactly what it takes on the other', () => {
+    // Both margins run to the same two walls, so the total is the bore's own width and
+    // moving across it cannot change that.
+    const a = canyon.clearanceAt(10 - 4, INSIDE_Y)!;
+    const b = canyon.clearanceAt(10 + 4, INSIDE_Y)!;
+
+    expect(a.left + a.right).toBeCloseTo(b.left + b.right, 6);
+  });
+
+  it('loses room to starboard as the vehicle moves that way', () => {
+    // The sense of the reading. This is the assertion a mirrored gauge fails.
+    const west = canyon.clearanceAt(10 - 4, INSIDE_Y)!;
+    const east = canyon.clearanceAt(10 + 4, INSIDE_Y)!;
+
+    expect(east.right).toBeLessThan(west.right);
+    expect(east.left).toBeGreaterThan(west.left);
+  });
+
+  it('never reports more room than the dig was ever given', () => {
+    for (let y = MOUTH_Y - 5; y > MOUTH_Y - 165; y -= 11) {
+      const clear = canyon.clearanceAt(10, y);
+      expect(clear, `y=${y}`).not.toBeNull();
+      // Half-width 12 either side, plus one-sided relief cut into the rock.
+      expect(clear!.left + clear!.right, `y=${y}`).toBeLessThan(2 * (12 + 3));
+    }
+  });
+});

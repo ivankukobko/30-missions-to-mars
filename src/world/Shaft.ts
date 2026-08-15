@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { Noise, clamp01, lerp, smoothstep } from './Noise.ts';
 import { CANYON, FACET_CELL, PALETTE } from './CanyonSpec.ts';
+import { fadeNearLander } from './LanderFade.ts';
 import type { Excavation, WallHoleBoundary, WallHoleEdge } from './CanyonGenerator.ts';
 
 /**
@@ -170,6 +171,38 @@ export class Shaft {
     // defect this function's contract forbids. It pinched the shaft shut and took six
     // missions unreachable. Relief is one-sided by construction now, not by intent.
     return Math.abs(n) * RELIEF;
+  }
+
+  /**
+   * Lateral room to each wall at a point in the play plane, or `null` if the point is
+   * not inside this bore at all.
+   *
+   * Measured against `wallPoint`, not `boreAt`, because the relief is one-sided and cuts
+   * *into* the rock: the nominal half-width is the tightest the bore ever is, and the
+   * collider the vehicle actually hits sits at the relieved offset. A gauge fed the
+   * nominal figure would report rock a couple of units before there was any, which on
+   * a 24-wide bore is most of the margin a hauler has to work with.
+   *
+   * Sides come back as world −x and +x rather than in bore-local terms, because the
+   * instrument reading them is left-and-right on a screen. For the vertical bores the
+   * hauler flies that is exact — `perp` is (1, 0) for a straight-down dig — and for a
+   * canted one it stays the correct sense as long as the bore is not near-horizontal,
+   * which `isFloorMounted` is the test for.
+   */
+  clearanceAt(x: number, y: number): { left: number; right: number } | null {
+    const s = (x - this.mouth.x) * this.dir.x + (y - this.mouth.y) * this.dir.y;
+    if (s < 0 || s > this.length) return null;
+
+    const bore = this.boreAt(s);
+    const off = bore.half + this.wallOffset(s, 0);
+    const d = (x - bore.cx) * this.perp.x + (y - bore.cy) * this.perp.y;
+    if (Math.abs(d) > off) return null;
+
+    const towardPerp = off - d;
+    const awayPerp = off + d;
+    return this.perp.x >= 0
+      ? { left: awayPerp, right: towardPerp }
+      : { left: towardPerp, right: awayPerp };
   }
 
   /** Bore edge point for a side (-1/+1 of `perp`), including outward relief. */
@@ -503,16 +536,33 @@ export class Shaft {
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.setIndex(indices);
     geo.computeVertexNormals();
-    const mesh = new THREE.Mesh(
-      geo,
-      new THREE.MeshStandardMaterial({
-        vertexColors: true,
-        roughness: 1,
-        metalness: 0,
-        flatShading: true,
-        side: THREE.DoubleSide,
-      }),
-    );
+    /**
+     * Bore rock thins out over the vehicle, like the canyon wall and the colony's front
+     * layer already do — see `LanderFade`.
+     *
+     * Omitting the near wall (above) keeps the bore open toward the lens, but it does not
+     * make the bore safe: the walls *meander* by up to `WANDER_MAX` as they descend, so a
+     * side wall at the near end of its z-span can swing across the line between camera
+     * and hull. Without this the vehicle simply disappears behind rock for a stretch of
+     * the descent, which on the one framing where the walls are closest is the worst
+     * place for it.
+     *
+     * `transparent` has to be set here rather than by the fade: three.js picks the render
+     * queue from it at construction, and flipping it later forces a recompile mid-flight.
+     * The `0` gate means only rock in front of the play plane thins — the far end wall
+     * sits at negative z and stays solid, which is what makes the bore still read as a
+     * hole rather than a slot.
+     */
+    const material = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 1,
+      metalness: 0,
+      flatShading: true,
+      side: THREE.DoubleSide,
+      transparent: true,
+    });
+    fadeNearLander(material, 0);
+    const mesh = new THREE.Mesh(geo, material);
     this.scene.add(mesh);
     this.objects.push(mesh);
   }

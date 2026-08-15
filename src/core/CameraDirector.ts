@@ -35,6 +35,15 @@ const LANDING_CEILING = 85;
 const SKY_FLOOR = 620;
 /** Below this far under the canyon floor, the lander is down a hole. */
 const SHAFT_MOUTH = 20;
+/**
+ * Within this of whatever is underneath, the shot goes tight regardless of where you are.
+ *
+ * The shaft framing was built for a bore, but what it is really for is close quarters —
+ * near lens, wide angle, the rock either side legible. That is the same thing a pad
+ * touchdown and a cavern floor want, and neither of them is under grade, so neither was
+ * getting it.
+ */
+const SHAFT_CLOSE = 20;
 /** Ceiling on how far the ground clamp may lift the camera over the lander. */
 const MAX_LIFT_ABOVE_TARGET = 26;
 const FULL_SPEED = 45;
@@ -80,6 +89,11 @@ export class CameraDirector {
     // sub-unit altitude jitter, and the framing cuts with it. The 20 units of slack
     // means the shaft phase only commits once the vehicle is unambiguously below grade.
     if (altitude < CANYON.FLOOR_Y - SHAFT_MOUTH) return 'shaft';
+    // Or simply close to whatever is below, wherever that is. Additive rather than a
+    // replacement for the under-grade test above: descending a 172-deep bore leaves the
+    // vehicle a long way over its floor for most of the trip, and that whole descent
+    // still wants the bore framing rather than picking it up in the last twenty units.
+    if (heightAboveGround < SHAFT_CLOSE) return 'shaft';
     if (heightAboveGround < LANDING_CEILING) return 'landing';
     if (altitude > SKY_FLOOR && heightAboveGround > 250) return 'sky';
     return 'flight';
@@ -127,15 +141,28 @@ export class CameraDirector {
     }
 
     if (phase === 'landing') {
-      // Closest of the three, level, almost no lead. At touchdown the camera should
-      // be steady and the pad should not slide around the frame.
+      /**
+       * Right in on the vehicle, level, almost no lead. At touchdown the camera should
+       * be steady and the pad should not slide around the frame.
+       *
+       * This is the cave framing as well, which is not obvious from the name. A Helion
+       * cavern sits only a few units under the rim — `helion-cavern` is at y ≈ −8, well
+       * above the floor−20 line — so it never reaches `shaft` and runs on this instead.
+       * Both are the same problem anyway: a tight space where what matters is the metre
+       * either side of the hull, not where the canyon goes next.
+       *
+       * Roughly half the previous range. Distance, height and both leads are lengths, so
+       * they scale together and the composition is unchanged — the vehicle sits in the
+       * same place in frame at twice the size, and the leads still show the same angular
+       * slice of what is coming. See the flight framing's note on the same property.
+       */
       return {
-        distance: lerp(30, 52, pace),
-        offsetY: lerp(5, 9, pace),
+        distance: lerp(16, 28, pace),
+        offsetY: lerp(2.7, 4.8, pace),
         pitch: -0.17,
         fov: 50,
-        leadX: 0.12,
-        leadY: 0.1,
+        leadX: 0.065,
+        leadY: 0.054,
         follow: 0.6,
         posRate: 4.2,
         rotRate: 3.4,
@@ -151,17 +178,30 @@ export class CameraDirector {
     // same angular slice of what is coming. Pitch and fov are angles and do not scale.
     // At entry speed the old 165 put a 2.5-unit vehicle across 1% of frame height,
     // which at a downscaled render buffer is a handful of pixels.
+    /**
+     * The slow end is pulled in, the fast end is not.
+     *
+     * Low `pace` in this phase is the canyon interior — threading the colony grid, where
+     * the useful information is the structure within a hull's length either side. High
+     * `pace` is the long fall before any of that, where the same framing would put the
+     * vehicle a handful of pixels across. One lerp covers both, so tightening only its
+     * near end moves the camera in exactly where the flying is close work and leaves the
+     * descent alone.
+     */
     return {
-      distance: lerp(29, 82, pace),
-      offsetY: lerp(8, 23, pace),
+      distance: lerp(20, 82, pace),
+      offsetY: lerp(5.5, 23, pace),
       pitch: lerp(-0.34, -0.62, pace),
       // Held near the landing lens. A wide lens at speed reads as urgency, but it
       // also shrinks the subject — 68° cost a third of the lander's on-screen size
       // against 50°, on the phase where it is already smallest. 4° of opening keeps
       // some of that flare without paying for it twice.
       fov: lerp(50, 54, pace),
-      leadX: 0.31,
-      leadY: 0.17,
+      // Scaled with the distance at the near end, for the reason above: leads are lengths
+      // too, and holding them fixed while the camera came in would have the frame running
+      // further ahead of a slow vehicle than a fast one.
+      leadX: lerp(0.21, 0.31, pace),
+      leadY: lerp(0.12, 0.17, pace),
       follow: 0.42,
       posRate: 3.0,
       rotRate: 3.2,

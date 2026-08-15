@@ -687,6 +687,65 @@ export class Lander {
     return this.view.group;
   }
 
+  /**
+   * What the vehicle actually looks like, in model space — for anything that has to
+   * frame it on screen.
+   *
+   * Measured by walking the group and transforming each mesh's own bounding box, which
+   * is the method CLAUDE.md prescribes for exactly this class of question, rather than
+   * authored from the hull constants. Authoring it would be wrong immediately: the
+   * silhouette is dominated by the cargo, and the cargo is per-mission. Measured across
+   * the campaign it runs from 0.900 above the origin on mission 1 to 1.368 on mission 30,
+   * against a collider of 0.62 — so a frame drawn from `LANDER.RADIUS` alone sits inside
+   * the load it is supposed to be framing, and one drawn from the tallest case hangs off
+   * the light ones.
+   *
+   * The origin is not the centre of the vehicle either. The load stands on the deck and
+   * the gear hangs below it, putting the visual centre about 0.38 *above* the point the
+   * physics tracks.
+   *
+   * Cached: the geometry only changes when a new vehicle is built, and a new vehicle
+   * means a new `Lander`. Invisible meshes are skipped, which is what keeps the exhaust
+   * plumes out of it — a box that grew by `FLAME_LEN` every time an engine lit would
+   * make the frame pulse with the throttle.
+   */
+  get visualBounds(): { halfWidth: number; halfHeight: number; centreY: number } {
+    if (!this.bounds) this.bounds = this.measureBounds();
+    return this.bounds;
+  }
+
+  private bounds: { halfWidth: number; halfHeight: number; centreY: number } | null = null;
+
+  private measureBounds(): { halfWidth: number; halfHeight: number; centreY: number } {
+    const group = this.view.group;
+    group.updateMatrixWorld(true);
+    const toLocal = group.matrixWorld.clone().invert();
+
+    const box = new THREE.Box3();
+    const part = new THREE.Box3();
+    group.traverse((o) => {
+      const mesh = o as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.geometry) return;
+      for (let p: THREE.Object3D | null = o; p && p !== group.parent; p = p.parent) {
+        if (!p.visible) return;
+      }
+      mesh.geometry.computeBoundingBox();
+      const local = mesh.geometry.boundingBox;
+      if (!local) return;
+      part.copy(local).applyMatrix4(mesh.matrixWorld).applyMatrix4(toLocal);
+      box.union(part);
+    });
+
+    if (box.isEmpty()) {
+      return { halfWidth: LANDER.RADIUS, halfHeight: LANDER.RADIUS, centreY: 0 };
+    }
+    return {
+      halfWidth: Math.max(Math.abs(box.min.x), Math.abs(box.max.x)),
+      halfHeight: (box.max.y - box.min.y) / 2,
+      centreY: (box.max.y + box.min.y) / 2,
+    };
+  }
+
   // ------------------------------------------------------------------- state
 
   get x(): number {
@@ -772,6 +831,63 @@ export class Lander {
 
   get firing() {
     return this.body.firing;
+  }
+
+  /** Cosmetic lean on a locked-rotation frame. Nothing in the simulation reads it. */
+  get bank(): number {
+    return this.body.bank;
+  }
+
+  /**
+   * Draws the vehicle part-way between the last two physics steps.
+   *
+   * `alpha` is the leftover accumulator as a fraction of a fixed step. See
+   * `LanderBody.prevX` for why this exists at all — in short, the simulation moves in
+   * 1/120 jumps, the display does not, and drawing only completed steps makes the hull
+   * stutter in proportion to how fast it is going.
+   *
+   * Everything downstream that wants a position on screen has to read `renderX`/`renderY`
+   * rather than `x`/`y`, the camera above all: a camera chasing the stepped position
+   * while the hull is drawn at the interpolated one would put the jitter back, just into
+   * the background instead of the vehicle.
+   */
+  present(alpha: number): void {
+    /**
+     * A frozen vehicle is drawn exactly where it is.
+     *
+     * `step` returns before snapshotting once frozen, so "where it was" stops advancing
+     * and stays a whole step behind for good. Left interpolating, a settled lander would
+     * shiver on the pad as the alpha wandered between frames — and `settle` zeroes the
+     * rotation, so it would shiver between its touchdown attitude and level. Covers the
+     * crash case too, which freezes the same way.
+     */
+    const a = this.body.frozen ? 1 : Math.max(0, Math.min(1, alpha));
+    this.renderX = lerp(this.body.prevX, this.body.x, a);
+    this.renderY = lerp(this.body.prevY, this.body.y, a);
+    // Raw lerp is safe on both: `rotation` accumulates rather than wrapping, and `bank`
+    // is a damped value inside ±0.21. Neither can take the short way round a circle.
+    this.group.position.set(this.renderX, this.renderY, 0);
+    this.group.rotation.z =
+      lerp(this.body.prevRotation, this.body.rotation, a) +
+      lerp(this.body.prevBank, this.body.bank, a);
+  }
+
+  /** Where the hull is actually drawn this frame. */
+  renderX = 0;
+  renderY = 0;
+
+  /**
+   * Collapses the interpolation onto the current pose.
+   *
+   * Anything that moves the vehicle without stepping it — a mission load, the debug
+   * `place`, a settle onto a pad — has to call this, or the next frame interpolates from
+   * where it used to be and smears the hull across the jump.
+   */
+  pin(): void {
+    this.body.pin();
+    this.renderX = this.body.x;
+    this.renderY = this.body.y;
+    this.view.syncTransform(this.body);
   }
 
   // -------------------------------------------------------------------- loop

@@ -34,20 +34,27 @@ registering a hit. That errs generous in a game where contact is instant death, 
 horizontal span — the reading that matters when the walls are what you are threading —
 is 0.81, near where the cone's gear already reached.
 
-## Two Airframes
+## Three Airframes
 
 The vehicle is data. `Airframe.ts` is a discriminated union describing a flight model and
 an engine layout; `LanderBody` branches on `scheme` for how thrust is applied, and
 `LanderView` iterates `engines` for where to put a pod and a plume. Neither hard-codes a
-vehicle, so a third frame is an entry in that file rather than a change to either.
+vehicle, so a fourth frame is an entry in that file rather than a change to either — the
+third one, the sidewinder, was exactly that.
 
-| | TD-4 LANDER | KD-9 SHAFT HAULER |
-| --- | --- | --- |
-| Scheme | rotate and thrust | fire engines independently |
-| Engines | 1, on the centreline | 2, splayed 30° either side |
-| Rotation | yours to manage | locked at zero |
-| Fuel | as authored | ×0.9, and thirstier per unit of lift |
-| Kills you by | tilt or speed | speed alone |
+| | TD-4 LANDER | KD-9 SHAFT HAULER | HD-7 SIDEWINDER |
+| --- | --- | --- | --- |
+| Scheme | rotate and thrust | fire engines independently | decoupled translation |
+| Engines | 1, on the centreline | 2, splayed 30° either side | 1 lifting, 2 lateral RCS |
+| Rotation | yours to manage | locked at zero | locked at zero |
+| Fuel | as authored | ×0.9, and thirstier per unit of lift | ×0.92 |
+| Kills you by | tilt or speed | speed alone | speed alone |
+
+Two of the three cannot rotate, and they are not the same vehicle for it. The hauler has
+no lateral control except the imbalance between two canted engines, so going sideways
+costs lift and every correction is a trade. The sidewinder has dedicated side jets, so
+its axes are genuinely independent: it holds altitude while it translates, and neither
+input disturbs the other.
 
 **Locking rotation is what forces the cant.** With vertical nozzles a single engine
 produces pure lift, so a locked-rotation vehicle would have no steering at all. Angle them
@@ -76,18 +83,42 @@ reproducibility rests on, and there is a test asserting a fully banked hauler st
 
 ### Who Flies What
 
-Assignment comes from the client, not a menu. **Kessler Deep flies the hauler; Ixion and
-Helion fly the lander.** Kessler dug every shaft in this canyon, and a shaft is where
-locked rotation is unambiguously the better tool: it puts the vehicle sideways on demand
-without ever having to recover an attitude, which is what threading a 24-wide bore with
-rock on both sides actually asks for. Helion's caverns are the opposite problem — you go in
-through a mouth in a wall, which wants real rotation — and Ixion lands on an open pad.
+Assignment comes from the client, not a menu, and it is one frame per charter with no
+exceptions: **Ixion flies the lander, Kessler the hauler, Helion the sidewinder.** Each
+charter's hardware follows the work it does. Kessler dug every shaft in this canyon, and a
+shaft is where locked rotation is unambiguously the better tool: it puts the vehicle
+sideways on demand without ever having to recover an attitude, which is what threading a
+24-wide bore with rock on both sides actually asks for. Helion drills sideways into walls
+and approaches through a mouth in a rock face, which wants lateral placement without
+attitude — decoupled translation, not rotation. Ixion lands on open pads and flies the
+frame every tolerance in the game was tuned against.
 
-There are three clients and two vehicles, and the line that matters is who digs downward
-rather than who signs the manifest. It works out to 12 hauler runs against 18, with the
-first at mission 6 — five missions of one scheme before the second appears, and that
-brief has to teach it.
+The rule is total because the HUD is diegetic. You are an AI connecting to the vehicle's
+own instruments, so the panel in front of the player is the client's panel; a charter
+flying somebody else's airframe would boot the wrong company's console. See
+[Airframe HUD](plans/dedicated_airframe_hud.md).
 
-The tilt dial is removed from the HUD on hauler missions. It would read zero all run,
-which is worse than useless: an instrument on the panel asserts that the quantity it shows
-can kill you, and on that vehicle it cannot.
+It works out to 12 hauler runs, 10 sidewinder, 8 lander. Four Ixion contracts open the
+campaign, so the tutorial teaches a single scheme before anything else appears, and the
+two unfamiliar frames then arrive back to back at 5 and 6. That order is deliberate:
+translation first, which has nothing to recover, then the twin, which is the one frame
+whose control mapping needs explaining in its brief.
+
+The handover happens on each charter's own first contract rather than a mission into it.
+The sidewinder used to be held back to mission 6, which left Helion's first job — mission
+5, whose brief opens *"You fly for us now"* — flying an Ixion lander. It bought no pacing:
+the same two frames still landed back to back, one mission later.
+
+Each frame carries its own console, in its charter's colours — not only the instrument but
+the fuel gauge, the manifest line and the readouts. The TD-4 is a mechanical cross-pointer
+whose needles lag and settle, behind rounded glass; the KD-9 is engine lamps, a segmented
+fuel gauge and a bore clearance bar, square and industrial; the HD-7 is an exact
+orthogonal crosshair, thin and machined. There is no standalone tilt dial any more:
+attitude is one instrument among several on the frame that has an attitude, and simply
+absent on the two that do not, because an instrument on the panel asserts that the
+quantity it shows can kill you and on a locked-rotation vehicle it cannot.
+
+Two things resist the livery on purpose. Alarm red is the same on all three consoles, so
+that a learned alarm stays learned. And the delivery target keeps the *pad's* corp colour
+rather than the client's, so a run that puts a rival's cargo on your own slab still says
+so. See [Airframe HUD](plans/dedicated_airframe_hud.md).

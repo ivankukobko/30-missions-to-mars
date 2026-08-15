@@ -175,11 +175,54 @@ export class LanderBody {
   }
 
   /**
+   * Where the vehicle was at the start of the current step, for rendering between steps.
+   *
+   * The simulation advances in fixed 1/120 jumps and the display does not, so a frame
+   * lands part-way through a step and the leftover has to be drawn rather than dropped.
+   * Without it, a frame shows the last completed substep and the number of substeps per
+   * frame varies with the accumulator — 2, 2, 1, 2, 3 — which at entry speed is a jump
+   * alternating between half a unit and a whole one. That is about eighty per cent of a
+   * hull radius, and it reads as the vehicle vibrating.
+   *
+   * The effect is worst in the sky phase because both of its causes peak there: speed is
+   * at its highest, so a substep covers the most ground, and the entry framing is the
+   * tightest standoff in the game, so a given world-space error subtends the largest
+   * angle. On the pad it is two orders of magnitude smaller and invisible.
+   *
+   * Presentation only. Nothing here is read by the simulation, so a mission still replays
+   * identically — the interpolated pose is never fed back into the body.
+   */
+  prevX = 0;
+  prevY = 0;
+  prevRotation = 0;
+  prevBank = 0;
+
+  /** Takes the "where it was" reading. Called at the top of every step. */
+  private snapshot(): void {
+    this.prevX = this.x;
+    this.prevY = this.y;
+    this.prevRotation = this.rotation;
+    this.prevBank = this.bank;
+  }
+
+  /**
+   * Collapses the interpolation, so the next frame draws exactly here.
+   *
+   * Anything that moves the vehicle without stepping it has to call this — a mission
+   * load, a settle onto a pad, the debug `place`. Otherwise the frame after the jump
+   * interpolates from wherever it used to be and smears the vehicle across the gap.
+   */
+  pin(): void {
+    this.snapshot();
+  }
+
+  /**
    * One fixed physics step. Returns the first contact along the motion, if any.
    * The caller supplies a fixed dt, so behaviour is identical at any frame rate.
    */
   step(dt: number, input: InputState, world: PhysicsWorld): Contact {
     if (this.frozen) return { type: 'none' };
+    this.snapshot();
 
     // Captured locally so the discriminant narrows for the whole step. Reading through
     // `this.airframe` at each use would work, but a local const is narrowing TypeScript

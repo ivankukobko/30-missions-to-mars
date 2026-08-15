@@ -134,11 +134,14 @@ function sporeFor(
   const west = terrain.floorEdgeAt(0, -1);
   const east = terrain.floorEdgeAt(0, 1);
   /**
-   * Home is the corp's own side of the *canyon*, not its first pad's column.
+   * Home is the corp's own side of the canyon, not any particular pad's column.
    *
-   * Rooting at the pad instead was tried and moves Ixion off the middle: `outpost-main`
-   * sits at x −14, so Ixion's whole search window shifts west of centre and it ends up
-   * hunting for ground on Helion's half. Which side of the canyon a charter holds is the
+   * Anchoring to a pad was tried twice and rejected both times. Any pad moves Ixion off
+   * the middle — `outpost-main` sits at x −14, so the outpost's search window shifts onto
+   * Helion's half. Restricting it to *elevated* pads, on the theory that a raised deck is
+   * a structural obligation its charter should root under, measured as no help at all:
+   * one cell of difference for Helion across three seeds, and Kessler's own deck ended up
+   * *further* from support on two of them. Which side of the canyon a charter holds is the
    * one thing about it that never changes; where it happened to put a pad is not.
    */
   const preferred =
@@ -522,6 +525,26 @@ export function planColonies(
       return false;
     };
 
+    /**
+     * Each corp's decks that stand in open air, resolved once — spore placement needs them
+     * (a charter with a raised platform roots under it) and so does gravity (it leans
+     * toward them). One derivation rather than two that could drift apart.
+     *
+     * Only pads genuinely in the air qualify. A deck down a bore or bolted into a wall
+     * face reads as solid substrate here, and neither rooting a colony at rock nor pulling
+     * one toward it is any use.
+     */
+    const midAir: Partial<Record<CorpId, Array<{ x: number; y: number }>>> = {};
+    for (const corp of Object.keys(CORPS) as CorpId[]) {
+      midAir[corp] = world.props.flatMap((p) => {
+        if (p.kind !== 'pad' || p.corp !== corp || p.y === undefined) return [];
+        const row = lattice.rowAt(p.y);
+        if (row < 1 || row >= lattice.rows) return [];
+        if (substrate.isSolid(lattice.colAt(p.x), row)) return [];
+        return [{ x: p.x, y: p.y }];
+      });
+    }
+
     for (const corp of Object.keys(CORPS) as CorpId[]) {
       const corpMissions = MISSIONS.filter((x) => x.client === corp);
       const first = corpMissions[0];
@@ -628,14 +651,7 @@ export function planColonies(
     const skyward = { x: canyonMiddle, y: lattice.worldY(Math.round(lattice.rows * (2 / 3))) };
     const apex: Partial<Record<CorpId, Array<{ x: number; y: number }>>> = {};
     for (const corp of Object.keys(CORPS) as CorpId[]) {
-      const midAir = world.props.flatMap((p) => {
-        if (p.kind !== 'pad' || p.corp !== corp || p.y === undefined) return [];
-        const row = lattice.rowAt(p.y);
-        if (row < 1 || row >= lattice.rows) return [];
-        if (substrate.isSolid(lattice.colAt(p.x), row)) return [];
-        return [{ x: p.x, y: p.y }];
-      });
-      apex[corp] = [skyward, ...midAir];
+      apex[corp] = [skyward, ...(midAir[corp] ?? [])];
     }
 
     cells = growColony({

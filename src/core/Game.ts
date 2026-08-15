@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { InputManager } from './InputManager.ts';
+import { InputManager, type InputState } from './InputManager.ts';
 import { CameraDirector } from './CameraDirector.ts';
 import { Inspector } from './Inspector.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
@@ -10,7 +10,8 @@ import { forgetFadedMaterials } from '../world/LanderFade.ts';
 import { CANYON, CORPS, PALETTE } from '../world/CanyonSpec.ts';
 import { Lander, LANDER } from '../entities/Lander.ts';
 import { Effects } from '../entities/Effects.ts';
-import { Interface } from '../ui/Interface.ts';
+import { Interface, type GameSettings } from '../ui/Interface.ts';
+import type { HudCommon, HudData } from '../ui/HudData.ts';
 import { Progress, scoreLanding } from '../campaign/Progress.ts';
 import {
   getMission,
@@ -34,7 +35,63 @@ const MAX_SUBSTEPS = 8;
 /** Above this the lander has left the mission envelope. Must clear entry altitude. */
 const CEILING_Y = CANYON.RIM_Y + 1500;
 
-type State = 'BRIEF' | 'PLAYING' | 'PAUSED' | 'SETTLING' | 'RESULT' | 'FAILED' | 'VICTORY';
+type State =
+  | 'MENU'
+  | 'UPLINK'
+  | 'BRIEF'
+  | 'PLAYING'
+  | 'PAUSED'
+  | 'SETTLING'
+  | 'RESULT'
+  | 'FAILED'
+  | 'VICTORY';
+
+/**
+ * How long you watch before the vehicle is yours.
+ *
+ * Three seconds is short enough that a retry does not grind — this is a landing game and
+ * missions get re-flown a great deal — and long enough to read as a handshake rather than
+ * a stutter. Nothing of the vehicle's is drawn for the whole of it: no console, no
+ * augmented layer, only the status line. You are not connected to the airframe yet, so
+ * none of the airframe's instruments have any business being on screen.
+ *
+ * Costs no altitude budget in practice. Missions enter at y≈1250 doing 55 u/s and the
+ * thrust is sized to shed roughly 88 before touchdown; three seconds of free fall is
+ * about 190 units and leaves the vehicle at 73. That is what already happened, because
+ * burning at twelve hundred units up only buys a longer fight with gravity — the uplink
+ * takes away a thing nobody was doing.
+ */
+const UPLINK_SECONDS = 3;
+
+/** Controls during the uplink: none of them. */
+const IDLE_INPUT: InputState = { left: false, right: false, main: false };
+
+/**
+ * Aerodynamic buffet — the vehicle coming in through the top of the atmosphere.
+ *
+ * Driven by speed rather than scripted to the entry sequence, which costs nothing and is
+ * more honest: it eases off by itself as the descent is braked, and it comes back if a
+ * player builds the speed up again lower down. In practice nothing in the canyon sustains
+ * this kind of speed anyway — the entry is the only part of a mission that does.
+ *
+ * The floor is 60 because that is where the streaks start reading as entry heating rather
+ * than as sparse debris. Below it they are too short and too far apart to join up into
+ * one trail, and a threshold is a cleaner answer than trying to make three stubby lines
+ * look good. The shake shares the number so the two arrive together.
+ *
+ * A mission enters at 55 and gravity carries it to about 73 across the three-second
+ * handshake, so the trail is not there at the first frame — it comes in around a second
+ * down and builds. That is the right shape for compression heating, which is a thing that
+ * arrives as you descend rather than a thing you begin with.
+ *
+ * Deliberately far below the 2.4 an impact uses. That one is a hit; this is a texture,
+ * and it is applied every frame rather than once, so it sustains instead of decaying.
+ */
+const BUFFET_FROM = 60;
+// Entry tops out near 73 across the handshake, so the ramp is sized to reach most of its
+// range inside the speeds a mission actually reaches rather than saturating off-screen.
+const BUFFET_FULL = 78;
+const BUFFET_MAX = 0.2;
 
 interface Blast {
   mesh: THREE.Mesh;
@@ -140,6 +197,10 @@ export class Game {
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
 
+    // Before any mission loads, so a save that muted the music does not get one bar
+    // of it on startup while the preference is still being read.
+    audio.applyPreferences(this.progress.audioPrefs);
+
     this.canyon = new CanyonGenerator(this.scene, this.physics, this.progress.seed);
     // The camera flies inside the canyon now, so it needs to know where the rock is.
     this.director.groundAt = (x, z) => this.canyon.heightAt(x, z);
@@ -150,8 +211,10 @@ export class Game {
     window.addEventListener('keydown', (e) => this.onKey(e));
 
     // Mission first: the inspector reads the loaded mission to build its readout, so
-    // constructing it earlier hands it an undefined mission.
-    this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT));
+    // constructing it earlier hands it an undefined mission. Loaded without its brief —
+    // the world is what the menu stands on, and the menu goes over the top.
+    this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT), false);
+    this.openMenu();
     this.setupDebug();
 
     this.frame = this.frame.bind(this);
@@ -160,15 +223,22 @@ export class Game {
 
   // ------------------------------------------------------------- mission flow
 
-  private loadMission(id: number): void {
+  /**
+   * Builds a mission's world and, unless told otherwise, presents its brief.
+   *
+   * `present: false` is what the main menu boots on. The menu wants the player's actual
+   * canyon behind it rather than a black page, and the canyon is only assembled here —
+   * so the menu loads a mission for its world and then puts its own panel over the top.
+   * Loading and presenting stay one function because every route into a mission has to
+   * go through the same one, or a second entry path drifts from this one.
+   */
+  private loadMission(id: number, present = true): void {
     const mission = getMission(id);
     if (!mission) {
       this.state = 'VICTORY';
       this.ui.setHudVisible(false);
-      this.ui.showVictory(() => {
-        this.progress.newCanyon();
-        window.location.reload();
-      });
+      // In place rather than through a page reload, now that there is a menu to land in.
+      this.ui.showVictory(() => this.newCanyon());
       return;
     }
 
@@ -293,6 +363,9 @@ export class Game {
     this.lander.vx = mission.entry?.vx ?? ENTRY_VELOCITY.vx;
     this.lander.vy = mission.entry?.vy ?? ENTRY_VELOCITY.vy;
     this.lander.group.position.set(mission.start.x, mission.start.y, 0);
+    // Collapse the render interpolation onto the entry pose, or the first frame smears
+    // the hull from wherever the previous mission left it.
+    this.lander.pin();
 
     this.director.snapTo(mission.start.x, mission.start.y);
     this.sun.target.position.set(mission.start.x, CANYON.FLOOR_Y, 0);
@@ -300,14 +373,66 @@ export class Game {
     this.ui.setHudVisible(false);
     // Ranging comes off the radar, and on mission 1 the radar is still in the hold.
     this.ui.setInstruments(id > 1);
-    this.ui.setTiltInstrument(this.lander.airframe.scheme === 'attitude');
+    // The panel belongs to the vehicle; the colours belong to whoever chartered it.
+    this.ui.setAirframe(this.lander.airframe.scheme, CORPS[mission.client].color);
     this.ui.setMission(mission, this.targetPad);
+    if (present) this.beginUplink();
+
+    audio.setMissionContext(mission.client, mission.id);
+    audio.startAmbient();
+
+    // Readout follows whatever is actually loaded, including retries and next-mission
+    // transitions the inspector did not initiate.
+    this.inspector?.refresh();
+  }
+
+  /**
+   * The fall before the vehicle is yours.
+   *
+   * The vehicle was released from orbit before you were connected to it, so a mission
+   * does not begin with a briefing over a frozen world — it begins already falling, with
+   * the console coming up and nothing responding. That is what the state is for.
+   *
+   * Nothing of the vehicle's is on screen yet — no console, no augmented layer, only the
+   * handshake's own status line. The console belongs to the airframe, and you are not
+   * connected to the airframe: drawing its instruments while the link is still being
+   * established says the opposite of what the sequence exists to say.
+   *
+   * This is also what finally puts the panel's boot sweep somewhere useful. It runs off
+   * `consoleTime` rather than `missionTime` now, so it plays when the console actually
+   * appears instead of during a stretch where nothing of it is drawn.
+   */
+  private beginUplink(): void {
+    this.state = 'UPLINK';
+    this.accumulator = 0;
+    this.lastFrame = performance.now();
+    this.ui.hidePanel();
+    this.ui.setHudVisible(false);
+    this.ui.setUplink(0);
+  }
+
+  /**
+   * `missionTime` at the moment the console came up, so the boot sweep can be posed from
+   * when the player can actually see it.
+   *
+   * A separate mark rather than a second accumulating clock: `missionTime` counts fixed
+   * steps and is the one thing in the game guaranteed to replay identically, so anything
+   * that wants a different origin should subtract, not count again.
+   */
+  private consoleUpAt = 0;
+
+  /** Hands the vehicle over: the uplink is up, and here is what it was sent to do. */
+  private presentBrief(): void {
+    const mission = this.mission;
+    this.state = 'BRIEF';
+    this.ui.setUplink(null);
+    this.ui.setHudVisible(false);
     this.ui.showBrief(
       mission,
-      this.progress.rankFor(id),
+      this.progress.rankFor(mission.id),
       {
-        airframe: this.lander.airframe,
-        fuel: this.lander.fuelCapacity,
+        airframe: this.lander!.airframe,
+        fuel: this.lander!.fuelCapacity,
         invertThrusters: this.progress.invertThrusters,
         // Applied to the loaded vehicle as well as saved, so flipping it in the brief
         // takes effect on the run you are about to fly rather than the one after.
@@ -318,13 +443,6 @@ export class Game {
       },
       () => this.begin(),
     );
-
-    audio.setMissionContext(mission.client, mission.id);
-    audio.startAmbient();
-
-    // Readout follows whatever is actually loaded, including retries and next-mission
-    // transitions the inspector did not initiate.
-    this.inspector?.refresh();
   }
 
   private begin(): void {
@@ -332,6 +450,11 @@ export class Game {
     audio.startAmbient();
     this.ui.hidePanel();
     this.ui.setHudVisible(true);
+    // The console comes up here, so this is where its boot sweep starts. Set on `begin`
+    // rather than when the uplink completes because the brief sits between the two, and
+    // the panel is behind it — a sweep started at the handshake would be over before the
+    // player finished reading.
+    this.consoleUpAt = this.missionTime;
     this.state = 'PLAYING';
     this.accumulator = 0;
     this.lastFrame = performance.now();
@@ -366,9 +489,12 @@ export class Game {
     this.state = 'FAILED';
     this.lander?.freeze();
     this.ui.setHudVisible(false);
-    this.ui.showFailure(title, detail, () => {
-      this.loadMission(this.mission.id);
-    });
+    this.ui.showFailure(
+      title,
+      detail,
+      () => this.loadMission(this.mission.id),
+      () => this.openMenu(),
+    );
   }
 
   private crash(x: number, y: number, title: string, detail: string): void {
@@ -381,6 +507,19 @@ export class Game {
       this.lander.group.visible = false;
       this.lander.extinguish();
     }
+    /**
+     * Everything the vehicle was telling you goes with the vehicle.
+     *
+     * The hull is hidden on this line and the wreck then settles for 1.3 seconds before
+     * the failure card arrives — and the console and the augmented layer used to stay up
+     * for all of it, brackets tracking a hull that is no longer drawn and a fuel gauge
+     * reporting on a vehicle that has stopped existing. `fail` already did this; the
+     * crash path is the one that reaches the same place a beat earlier and never did.
+     *
+     * `setHudVisible` takes the overlay down with it, which is the point — the brackets
+     * are the part that reads worst, painted over an explosion.
+     */
+    this.ui.setHudVisible(false);
     this.state = 'SETTLING';
     this.settleTimer = 1.3;
     this.pendingScore = null;
@@ -395,28 +534,54 @@ export class Game {
   private frame(now: number): void {
     requestAnimationFrame(this.frame);
 
-    const elapsed = Math.min((now - this.lastFrame) / 1000, 0.25);
+    /**
+     * Clamped at both ends, and the lower end is not paranoia.
+     *
+     * `begin`, `beginUplink` and `resume` all reset `lastFrame` from `performance.now()`,
+     * and they run from a click handler rather than from inside the frame callback — so
+     * the next rAF timestamp, which is the moment that frame *started*, can predate the
+     * reset. That makes `elapsed` negative, and a negative delta drives the accumulator
+     * below zero, where it stays until several frames of real time have paid it back.
+     * The simulation stalls for that whole stretch and the vehicle is drawn at the last
+     * completed step throughout: a hitch immediately after the player takes control,
+     * which is the worst possible moment for one. Measured at −0.08 s, about five frames.
+     */
+    const elapsed = Math.max(0, Math.min((now - this.lastFrame) / 1000, 0.25));
     this.lastFrame = now;
 
     if (this.inspecting) {
       this.inspector?.update(elapsed);
     } else if (this.state === 'PLAYING') {
       this.stepSimulation(elapsed);
+    } else if (this.state === 'UPLINK') {
+      // Same stepper, dead controls — see `stepSimulation`. Progress is read from
+      // `missionTime`, which counts fixed steps, so the sequence takes exactly as long on
+      // any machine and a retry replays it identically.
+      this.stepSimulation(elapsed);
+      this.ui.setUplink(clamp01(this.missionTime / UPLINK_SECONDS));
+      if (this.missionTime >= UPLINK_SECONDS) this.presentBrief();
     } else if (this.state === 'SETTLING') {
       this.settleTimer -= elapsed;
       if (this.settleTimer <= 0) this.resolveSettle();
     }
 
-    if (this.lander && this.state !== 'BRIEF' && !this.inspecting) {
+    // Not in MENU either. The camera follows the vehicle, and in the menu the vehicle is
+    // parked at entry altitude a thousand units up — so letting this run would haul the
+    // shot off the canyon and back into empty sky, one frame after `frameCanyon` aimed it.
+    if (this.lander && this.state !== 'BRIEF' && this.state !== 'MENU' && !this.inspecting) {
       // Velocity is only reported while the simulation is advancing. Paused, the
       // lander holds position but keeps its last velocity, and the camera's lag
       // compensation would keep leading a target that is no longer moving —
       // sliding the framing off the vehicle the longer you stay paused.
-      const moving = this.state === 'PLAYING';
+      // The uplink is a real descent, so the camera leads it like any other.
+      const moving = this.state === 'PLAYING' || this.state === 'UPLINK';
       this.director.update(
         elapsed,
-        this.lander.x,
-        this.lander.y,
+        // The drawn position, not the stepped one. Chasing the stepped position while
+        // the hull renders at the interpolated one would just move the jitter into the
+        // background instead of removing it.
+        this.lander.renderX,
+        this.lander.renderY,
         moving ? this.lander.vx : 0,
         moving ? this.lander.vy : 0,
         this.heightAboveGround,
@@ -439,7 +604,13 @@ export class Game {
 
     this.accumulator += elapsed;
     let steps = 0;
-    const input = this.input.getState();
+    /**
+     * Nothing responds during the uplink. The vehicle was released before you were
+     * connected to it, so the fall is already happening and the controls are not yours
+     * yet — which is the whole point of the sequence, and is why this substitutes a dead
+     * input rather than skipping the step. The world has to keep moving.
+     */
+    const input = this.state === 'UPLINK' ? IDLE_INPUT : this.input.getState();
 
     while (this.accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
       this.accumulator -= FIXED_DT;
@@ -496,8 +667,31 @@ export class Game {
     // terrain the player never saw.
     if (steps >= MAX_SUBSTEPS) this.accumulator = 0;
 
+    // Draw the leftover. Whatever time is still in the accumulator has not been simulated
+    // yet, and rendering the last completed step instead of interpolating through it is
+    // what made the vehicle stutter — see `LanderBody.prevX`.
+    lander.present(this.accumulator / FIXED_DT);
+
+    // Re-fed every frame rather than triggered once: `shake` keeps the larger of what it
+    // holds and what it is given, and decays, so a steady value reads as buffet where a
+    // single call would read as a bump.
+    // One ramp drives both, so the shake and the trail arrive and fade together instead
+    // of reading as two unrelated effects that happen to overlap.
+    const entry = clamp01((lander.speed - BUFFET_FROM) / (BUFFET_FULL - BUFFET_FROM));
+    if (entry > 0) {
+      this.director.shake(entry * BUFFET_MAX);
+      this.effects.entryTrail(
+        elapsed,
+        lander.renderX,
+        lander.renderY,
+        lander.vx,
+        lander.vy,
+        entry,
+      );
+    }
+
     this.updateProximity(elapsed, lander);
-    this.updateHud(lander);
+    this.updateHud(lander, elapsed);
   }
 
   /**
@@ -572,28 +766,101 @@ export class Game {
       this.progress.complete(this.mission.id, score.rank, score.points);
       this.state = 'RESULT';
       this.ui.setHudVisible(false);
-      this.ui.showResult(this.mission, score, () => {
-        this.loadMission(this.mission.id + 1);
-      });
+      this.ui.showResult(
+        this.mission,
+        score,
+        () => this.loadMission(this.mission.id + 1),
+        // The rank is already banked — `Progress.complete` keeps the best of each
+        // measure — so re-flying can only improve it.
+        () => this.loadMission(this.mission.id),
+      );
     }
   }
 
-  private updateHud(lander: Lander): void {
+  private updateHud(lander: Lander, dt: number): void {
     const depthRange = CANYON.FLOOR_Y - this.mission.failDepth;
     const abyssProximity =
       depthRange > 0 ? clamp01((CANYON.FLOOR_Y - lander.y) / depthRange) : 0;
 
-    this.ui.updateHud({
+    const common = {
       fuel: lander.fuel,
       fuelCapacity: lander.fuelCapacity,
       altitude: lander.y - CANYON.FLOOR_Y,
       verticalSpeed: lander.vy,
-      horizontalSpeed: Math.abs(lander.vx),
-      tilt: lander.tilt,
+      // Signed. The panels that draw a drift direction cannot recover it downstream.
+      horizontalSpeed: lander.vx,
       abyssProximity,
-    });
+      consoleTime: this.missionTime - this.consoleUpAt,
+    };
 
-    this.ui.updateMarker(this.director.camera, lander.x, lander.y);
+    this.ui.updateHud(this.telemetry(lander, common), dt);
+    this.ui.updateMarker(this.director.camera, lander.renderX, lander.renderY);
+    this.ui.updateReticle(this.director.camera, {
+      // Drawn position, so the brackets sit on the hull rather than a step behind it.
+      x: lander.renderX,
+      y: lander.renderY,
+      vx: lander.vx,
+      vy: lander.vy,
+      // Only the frame that has an attitude gets an attitude indicator. The other two
+      // carry a cosmetic `bank` that nothing in the simulation reads, and feeding it
+      // here would draw a lean as though it could end the mission.
+      tilt: lander.airframe.scheme === 'attitude' ? lander.tilt : null,
+      // Not until the handshake is done. The overlay is the thing that says you have the
+      // vehicle, so it arrives when you actually do.
+      acquired: this.state !== 'UPLINK',
+    }, lander.visualBounds);
+  }
+
+  /**
+   * The per-scheme half of the telemetry.
+   *
+   * Split out because the union is what keeps a panel from reading a quantity its
+   * vehicle does not have, and that guarantee is only worth anything if the branch
+   * producing it is somewhere it can be read in one piece.
+   */
+  private telemetry(lander: Lander, common: HudCommon): HudData {
+    const frame = lander.airframe;
+
+    if (frame.scheme === 'differential') {
+      const engines = lander.firing.engines;
+      /**
+       * Which way the lit engines are actually pushing, from the same `-sin(cant)` the
+       * physics integrates rather than from which key is down.
+       *
+       * Reading the input instead would be wrong on exactly the vehicle this gauge is
+       * for: the hauler's nozzles splay outward, so its port engine drives the hull to
+       * starboard, and the invert-controls setting moves which engine a key lights
+       * without moving which way the vehicle goes. An arrow derived from the keypress
+       * would point the wrong way for half the players and be right for the other half.
+       */
+      let push = 0;
+      let scale = 0;
+      for (let i = 0; i < frame.engines.length; i++) {
+        const s = Math.sin(frame.engines[i].cant);
+        scale += Math.abs(s);
+        if (engines[i]) push -= s;
+      }
+
+      return {
+        ...common,
+        scheme: 'differential',
+        engines,
+        bias: scale > 0 ? push / scale : 0,
+        clearance: this.canyon.clearanceAt(lander.x, lander.y),
+      };
+    }
+
+    if (frame.scheme === 'translation') {
+      return {
+        ...common,
+        scheme: 'translation',
+        rcsLeft: lander.firing.rcsLeft,
+        rcsRight: lander.firing.rcsRight,
+        bank: lander.bank,
+      };
+    }
+
+    return { ...common, scheme: 'attitude', tilt: lander.tilt };
   }
 
   /**
@@ -727,15 +994,203 @@ export class Game {
     this.applyResolution();
   }
 
+  /**
+   * Escape steps back one screen; P is pause only.
+   *
+   * A stack rather than a toggle, now that there is somewhere behind the pause menu. The
+   * old code flipped PLAYING and PAUSED on either key, which with a menu underneath
+   * would have made Escape mean "back" in one place and "forward" in another.
+   */
   private onKey(e: KeyboardEvent): void {
-    if (e.code !== 'KeyP' && e.code !== 'Escape') return;
-    if (this.state === 'PLAYING') {
-      this.state = 'PAUSED';
-    } else if (this.state === 'PAUSED') {
-      this.state = 'PLAYING';
-      this.lastFrame = performance.now();
-      this.accumulator = 0;
-    }
+    if (e.code === 'KeyP' && this.state === 'PLAYING') return this.pause();
+    if (e.code !== 'Escape') return;
+
+    if (this.state === 'PLAYING') this.pause();
+    else if (this.state === 'PAUSED') this.resume();
+    // Out of a submenu back to the root, and no further: the root menu is the floor.
+    else if (this.state === 'MENU' && this.menuDepth > 0) this.openMenu();
+  }
+
+  // -------------------------------------------------------------------- menu
+
+  /**
+   * The main menu, over the player's own canyon.
+   *
+   * The world behind it is real: `openMenu` is entered after a `loadMission(id, false)`,
+   * so what the menu sits on is this save's seed, this save's colony, grown to whatever
+   * mission the player has reached. A menu over a black page would have been less work
+   * and would have thrown away the one thing this game generates that is theirs.
+   *
+   * The vehicle is hidden. It is parked at entry altitude a thousand units up, so it
+   * contributes nothing but a speck, and a lander frozen mid-sky behind a menu reads as
+   * a stuck game.
+   */
+  private openMenu(): void {
+    this.state = 'MENU';
+    this.menuDepth = 0;
+    this.ui.setHudVisible(false);
+    if (this.lander) this.lander.group.visible = false;
+    this.frameCanyon();
+
+    const next = Math.min(this.progress.highestUnlocked, MISSION_COUNT);
+    this.ui.showMenu([
+      {
+        label: 'CONTINUE',
+        detail: `MISSION ${String(next).padStart(2, '0')}`,
+        onSelect: () => this.enterMission(next),
+      },
+      { label: 'MISSIONS', detail: `${this.flownCount()} / ${MISSION_COUNT}`, onSelect: () => this.openMissions() },
+      { label: 'SETTINGS', onSelect: () => this.openSettings() },
+      { label: 'NEW CANYON', danger: true, onSelect: () => this.confirmNewCanyon() },
+    ]);
+  }
+
+  private flownCount(): number {
+    return Object.keys(this.progress.ranks).length;
+  }
+
+  /** Depth into the menu, so Escape can step back one screen rather than toggling. */
+  private menuDepth = 0;
+
+  private openMissions(): void {
+    this.menuDepth = 1;
+    this.ui.showMissions(
+      Math.min(this.progress.highestUnlocked, MISSION_COUNT),
+      (id) => this.progress.rankFor(id),
+      MISSION_COUNT,
+      (id) => this.enterMission(id),
+      () => this.openMenu(),
+    );
+  }
+
+  private openSettings(): void {
+    this.menuDepth = 1;
+    this.ui.showSettings(this.settings(), () => this.openMenu());
+  }
+
+  private confirmNewCanyon(): void {
+    this.menuDepth = 1;
+    this.ui.showConfirm(
+      'NEW CANYON',
+      'Rolls a new seed and starts the campaign at mission one. Every rank on this save is discarded, and the canyon you have been building in is gone.<br/><br/>Your sound and control settings are kept.',
+      'ROLL A NEW CANYON',
+      () => this.newCanyon(),
+      () => this.openMenu(),
+    );
+  }
+
+  /**
+   * Rolls a new campaign without reloading the page.
+   *
+   * The old route was `progress.newCanyon()` followed by `window.location.reload()`,
+   * which was a page reload standing in for a state transition because there was nowhere
+   * to transition *to*. `useSeed` already had the in-place rebuild — dispose the
+   * generator, repoint the director's ground probe, reload — and this is the same path.
+   */
+  private newCanyon(): void {
+    this.progress.newCanyon();
+    this.canyon.dispose();
+    this.canyon = new CanyonGenerator(this.scene, this.physics, this.progress.seed);
+    this.director.groundAt = (x, z) => this.canyon.heightAt(x, z);
+    this.loadMission(1, false);
+    this.openMenu();
+  }
+
+  /** Into a mission from anywhere in the menu: always via the brief. */
+  private enterMission(id: number): void {
+    if (this.lander) this.lander.group.visible = true;
+    this.loadMission(id);
+  }
+
+  /**
+   * Parks the camera on the canyon for the menu backdrop.
+   *
+   * Just above the rim over the canyon centre, which is where the chasm is most legible
+   * as a chasm — the walls converge and the floor runs away into fog. Measured against
+   * the alternatives rather than picked: the mission's own start point is entry altitude
+   * a thousand units up, where the canyon is a crack in the haze; anything below the rim
+   * fills the frame with one wall.
+   *
+   * This is the player's own seed, so the shot is different for everyone and changes as
+   * their colony grows — which is the reason to put a real world behind the menu at all
+   * rather than a flat backdrop.
+   */
+  private frameCanyon(): void {
+    this.director.snapTo(0, CANYON.RIM_Y * 1.25);
+  }
+
+  private pause(): void {
+    this.state = 'PAUSED';
+    /**
+     * The engine note and the wind are driven from `stepSimulation`, which stops running
+     * the moment the state leaves PLAYING — so without this they hold whatever they were
+     * at and drone under the pause menu for as long as it is open. Nobody noticed while
+     * pausing drew nothing on screen; a menu that sits there humming makes it obvious.
+     *
+     * Music is deliberately left running. The engines and the wind belong to a vehicle
+     * that is currently not moving; the score is atmosphere, and cutting it makes pausing
+     * feel like the game has crashed.
+     */
+    audio.updateEngineSound([]);
+    audio.updateWind(Infinity, 0);
+
+    // The console belongs to the flight. Paused, the numbers are frozen and the augmented
+    // layer is painted over a vehicle nobody is flying — both read as stale rather than
+    // informative, and they clutter the one screen that is meant to be legible at a
+    // glance. `setHudVisible` takes the overlay down with it.
+    this.ui.setHudVisible(false);
+    this.ui.showPause(
+      this.settings(),
+      () => this.resume(),
+      // Straight back to the uplink, through the same path every other entry uses.
+      () => this.loadMission(this.mission.id),
+      // Nothing is scored until a landing resolves, so abandoning a run in progress
+      // costs only the attempt — no confirmation needed, unlike NEW CANYON.
+      () => this.openMenu(),
+    );
+  }
+
+  private resume(): void {
+    this.state = 'PLAYING';
+    // The clock has been running while the menu was open. Without this the first frame
+    // back would be handed however many seconds the player spent reading, and the
+    // accumulator would try to catch up on all of it at once.
+    this.lastFrame = performance.now();
+    this.accumulator = 0;
+    this.ui.hidePanel();
+    this.ui.setHudVisible(true);
+  }
+
+  /**
+   * The settings block's view of the world, built fresh each time it is opened so it
+   * always reflects what is actually stored rather than a snapshot from startup.
+   */
+  private settings(): GameSettings {
+    const frame = this.lander?.airframe;
+    return {
+      mutedSfx: this.progress.audioPrefs.sfx,
+      mutedMusic: this.progress.audioPrefs.music,
+      onMuteSfx: (muted) => {
+        audio.setSfxMuted(muted);
+        this.progress.setMutedSfx(muted);
+      },
+      onMuteMusic: (muted) => {
+        audio.setMusicMuted(muted);
+        this.progress.setMutedMusic(muted);
+      },
+      // Only where there are two engines to tell apart — the same condition the brief
+      // uses. On the other frames the row would be a control that does nothing.
+      invert:
+        frame?.scheme === 'differential'
+          ? {
+              inverted: this.progress.invertThrusters,
+              onChange: (on) => {
+                this.progress.setInvertThrusters(on);
+                if (this.lander) this.lander.invertThrusters = on;
+              },
+            }
+          : null,
+    };
   }
 
   /**
@@ -804,6 +1259,7 @@ export class Game {
         this.lander.rotation = 0;
         this.lander.angularVelocity = 0;
         this.lander.group.position.set(x, y, 0);
+        this.lander.pin();
         this.director.snapTo(x, y);
       },
       /** Change the pixelation divisor live: 1 native, 2-4 chunky. */

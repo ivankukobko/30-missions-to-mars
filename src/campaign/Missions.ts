@@ -45,7 +45,20 @@ export interface Mission {
   target: string | null;
   /** Below this, the abyss takes you: SIGNAL LOST. Deepens as the colony digs. */
   failDepth: number;
-  brief: string;
+  /**
+   * The brief, as the ordered transmissions it arrives in.
+   *
+   * A brief reaches the player a card at a time, so where the breaks fall is authoring
+   * rather than formatting: a page turn is a beat, and a card holding four sentences has
+   * spent that beat on nothing.
+   *
+   * This replaced a single `brief` string, which was one wall of text with one speaker.
+   * Both forms were carried for a while so the thirty briefs could be split as authoring
+   * work rather than in one refactor; the string is gone now that all thirty are here.
+   * What it could never express is a second voice — a rival charter cutting in, or the
+   * outpost commenting on somebody else's contract — which is what `sender` is for.
+   */
+  messages: BriefMessage[];
   /** Overrides the default entry velocity for this mission. */
   entry?: { vx?: number; vy?: number };
   /**
@@ -75,24 +88,62 @@ export interface Mission {
 }
 
 /**
- * Which vehicle a client sends you out in.
+ * Which vehicle a client sends you out in: their own, always.
  *
- * Kessler Deep dug every shaft in this canyon, and a shaft is the one place the twin
- * is unambiguously the better tool: locked rotation and canted engines put the vehicle
- * sideways on demand without ever having to recover an attitude, which is what
- * threading a 24-wide bore with rock on both sides actually asks for. Their hardware
- * follows the work they do.
+ * Every charter's hardware follows the work it does. Kessler Deep dug every shaft in
+ * this canyon, and a shaft is the one place the twin is unambiguously the better tool —
+ * locked rotation and canted engines put the vehicle sideways on demand without ever
+ * having to recover an attitude, which is what threading a 24-wide bore with rock on
+ * both sides actually asks for. Helion drills sideways into walls, so their frame
+ * translates rather than rotates. Ixion is a science outpost landing on open pads, and
+ * flies the frame every tolerance in the game was tuned against.
  *
- * Ixion flies the standard lander because they are a science outpost landing on an open
- * pad, and Helion because their cavern approaches are a pitch-over-and-fly-in problem —
- * a vehicle that cannot rotate is the wrong tool for going in through a mouth in a wall.
+ * One frame per charter is also what the panel needs to be true. The HUD is diegetic —
+ * you are connecting to the vehicle's own instruments — so an airframe the client does
+ * not operate would put the wrong company's console in front of the player.
  *
- * The split is deliberately not one frame per charter. There are three clients and two
- * vehicles, and the line that matters is who digs downward, not who signs the manifest.
+ * This used to hold the Helion frame back until mission 6, which left mission 5 — the
+ * charter's own first contract — on the lander. That gate was a pacing patch from when
+ * there were two vehicles rather than three, and it bought nothing: the two unfamiliar
+ * frames still arrived back to back, at 6 and 7 instead of 5 and 6, and mission 5's
+ * brief opens "You fly for us now" over a vehicle that is not theirs. Meeting the
+ * sidewinder first is the better order regardless — decoupled translation has nothing
+ * to recover, whereas the twin is the one frame whose control mapping needs explaining.
+ *
+ * Four Ixion contracts still open the campaign, so the tutorial teaches a single scheme
+ * before any of this applies.
  */
+/** One authored transmission. `content` is markup, rendered as written. */
+export interface BriefMessage {
+  sender: string;
+  content: string;
+}
+
+/** One page of a brief. `body` is the authored markup, unescaped and ready to render. */
+export interface BriefCard {
+  title: string;
+  body: string;
+}
+
+/**
+ * The brief as the cards it is shown on.
+ *
+ * A pass-through now that every mission is authored as `messages` — every card is
+ * somebody sending you something, so the sender is the card's own and not derived from
+ * the client. That is what lets a card be a voice the mission is not addressed from.
+ *
+ * There is deliberately no synthesised "OBJECTIVE" card. An earlier version split the
+ * brief at its `<b>OBJECTIVE</b>` marker and gave the tail its own page, which invented a
+ * speaker — nobody on this canyon is called Objective. You take work from employers, and
+ * the address is a line inside what the employer said, so it stays where it was written.
+ */
+export function resolveBriefCards(mission: Mission): BriefCard[] {
+  return mission.messages.map((m) => ({ title: m.sender, body: m.content.trim() }));
+}
+
 export function airframeFor(mission: Mission): AirframeId {
   if (mission.airframe) return mission.airframe;
-  if (mission.id >= 6 && mission.client === 'helion') return 'helion';
+  if (mission.client === 'helion') return 'helion';
   if (mission.client === 'kessler') return 'hauler';
   return 'lander';
 }

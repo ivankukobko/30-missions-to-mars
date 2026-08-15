@@ -1,6 +1,20 @@
 import * as THREE from 'three';
 import { PALETTE } from '../world/CanyonSpec.ts';
 
+interface Streak {
+  x: number;
+  y: number;
+  z: number;
+  /** Unit direction of travel; the streak is drawn back along it. */
+  dx: number;
+  dy: number;
+  len: number;
+  age: number;
+  life: number;
+  /** 0..1, how white-hot the head is. */
+  heat: number;
+}
+
 interface Puff {
   mesh: THREE.Mesh;
   age: number;
@@ -16,6 +30,9 @@ const DUST_COUNT = 260;
 /** Box around the lander that dust is kept inside; it wraps at the edges. */
 const DUST_BOX = { x: 90, y: 70, z: 90 };
 const PUFF_POOL = 90;
+
+/** Streaks in flight at once during entry. */
+const TRAIL_POOL = 96;
 
 /**
  * Particulate: airborne dust that reads as motion, and low-poly smoke for the engine
@@ -36,6 +53,12 @@ export class Effects {
   private free: Puff[] = [];
 
   private groundEmit = 0;
+
+  private trail: THREE.LineSegments;
+  private trailPos: Float32Array;
+  private trailCol: Float32Array;
+  private streaks: Streak[] = [];
+  private trailFree: Streak[] = [];
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -89,6 +112,35 @@ export class Effects {
       const puff: Puff = { mesh, age: 0, life: 1, scale: 1, vx: 0, vy: 0, vz: 0, spin: 0 };
       this.puffs.push(puff);
       this.free.push(puff);
+    }
+
+    // ----------------------------------------------------------- entry streaks
+    this.trailPos = new Float32Array(TRAIL_POOL * 2 * 3);
+    this.trailCol = new Float32Array(TRAIL_POOL * 2 * 3);
+    const trailGeo = new THREE.BufferGeometry();
+    trailGeo.setAttribute('position', new THREE.BufferAttribute(this.trailPos, 3));
+    trailGeo.setAttribute('color', new THREE.BufferAttribute(this.trailCol, 3));
+    this.trail = new THREE.LineSegments(
+      trailGeo,
+      new THREE.LineBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        // Additive so overlapping streaks build brightness the way glowing air does,
+        // and so a colour faded to black is simply gone — there is no alpha to animate.
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+        // Fog would pull these toward the dust colour and kill the heat, and they are
+        // only ever a few units from the lens anyway.
+        fog: false,
+      }),
+    );
+    this.trail.frustumCulled = false;
+    scene.add(this.trail);
+
+    for (let i = 0; i < TRAIL_POOL; i++) {
+      const s: Streak = { x: 0, y: 0, z: 0, dx: 0, dy: -1, len: 0, age: 0, life: 0, heat: 0 };
+      this.streaks.push(s);
+      this.trailFree.push(s);
     }
   }
 
@@ -157,6 +209,63 @@ export class Effects {
     }
   }
 
+
+  /**
+   * Entry trail — compression heating on the way in through the top of the atmosphere.
+   *
+   * Streaks rather than smoke. The first attempt reused the puff pool, and it read as
+   * flying boulders: the entry camera sits 3.8 units behind the vehicle against 82 in
+   * flight, so a puff sized for the flight shot fills the lens up here. Shrinking it far
+   * enough to work made it a spray of pebbles instead. A line is what the eye reads as
+   * something moving too fast to resolve, which is exactly the claim being made.
+   *
+   * Each streak is fixed in world space and simply fades. It is heated *air*, not
+   * ejecta — the vehicle leaves it behind by moving, and nothing about it should chase
+   * the hull.
+   *
+   * Additive, fading to black. Additive blending has no alpha to fade, so darkening the
+   * vertex colour toward zero is the fade — and it also means the streaks pile up into
+   * something brighter where they overlap, which is the right behaviour for glowing air.
+   *
+   * `intensity` is 0..1 from the same speed ramp that drives the camera buffet, so the
+   * trail and the shake arrive and fade together rather than as two unrelated effects.
+   */
+  entryTrail(dt: number, x: number, y: number, vx: number, vy: number, intensity: number): void {
+    if (intensity <= 0) return;
+    // Scaled from zero rather than off a base rate, so the trail fades in with speed
+    // instead of appearing all at once the instant the threshold is crossed.
+    this.trailEmit += dt * intensity * 150;
+
+    const speed = Math.hypot(vx, vy) || 1;
+    const dx = vx / speed;
+    const dy = vy / speed;
+
+    while (this.trailEmit >= 1) {
+      this.trailEmit -= 1;
+      const seg = this.trailFree.pop();
+      if (!seg) return; // Pool exhausted. A missing streak is invisible; a stall is not.
+
+      // Across the direction of travel, so the plume has width rather than being a line
+      // drawn on top of itself.
+      const spread = (Math.random() - 0.5) * 3.4;
+      // Born a little ahead of the hull, where the air is actually being compressed. The
+      // trail behind then forms on its own as the vehicle overtakes them.
+      seg.x = x + dx * 1.8 - dy * spread;
+      seg.y = y + dy * 1.8 + dx * spread;
+      seg.z = (Math.random() - 0.5) * 2.4;
+      seg.dx = dx;
+      seg.dy = dy;
+      // Length rides the ramp too. The stubby end of the range only ever exists during
+      // the fade-in, where there is almost nothing on screen to compare it against.
+      seg.len = 1.5 + Math.random() * 9 * intensity;
+      seg.age = 0;
+      seg.life = 0.22 + Math.random() * 0.3;
+      seg.heat = 0.5 + Math.random() * 0.5 * intensity;
+    }
+  }
+
+  private trailEmit = 0;
+
   /** Impact plume. */
   burst(x: number, y: number): void {
     for (let i = 0; i < 16; i++) {
@@ -214,6 +323,68 @@ export class Effects {
         : (1.3 * Math.pow((1.0 - t) / 0.65, 1.8));
       puff.mesh.scale.setScalar(Math.max(0.001, puff.scale * sizeFactor));
     }
+
+    this.updateTrail(dt);
+  }
+
+  /**
+   * Ages the entry streaks and rewrites the whole buffer.
+   *
+   * Every slot is written every frame, live or not — a retired streak has both ends
+   * collapsed onto one point and its colour zeroed, which under additive blending is
+   * nothing at all. Cheaper and simpler than maintaining a draw range, and it means a
+   * slot can never keep drawing because a return path missed it.
+   */
+  private updateTrail(dt: number): void {
+    const pos = this.trailPos;
+    const col = this.trailCol;
+
+    for (let i = 0; i < this.streaks.length; i++) {
+      const s = this.streaks[i];
+      const j = i * 6;
+
+      if (s.life > 0) {
+        s.age += dt;
+        if (s.age >= s.life) {
+          s.life = 0;
+          this.trailFree.push(s);
+        }
+      }
+
+      if (s.life <= 0) {
+        pos[j] = pos[j + 1] = pos[j + 2] = 0;
+        pos[j + 3] = pos[j + 4] = pos[j + 5] = 0;
+        col[j] = col[j + 1] = col[j + 2] = 0;
+        col[j + 3] = col[j + 4] = col[j + 5] = 0;
+        continue;
+      }
+
+      const t = s.age / s.life;
+      // Fades away rather than out: additive blending has no alpha to animate, so the
+      // colour itself is driven to black.
+      const fade = (1 - t) * (1 - t);
+
+      // Head, at the leading edge.
+      pos[j] = s.x;
+      pos[j + 1] = s.y;
+      pos[j + 2] = s.z;
+      // Tail, back along the direction of travel.
+      pos[j + 3] = s.x - s.dx * s.len;
+      pos[j + 4] = s.y - s.dy * s.len;
+      pos[j + 5] = s.z;
+
+      // White-hot at the head, cooling to orange down the length — the same gradient a
+      // real streak has, and the thing that keeps it from reading as a drawn line.
+      col[j] = fade;
+      col[j + 1] = fade * (0.72 + 0.28 * s.heat);
+      col[j + 2] = fade * (0.42 + 0.5 * s.heat);
+      col[j + 3] = fade * 0.65;
+      col[j + 4] = fade * 0.24;
+      col[j + 5] = fade * 0.06;
+    }
+
+    this.trail.geometry.attributes.position.needsUpdate = true;
+    this.trail.geometry.attributes.color.needsUpdate = true;
   }
 
   dispose(): void {
@@ -227,5 +398,11 @@ export class Effects {
     this.puffs[0]?.mesh.geometry.dispose();
     this.puffs = [];
     this.free = [];
+
+    this.scene.remove(this.trail);
+    this.trail.geometry.dispose();
+    (this.trail.material as THREE.Material).dispose();
+    this.streaks = [];
+    this.trailFree = [];
   }
 }
