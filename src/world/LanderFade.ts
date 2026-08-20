@@ -38,6 +38,41 @@ interface Patched {
   };
 }
 
+/**
+ * Aerial perspective for geometry that recedes from the play plane, applied per fragment.
+ *
+ * This lived in `ColonyRender` as a multiply on each material's `color`, one material per
+ * layer — which is *why* the colony was batched one mesh per layer, and therefore why no
+ * piece of geometry could span two layers. Moving it here removes that constraint at the
+ * root rather than working around it.
+ *
+ * Two things it gains on the way, neither of which the material version could do:
+ *
+ *   - **It reaches emissive.** A vertex-colour version — the obvious alternative — would
+ *     not: three.js multiplies vertex colour into the diffuse term only, so a lamp in the
+ *     back layer would have kept full brightness while its housing dimmed, which is the
+ *     exact cue whose absence flattened the three layers into one before.
+ *   - **It is continuous in z.** A module is up to 19 deep and used to carry one flat tone
+ *     over that whole run; now its far end is genuinely darker than its near end, which is
+ *     what distance actually does and what a stepped per-layer value could only approximate.
+ *
+ * Applied after `#include <dithering_fragment>`, so it lands after lighting, fog and
+ * everything else that writes the output colour.
+ */
+export interface DepthEffects {
+  /**
+   * Fade in front of this world z. `null` omits the fade entirely — the patch then only
+   * dims, which is what opaque geometry behind the vehicle wants.
+   */
+  fadeInFrontOf?: number | null;
+  /** How much to darken per `dimSpacing` of depth behind `dimFrom`. Zero omits the dim. */
+  dimPerLayer?: number;
+  /** The depth that counts as "not receding yet" — the play plane of whatever is being
+   *  drawn, which is not necessarily z=0. */
+  dimFrom?: number;
+  dimSpacing?: number;
+}
+
 /** Every material currently taking part, so the focus can be moved without walking the
  *  scene graph each frame. */
 const faded: THREE.Material[] = [];
@@ -56,39 +91,70 @@ const faded: THREE.Material[] = [];
  * mid-flight.
  */
 export function fadeNearLander(material: THREE.Material, frontZ = 0): void {
+  patchDepth(material, { fadeInFrontOf: frontZ });
+}
+
+/**
+ * Fades and/or dims one material by depth. Both effects share a single `onBeforeCompile`
+ * and a single world-position varying, which is not a micro-optimisation: assigning
+ * `onBeforeCompile` twice silently discards the first patch, so two independent helpers
+ * would have quietly dropped whichever was applied first.
+ */
+export function patchDepth(material: THREE.Material, opts: DepthEffects): void {
+  const frontZ = opts.fadeInFrontOf ?? null;
+  const dim = opts.dimPerLayer ?? 0;
+  if (frontZ === null && dim === 0) return;
+
   material.onBeforeCompile = (shader) => {
-    // Far above the canyon until the first frame sets it, so a mesh drawn before the
-    // vehicle exists is fully opaque rather than fully clear.
-    shader.uniforms.uFocus = { value: new THREE.Vector2(0, 1e6) };
-    shader.uniforms.uFrontZ = { value: frontZ };
-    shader.uniforms.uFadeNear = { value: FADE_OPACITY };
-    shader.uniforms.uFadeRadius = { value: FADE_RADIUS };
+    const declarations = ['varying vec3 vFadeWorld;'];
+    let body = '';
+
+    if (frontZ !== null) {
+      // Far above the canyon until the first frame sets it, so a mesh drawn before the
+      // vehicle exists is fully opaque rather than fully clear.
+      shader.uniforms.uFocus = { value: new THREE.Vector2(0, 1e6) };
+      shader.uniforms.uFrontZ = { value: frontZ };
+      shader.uniforms.uFadeNear = { value: FADE_OPACITY };
+      shader.uniforms.uFadeRadius = { value: FADE_RADIUS };
+      declarations.push(
+        'uniform vec2 uFocus;',
+        'uniform float uFrontZ;',
+        'uniform float uFadeNear;',
+        'uniform float uFadeRadius;',
+      );
+      body +=
+        '  if (vFadeWorld.z > uFrontZ) {\n' +
+        '    float gap = length(vFadeWorld.xy - uFocus);\n' +
+        '    gl_FragColor.a *= mix(uFadeNear, 1.0, smoothstep(0.0, uFadeRadius, gap));\n' +
+        '  }\n';
+    }
+
+    if (dim > 0) {
+      shader.uniforms.uDim = { value: dim };
+      shader.uniforms.uDimFrom = { value: opts.dimFrom ?? 0 };
+      shader.uniforms.uDimSpacing = { value: opts.dimSpacing ?? 1 };
+      declarations.push('uniform float uDim;', 'uniform float uDimFrom;', 'uniform float uDimSpacing;');
+      // Clamped, so a colony deep enough to run out of layers goes black rather than
+      // inverting — `max` alone would let a far enough fragment produce a negative factor.
+      body +=
+        '  float behind = max(0.0, uDimFrom - vFadeWorld.z) / uDimSpacing;\n' +
+        '  gl_FragColor.rgb *= clamp(1.0 - uDim * behind, 0.0, 1.0);\n';
+    }
 
     shader.vertexShader = `varying vec3 vFadeWorld;\n${shader.vertexShader}`.replace(
       '#include <begin_vertex>',
       '#include <begin_vertex>\n  vFadeWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;',
     );
-    shader.fragmentShader = [
-      'uniform vec2 uFocus;',
-      'uniform float uFrontZ;',
-      'uniform float uFadeNear;',
-      'uniform float uFadeRadius;',
-      'varying vec3 vFadeWorld;',
-      shader.fragmentShader,
-    ]
+    shader.fragmentShader = [...declarations, shader.fragmentShader]
       .join('\n')
       // The last stage that touches the output colour, so nothing downstream undoes this.
-      .replace(
-        '#include <dithering_fragment>',
-        '#include <dithering_fragment>\n' +
-          '  if (vFadeWorld.z > uFrontZ) {\n' +
-          '    float gap = length(vFadeWorld.xy - uFocus);\n' +
-          '    gl_FragColor.a *= mix(uFadeNear, 1.0, smoothstep(0.0, uFadeRadius, gap));\n' +
-          '  }',
-      );
+      .replace('#include <dithering_fragment>', `#include <dithering_fragment>\n${body}`);
     material.userData.fade = shader;
   };
-  faded.push(material);
+
+  // Only fading materials carry `uFocus`, and `setLanderFocus` reaches straight into it —
+  // registering a dim-only material here would fault on the first frame.
+  if (frontZ !== null) faded.push(material);
 }
 
 /** Points every faded surface at the vehicle. Called once a frame. */

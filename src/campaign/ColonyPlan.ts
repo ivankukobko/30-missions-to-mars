@@ -10,7 +10,7 @@ import {
   type LatticeTerrain,
 } from '../world/ColonyLattice.ts';
 import { buildSubstrate, type SubstrateField, type SubstrateTerrain } from '../world/ColonySubstrate.ts';
-import { growColony, type OrganismCell, type PlacedCell, type Spore } from '../world/ColonyOrganism.ts';
+import { growColony, TRAIT, type OrganismCell, type PlacedCell, type Spore } from '../world/ColonyOrganism.ts';
 import { buildChannels, type ChannelNetwork, type ChannelTerrain } from './ColonyChannels.ts';
 import { MISSIONS, worldAt } from './Missions.ts';
 import { resolveTerrainAnchoredDigs, applyDigAttachments } from './TerrainDigs.ts';
@@ -360,6 +360,28 @@ function hasRoom(
   return false;
 }
 
+/**
+ * Notes on the lane bits set below, which are the renderer's only source for where a
+ * flight channel runs past a colony.
+ *
+ * **`onLane`, not `blocked`** — routes only, without the pad decks and bore mouths that
+ * `blocked` unions in with them. The first version used `blocked`, on the reasoning that a
+ * deck is just the end of a lane and a charter would light both. Measured, that flagged
+ * 42–52% of every colony and 87% of Ixion's outpost, a small settlement ringed by its own
+ * pads: at that density the trait stops being information and the renderer is branching on
+ * something very close to "is a cell". A mycelial colony is almost all surface, so a
+ * predicate this cheap has to be about the *lane* specifically or it degenerates.
+ *
+ * **Sideways only.** A lane runs vertically down the canyon, so the cells that face one are
+ * the ones beside it; a cell with a lane directly above or below is looking at it end-on
+ * and has no wall along it to light. Dropping the vertical pair is most of what separates
+ * "this wall runs alongside the approach" from "this cell is near the approach".
+ *
+ * Tested in the play plane at every layer, with no layer term, because that is where the
+ * routes are: a cell one layer forward of the lane is still beside that lane in x, and its
+ * flank is what a pilot in the channel sees when they look forward.
+ */
+
 /** One mission's resolved world — what `Game.loadMission` already builds for the mission
  *  it is loading, asked for any earlier mission too so growth can be walked forward. */
 export interface MissionWorld {
@@ -683,12 +705,73 @@ export function planColonies(
   for (const [key, cell] of cells) {
     const total = built.get(cell.corp) ?? 0;
     const list = byCorp.get(cell.corp) ?? [];
+    const col = lattice.keyCol(key);
+    const row = lattice.keyRow(key);
+    const layer = lattice.keyLayer(key);
+    /**
+     * Standing on something, as this simulation means it — rock beside or beneath, **or the
+     * colony's own structure directly below**.
+     *
+     * The first version used `substrate.at() === 'surface'` alone, on the reading that
+     * "touching wall or ground" means touching rock. Measured on mission 30, that is 35 of
+     * 313 cells: a mycelial colony is a cantilevered lattice, and 89% of it hangs in open
+     * air held up by its own structure, which is precisely what `reachOf` and
+     * `MAX_CANTILEVER` exist to arbitrate. Intersected with the runs a merge needs, 220
+     * joined pairs came out as 3, and the feature could not fire.
+     *
+     * Rock-adjacency was the wrong proxy because it contradicts the simulation's own notion
+     * of support. A room on the third floor of a settlement is not floating; the floor below
+     * it is what holds it up, and that is the fact worth reading.
+     */
+    const grounded = substrate.at(col, row, layer) === 'surface' || cells.has(lattice.key(col, row - 1, layer));
     list.push({
-      x: lattice.worldX(lattice.keyCol(key)),
-      y: lattice.worldY(lattice.keyRow(key)),
-      z: lattice.worldZ(lattice.keyLayer(key)),
+      x: lattice.worldX(col),
+      y: lattice.worldY(row),
+      z: lattice.worldZ(layer),
       links: cell.links,
-      scaffold: cell.order >= total - frontierCount(total),
+      /**
+       * Bare frame where the colony is *reaching*, hull where it is standing.
+       *
+       * Age alone used to decide this — the last ring built was scaffold and everything
+       * older was a finished module. That reads as a settlement of solid rooms with a thin
+       * crust, and at the densities this model reaches it made the whole mass look poured
+       * rather than built: aggressive, and with no visible sign of the constant expansion
+       * the campaign is supposed to be showing.
+       *
+       * Support is the better second half of the test, and it is the same fact the merge
+       * reads. A cantilevered cell is one the charter has thrown out over open air and has
+       * not yet built anything under; drawing it as an open frame says exactly that, and it
+       * turns into a hull on the mission a floor appears beneath it. That is the scaffold
+       * promise the player could already check — the frame you flew past last mission is a
+       * building this mission — extended from the growing edge to every unsupported arm,
+       * and it makes the outline of the colony read as under construction everywhere it is
+       * actually still reaching.
+       */
+      scaffold: !grounded || cell.order >= total - frontierCount(total),
+      traits:
+        /**
+         * Exactly the four cells that touch a lane face-to-face, seen in plan:
+         *
+         * ```
+         *   0 0 = 0 0     layer -1
+         *   0 = · = 0     layer  0   ( · is the lane )
+         *   0 0 = 0 0     layer +1
+         * ```
+         *
+         * Flanks in the play plane only, behind in the layers immediately front and back,
+         * and **no diagonals**. This is narrower than it was: the first version tested the
+         * flanks with no layer term at all, so a cell one layer back and one column across
+         * — touching the lane at a corner, if at all — lit up as though it fronted it. That
+         * put lit fittings on cells a pilot in the channel never has square in view, which
+         * spends the navigational signal on surfaces that cannot carry it.
+         *
+         * A cell can still hold a flank bit and `laneBehind` at once where two lanes cross,
+         * and gets both fittings, each square to its own face.
+         */
+        (layer === 0 && network.onLane(col - 1, row) ? TRAIT.laneWest : 0) |
+        (layer === 0 && network.onLane(col + 1, row) ? TRAIT.laneEast : 0) |
+        (Math.abs(layer) === 1 && network.onLane(col, row) ? TRAIT.laneBehind : 0) |
+        (grounded ? TRAIT.grounded : 0),
     });
     byCorp.set(cell.corp, list);
   }

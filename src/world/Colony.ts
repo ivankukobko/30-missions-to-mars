@@ -413,7 +413,17 @@ export interface PadInfo {
 const DEPTH = {
   pad: 8.5,
   caveRoof: 15,
-  colony: 15,
+  /**
+   * The colony's own z extent, used for `zCentre` and as `moduleDepth`'s outer limit.
+   *
+   * Deliberately generous rather than tight. This constant used to be what actually set the
+   * distance between one layer's modules and the next — at 15, in a 24-unit spacing, a hub
+   * left a 9-unit void — which meant layer separation was being decided here, by accident,
+   * from the wrong side. It is now `COLONY_VESSEL_DIAMETER` and `COLONY_LAYER_GAP` that
+   * decide it, together, in the module that owns both; this only has to stay out of their
+   * way, which anything above the diameter does.
+   */
+  colony: 14,
 } as const;
 
 /** How far the whole main row is drawn toward the camera from the play plane. */

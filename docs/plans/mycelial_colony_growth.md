@@ -567,6 +567,124 @@ simulation already produced — no new noise field.
 - **Colliders.** One full-cell box per occupied cell, scaffold included. A grown colony
   stays lethal on contact, and flyability is carried entirely by the channels rather than
   by gaps in the massing.
+- **Batched by transparency class, not by layer.** Two mesh sets — everything in front of
+  the play plane, and everything at or behind it — rather than one per layer: 6 meshes per
+  corp instead of 12.
+
+  Per-layer batching existed for exactly one reason: `LAYER_DIM` was a multiply on each
+  material's `color`, so a layer needed its own material to be dimmed. That is now a
+  fragment multiply keyed off world z, sharing `LanderFade`'s existing world-position
+  varying (`patchDepth` — one `onBeforeCompile` for both effects, since assigning it twice
+  silently discards the first patch). A **vertex-colour** version was the obvious
+  alternative and is wrong: three.js multiplies vertex colour into the diffuse term only, so
+  the back layer's lamps would have kept full brightness while their housings dimmed — the
+  exact cue whose absence flattened the three layers before. The fragment version also dims
+  *continuously*, so a 19-deep module darkens along its own length instead of taking one
+  flat tone.
+
+  What this removes is the rule that no geometry may span two layers, which is what a depth
+  merge needs. What survives is a gameplay boundary rather than a rendering one: the near
+  class must be `transparent` with `depthWrite: false` to thin around the vehicle, and the
+  play plane must write depth — so depth merging is available for layers **−1 ↔ 0**, never
+  **0 ↔ +1**. The back layer now casts shadows along with the play plane, accepted
+  deliberately: keeping it out would have meant a third class and put −1 and 0 back in
+  separate meshes, defeating the change.
+- **Surroundings → fittings.** `TRAIT`, a bitmask on `PlacedCell` alongside `links`, is the
+  third thing a mesh varies on. It is set in `ColonyPlan`, never in growth and never here:
+  the renderer's rule is that it reads facts the simulation produced and forms no second
+  opinion, and the trait has to be decided where determinism is already guaranteed. A
+  bitmask rather than an enum because a cell can be several of these at once, and an enum
+  would force a priority order nobody has a reason to pick.
+
+  `laneWest` and `laneEast` record a flight channel beside the cell — **two bits, because
+  the side is the whole content of the fact.**
+
+  The fittings split by what they are for. Every hull carries **one lit port**,
+  camera-facing: the house design, saying only "pressurised and occupied". A cell beside a
+  lane additionally carries **two stripes along that flank's top and bottom edges**, running
+  in z. A fitting on the camera-facing side is edge-on to a pilot inside the channel — the
+  one place it has to be legible from — so marking a route that way announces it only to
+  someone already looking at the colony side-on. Edges rather than a bar across the middle
+  of the face, because a pilot in a narrow lane sees the building foreshortened and what
+  survives that is the outline; lighting the outline draws the shape of the gap being flown
+  through. Walkways glow at **0.45** against the fittings' 1.3, which traces the settlement's
+  connective structure out of a mass of dark cubes without putting texture on the same
+  footing as the navigational signal.
+
+  A horizontal band on the camera face was tried alongside the port and removed: two lit
+  elements on the face you always see is noise, and the lane marking drowned in it. Walkways
+  glowed for a while too and no longer do — a corridor is a duct between two pressure hulls,
+  and a canyon where every duct is lit puts the plumbing on the same footing as the lane
+  markings, which are the only thing a pilot actually steers by.
+
+  **Scaffold carries corp lights at its eight corners.** A bare lattice has no surface to
+  hang a fitting on, so it used to say nothing about whose it was — and scaffolding is the
+  state the campaign most wants read at a glance, being the visible half of "this charter is
+  still expanding". Corners rather than members, so a cluster of scaffold reads as a lit
+  wireframe of the volume being claimed.
+
+  **Emissive only, never a `PointLight`:** `Shaft.buildLights` records that real lamps were
+  the frame's bottleneck at thirteen, and a mature canyon carries hundreds of these boxes.
+
+  Two things about the predicate, both of which cost a wrong version first. It reads
+  `network.onLane`, not `network.blocked` — routes without the decks and bore mouths that
+  `blocked` unions in with them — and it tests east and west only, not all four neighbours.
+  With decks folded in and the vertical pair included, 42–52% of every colony flagged and
+  87% of Ixion's, which is not frontage but very nearly "is a cell"; a mycelial colony is
+  almost all surface, so a predicate this cheap has to be about the lane specifically or it
+  degenerates. The lane-only, sideways-only form measures 29–32%. `ColonyPlan.test.ts`
+  asserts a **band** rather than a floor for exactly this reason: the degenerate version
+  passed a floor-only assertion without complaint — and it now checks each side separately,
+  since a west lane recorded as an east one lights the wall facing away from the channel and
+  is invisible in any aggregate.
+- **Runs → pressure vessels.** `colonyRuns` merges up to four contiguous, *joined*, built,
+  supported cells into one hull, drawn as an eight-sided cylinder a full cell long per
+  section, so a merged run reads as one continuous industrial pipe rather than a stack of
+  tins. Adjacency is not enough: two filaments that grew separately and happen to meet are
+  two vessels sharing a wall, and the link mask is the only surviving record of which
+  happened.
+
+  **Cylinders because pressure.** A habitat holds atmosphere against near-vacuum and there
+  is no designing around what shape does that, so a cylinder reads as engineered where a box
+  reads as improvised — which was most of why the colony read as a favela. Eight facets, not
+  smooth: the game is hard-faceted throughout and one rounded thing would not belong. The
+  section is stretched in z to `moduleDepth`, keeping the elongation that stopped the colony
+  reading flat; a true circle would have been barely half that, since the radius is bounded
+  by the cell.
+
+  **Vertical first, then horizontal over what is left.** Two axes means a 2×2 block is two
+  standing pipes or two lying ones and something must choose, or a cell is drawn twice. A
+  fixed priority is the cheapest resolution that keeps the partition exact, and vertical wins
+  because that is the silhouette the colony was short of. Measured at mission 30: 65% of
+  cells in standing pipes, 3% lying, the rest single — 313 cells down to 164 vessels.
+
+  **`moduleScale` is gone.** It sized each cell by its own connectivity — 0.54 for an end
+  pod, 0.78 for a hub — so two *joined* modules were routinely different widths, and that
+  stepped, mismatched edge was the strongest favela signal in the colony. One hull spec per
+  charter is both more plausible and what lets a run read as a single pipe. Connectivity is
+  still read; it now decides what merges rather than how fat each cell is.
+
+  This is a **render decision over a settled cell set**, resolved after growth and after the
+  routes have taken what they take. Nothing here claims ground, so budget, `reachOf`, the
+  cantilever limit and demolition are all untouched, and the merged hull sits inside the
+  union of full-cell colliders those cells already carry — whose rule is that what you see
+  may be leaner than what stops you, never fatter. Demolition needs no special case either:
+  a channel cut through the middle of a three-cell hall arrives first, so what is left is
+  two shorter buildings, and the lane reads as having been cut through the block.
+
+  `TRAIT.grounded` gates it, and what that means had to be corrected once. The literal
+  reading — `substrate.at() === 'surface'`, adjacent to rock — is 35 of 313 cells at mission
+  30, because a mycelial colony is a cantilevered lattice and 89% of it hangs in open air on
+  its own structure. Intersected with the runs a merge needs, 220 joined pairs came out as
+  **3**, and the feature could not fire at all. Rock-adjacency was the wrong proxy: it
+  contradicts the simulation's own notion of support, which is `reachOf`. Adding "or the
+  colony's own cell directly below" — a room on the third floor is not floating — takes it
+  to **58 halls holding 59% of cells**, over a healthy spread of widths (127 singles, 13
+  doubles, 20 triples, 25 quads).
+
+  Bounded at four because the point is a vocabulary — pods, cans, hubs, halls — not "wider
+  is better". A run of nine merged into one box stops reading as a structure with parts and
+  starts reading as the bounding volume of one.
 
 ## Determinism and monotonicity
 

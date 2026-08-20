@@ -40,14 +40,14 @@ describe('heightAt is stable for a given seed', () => {
       for (let x = -1000; x <= 1000; x += 17) sum += canyon.heightAt(x, z);
     }
 
-    expect(sum).toBeCloseTo(1181369.751132148, 6);
+    expect(sum).toBeCloseTo(1181928.1747766074, 6);
   });
 
   it.each([
-    [0, 0, -174.794065357],
+    [0, 0, -0.837749820066048],
     [-14, 0, -1.046319957],
     [-33, 0, -6.152910103],
-    [10, 0, -174.794065357],
+    [10, 0, -0.6291796826850891],
     [65, 0, -1.922765538],
     [-65, 0, -4.007675352],
     [300, -400, 218.299444741],
@@ -216,12 +216,26 @@ describe('shelves and excavations', () => {
     expect(Math.abs(west - centre)).toBeGreaterThan(3); // eaten by the x=-33 shelf
   });
 
-  it('opens the floor over a bore', () => {
+  /**
+   * The floor **stays at its natural height** over a bore, where it used to dip toward the
+   * pit floor over a one-cell shoulder.
+   *
+   * That dip was how a heightfield tried to be a hole, and it could only ever be a funnel:
+   * one y per x means the quads straddling the rim stretch from the ground down to the
+   * bottom, which is what those long triangles hanging into the shaft were. `AntFarm` draws
+   * the rock below ground now, and the terrain is *absent* over the carve rather than
+   * stretched into it — a hole cut in the mesh and the collider from the same cells.
+   *
+   * The hole itself cannot be asserted here, because `heightAt` has no way to say "nothing".
+   * It is asserted where it is felt instead: `CampaignPipeline.integration.test.ts` sweeps
+   * the physics world down a shaft's axis and across its wall.
+   */
+  it('leaves the floor at natural height over a bore, and cuts a hole instead', () => {
     const dig = DIGS[0];
-    const insideBore = canyon.heightAt(dig.x, 0);
+    const overBore = canyon.heightAt(dig.x, 0);
     const beside = canyon.heightAt(dig.x + dig.halfWidth + 20, 0);
 
-    expect(insideBore).toBeLessThan(beside - dig.depth * 0.5);
+    expect(Math.abs(overBore - beside)).toBeLessThan(CANYON.CELL * 2);
   });
 
   it('leaves a pad beside a pit on its own level ground', () => {
@@ -283,8 +297,9 @@ describe('the canyon has the shape the spec describes', () => {
  */
 describe('bore clearance', () => {
   // The shared canyon digs one bore: x = 10, half-width 12, running 172 down from its
-  // mouth. `build` puts the mouth `depth` above the pit floor `heightAt` reports.
-  const MOUTH_Y = -174.794065357 + 172;
+  // mouth. The mouth is simply the natural floor — `floorDetail` no longer dips into a
+  // dig, so `heightAt` no longer reports a pit floor that had to be walked back up from.
+  const MOUTH_Y = -0.6291796826850891;
   const INSIDE_Y = MOUTH_Y - 60;
 
   it('reads nothing in open air, so the gauge can go dark instead of lying', () => {

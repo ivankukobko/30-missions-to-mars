@@ -99,9 +99,18 @@ export interface DigEndpoint {
   x: number;
   y: number;
   halfWidth: number;
-  /** Vertical distance from the axis to the tube's floor, per unit of half-width: 1 for a
-   *  level bore, 0 for a vertical one whose endpoint already *is* its floor. */
-  floorPerHalfWidth: number;
+  /**
+   * The bore's unit direction, carried through rather than the two scalars that used to be
+   * derived from it here.
+   *
+   * Both things `applyDigAttachments` has to do to fit a deck inside a tube are functions
+   * of this one vector — how far below the axis the floor is (`|x|`, since a level bore's
+   * floor is a full half-width down and a vertical bore's endpoint already *is* its floor),
+   * and how far back along the axis the deck has to sit so its far edge stops at the end
+   * cap rather than continuing into rock. Storing a pre-chewed scalar for the first and
+   * nothing at all for the second is what let the second go unnoticed.
+   */
+  direction: { x: number; y: number };
 }
 
 export interface ResolvedDigs {
@@ -177,12 +186,7 @@ export function resolveTerrainAnchoredDigs(digs: DigEntry[], terrain: WallTerrai
         x: x + direction.x * d.depth,
         y: mouthY + direction.y * d.depth,
         halfWidth: d.halfWidth,
-        /**
-         * How far the bore's floor lies below its axis, per unit of half-width — the
-         * vertical drop to the tube wall, which is the full half-width for a level bore
-         * and nothing at all for a vertical one (a shaft's endpoint *is* its floor).
-         */
-        floorPerHalfWidth: Math.sqrt(1 - direction.y * direction.y),
+        direction,
       });
     }
     return { x, halfWidth: d.halfWidth, depth: d.depth, lengthZ: d.lengthZ, direction };
@@ -237,9 +241,22 @@ export function applyDigAttachments(props: Prop[], endpoints: Map<string, DigEnd
      * Then lifted clear, the same mistake a ground pad avoids with its own 1.3 in
      * `buildPad` — deck and rock coplanar means the platform loses its shadow and its
      * silhouette, and at the end of a dark bore it stops reading as a structure at all.
+     *
+     * **And back from the end cap, not centred on it.** The endpoint is where the bore
+     * stops — `Shaft.buildEndCap` closes it there and `addColliders` lays a collider
+     * across it — so a deck centred on the endpoint puts half its width beyond the rock
+     * face. That was invisible for as long as every bore ran straight down, because a
+     * vertical bore's axis is perpendicular to the deck's width and the two never
+     * competed for the same units. A level bore's axis *is* the deck's width axis:
+     * Helion's cavern deck, 12 wide at the end of a 46-deep bore, had six units of itself
+     * inside the west wall. Backing off by the deck's own half-width lands its far edge on
+     * the cap exactly, which is also what a deck built against the back of a room does.
+     *
+     * `direction.x` is 0 for a shaft and ±1 for a bore, so this is one expression for both
+     * rather than a branch — the same reason the drop is written as a projection.
      */
     const halfDeck = Math.min(p.width / 2, end.halfWidth);
-    const drop = end.floorPerHalfWidth * Math.sqrt(end.halfWidth ** 2 - halfDeck ** 2);
-    return { ...p, x: end.x, y: end.y - drop + DIG_PAD_LIFT };
+    const drop = Math.abs(end.direction.x) * Math.sqrt(end.halfWidth ** 2 - halfDeck ** 2);
+    return { ...p, x: end.x - end.direction.x * halfDeck, y: end.y - drop + DIG_PAD_LIFT };
   });
 }

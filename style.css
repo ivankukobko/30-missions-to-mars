@@ -1223,8 +1223,28 @@ body {
 
 /* How many transmissions are still to come — worth knowing on a mission you have
    already flown and are re-reading only to get past. */
+.brief-skip {
+  /* Sits in the dots row, not beside BEGIN DESCENT: the primary button is where the
+     player's hand already is, and a bail-out next to it gets pressed by accident. */
+  margin-left: auto;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  color: var(--ink-dim);
+  cursor: pointer;
+}
+
+.brief-skip:hover,
+.brief-skip:focus-visible {
+  color: var(--corp);
+}
+
 .brief-dots {
   display: flex;
+  align-items: center;
   gap: 6px;
   margin: 20px 0 0;
 }

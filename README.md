@@ -30,6 +30,8 @@ See [CLAUDE.md](CLAUDE.md) for development commands and rules.
 
 The score is a five-voice pad, one chord progression per charter, and the mission's own callsign — the mission number in binary, MSB first, sounded once per forty-second cycle.
 
+Which theme plays comes from the mission's client by default, and a mission can override it with `musicTrack` — resolved by `musicTrackFor`, the same shape as `airframeFor`. Exactly one mission uses it. Mission 30 is a Kessler contract flown in Kessler's hauler to Kessler's own shaft, scored in **Ixion's key**: the outpost went dark two runs earlier and cuts into the brief anyway, quoting mission 1's opening line word for word. Deriving the theme from the client was right for twenty-nine missions and had no way to say that, because the thing being said is precisely that the music and the employer have come apart.
+
 That callsign is also the rhythm. One bar per bit at 2.1 seconds, five bars against a four-step progression, and a set bit is a bar of wobble bass while a clear one is a rest. Each *consecutive* set bit ratchets one division faster — 1/4, 1/8, 1/8 triplet, 1/16 — so mission 30 (`11110`) is a four-bar build into a bar of silence, mission 16 (`10000`) is one slow stroke and four bars of nothing, and mission 21 (`10101`) ticks rather than builds. Thirty grooves, none of them authored, none able to drift out of step with the campaign.
 
 The bass is two saws and a square, saturated and then swept by two cascaded lowpass stages — 24 dB/oct, because one biquad is 12 and leaves the harmonics the sweep is meant to travel past plainly audible. The sweep drives `detune` in cents rather than `frequency` in Hz, so the movement is even end to end instead of spending its life open and slamming shut.
@@ -42,7 +44,7 @@ Each bar's sweep is a `Float32Array` scheduled with `setValueCurveAtTime`, not a
 
 Detailed documentation is organized in the [`docs/`](docs/) directory:
 
-- **[Lore & Factions](docs/lore.md)**: Player identity and the corp voice pattern, the three corporate factions (Ixion, Helion, Kessler), and the 6 campaign narrative phases.
+- **[Lore & Factions](docs/lore.md)**: The campaign's design record — what each client calls you and why none of the three names mean the same kind of thing, depth as the faction axis with arrival order as its cause, the pillar between the two workings, and the rules about what the game must never answer. Shipped material and proposed material are tagged separately.
 - **[Gameplay](docs/gameplay.md)**: Entry velocity mechanics, desktop & touch controls, payload mass & landing scoring, and seed persistence.
 - **[Environment](docs/environment.md)**: Canyon geometry & orientation, uniform lattice sampling, terracing, level shelves, and terrain noise generation.
 - **[Architecture](docs/architecture.md)**: 120 Hz fixed-timestep physics engine, fragment-bound rendering pipeline, codebase module layout, and automated tests.
@@ -54,6 +56,7 @@ Detailed documentation is organized in the [`docs/`](docs/) directory:
 - **[Airframe HUD](docs/plans/dedicated_airframe_hud.md)**: Shipped. A diegetic console per airframe in its charter's livery, an augmented layer on the vehicle that stays the player's own, and a system register for everything that is not the mission.
 - **[Main Menu & Save Slots](docs/plans/main_menu.md)**: Menu shipped — boots over the player's own canyon, with a mission grid for replaying ranks already earned. Save slots still proposed, under the constraint that the save format has never yet lost a player's data.
 - **[Brief Cards](docs/plans/telemetry_dialogue_system.md)**: How a pre-mission brief is paged, what was cut from the original three-card plan and why, and the `messages` data model.
+- **[Mission Zero](docs/plans/mission_zero.md)**: Proposed. A silent prologue that lands the uplink relay on the rim — one control, no console, no voice, because the thing being delivered is the channel every later brief arrives on. Also the four dark relays half-buried on the canyon floor, and why they are Ixion's rather than Kessler's.
 - **[Campaign Narrative Enhancements](docs/plans/campaign_narrative_enhancements.md)**: Ixion shutdown visual shifts, AI corridor diagnostics, and shaft acoustic audio effects.
 - **[Mycelial Colony Growth](docs/plans/mycelial_colony_growth.md)**: The live model — three colonies growing as branching filaments across the canyon's rock, competing for substrate. Every pad standing keeps a flight channel to the rim, and routes merge into a shared trunk as they climb rather than each reserving a column of their own. Nothing is reserved before the pad that needs it exists, so a new approach can demolish what stood in it — deterministically, so a retry replays the same canyon.
 - **[Procedural Colony Growth](docs/plans/procedural_colony_growth.md)**: Superseded by the above; kept as the record of the voxel/WFC-lite model that shipped before it and why it was replaced.

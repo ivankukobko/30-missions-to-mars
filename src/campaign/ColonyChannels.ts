@@ -156,6 +156,9 @@ export interface ChannelNetwork {
   /** True for a cell inside any route's clearance volume, or in a pad's own deck
    *  keep-out. This is what `ColonyOrganism` is handed as `forbidden`. */
   blocked(col: number, row: number): boolean;
+  /** True for a cell inside a route's clearance volume only — the flight lanes without
+   *  the decks and bore mouths `blocked` folds in with them. See where it is built. */
+  onLane(col: number, row: number): boolean;
 }
 
 /** What a route needs from `CanyonGenerator`, kept narrow like every other terrain
@@ -475,6 +478,19 @@ export function buildChannels(
     }
   }
 
+  /**
+   * A snapshot of the routes alone, before the decks and mouths are marked into the same
+   * array — the flight lanes, without the places a lane terminates.
+   *
+   * `blocked` deliberately unions all three, because growth's question is "may I stand
+   * here" and the answer is no for every one of them. But a caller asking *what a colony
+   * is looking at* needs them apart, and the measurement is what settled it: with decks
+   * folded in, 42–52% of every colony reads as lane-facing and Ixion's outpost — a small
+   * settlement ringed by its own pads — reaches 87%, which is not frontage, it is the
+   * whole colony. See `ColonyPlan.routeFront`, the one consumer.
+   */
+  const lane = blocked.slice();
+
   // The deck itself. The channel above already covers the approach; this is the "nothing
   // stands *on* the landing surface" half, including what would be bolted underneath.
   for (const pad of pads) {
@@ -588,5 +604,10 @@ export function buildChannels(
     channels,
     trunkCol,
     blocked: (col, row) => !lattice.inBounds(col, row) || blocked[lattice.index(col, row)] === 1,
+    // Out of bounds is *not* a lane — the opposite of `blocked`'s answer, and deliberately
+    // so. `blocked` is asked "may I stand here", where the canyon's edge is a no; this is
+    // asked "is there a lane here", where the edge is simply nothing, and treating it as a
+    // lane would light the outermost ring of every colony against bare rock.
+    onLane: (col, row) => lattice.inBounds(col, row) && lane[lattice.index(col, row)] === 1,
   };
 }

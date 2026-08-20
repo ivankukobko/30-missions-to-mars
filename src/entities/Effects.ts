@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { PALETTE } from '../world/CanyonSpec.ts';
+import { clamp01 } from '../world/Noise.ts';
 
 interface Streak {
   x: number;
@@ -11,8 +12,16 @@ interface Streak {
   len: number;
   age: number;
   life: number;
-  /** 0..1, how white-hot the head is. */
-  heat: number;
+  /**
+   * Head colour, 0..1 per channel. The tail is a fixed fraction of it.
+   *
+   * Carried per streak rather than derived from a heat scalar, because the two emitters
+   * are different substances: entry heating is white through orange, and the wake off the
+   * hull corners is thin pale vapour. One number could not say both.
+   */
+  r: number;
+  g: number;
+  b: number;
 }
 
 interface Puff {
@@ -31,8 +40,13 @@ const DUST_COUNT = 260;
 const DUST_BOX = { x: 90, y: 70, z: 90 };
 const PUFF_POOL = 90;
 
-/** Streaks in flight at once during entry. */
-const TRAIL_POOL = 96;
+/** Streaks in flight at once, shared by the entry burn and the hull wake. */
+const TRAIL_POOL = 128;
+
+/** The wake starts here and reaches full length here. Below the floor the vehicle is
+ *  station-keeping and a trail would read as a leak rather than as motion. */
+const WAKE_FLOOR = 2.5;
+const WAKE_FULL = 34;
 
 /**
  * Particulate: airborne dust that reads as motion, and low-poly smoke for the engine
@@ -138,7 +152,7 @@ export class Effects {
     scene.add(this.trail);
 
     for (let i = 0; i < TRAIL_POOL; i++) {
-      const s: Streak = { x: 0, y: 0, z: 0, dx: 0, dy: -1, len: 0, age: 0, life: 0, heat: 0 };
+      const s: Streak = { x: 0, y: 0, z: 0, dx: 0, dy: -1, len: 0, age: 0, life: 0, r: 1, g: 1, b: 1 };
       this.streaks.push(s);
       this.trailFree.push(s);
     }
@@ -260,11 +274,67 @@ export class Effects {
       seg.len = 1.5 + Math.random() * 9 * intensity;
       seg.age = 0;
       seg.life = 0.22 + Math.random() * 0.3;
-      seg.heat = 0.5 + Math.random() * 0.5 * intensity;
+      // White at the leading edge, cooling to orange as the ramp falls off.
+      const heat = 0.5 + Math.random() * 0.5 * intensity;
+      seg.r = 1;
+      seg.g = 0.72 + 0.28 * heat;
+      seg.b = 0.42 + 0.5 * heat;
     }
   }
 
   private trailEmit = 0;
+  private wakeEmit = 0;
+
+  /**
+   * Wake off the hull's lower corners — the thin vapour any vehicle drags when it moves.
+   *
+   * Always running, unlike the entry burn. Its job is not spectacle but legibility: at
+   * canyon speeds the vehicle is small against a large backdrop, and a pair of short
+   * streaks off the corners tells the eye which way it is going and roughly how fast
+   * before the numbers on the panel do.
+   *
+   * Pale and dim, so it never competes with the entry burn when both are running — this
+   * is condensation off a cold hull, not compression heating, and the two should not be
+   * mistakable.
+   *
+   * Below a walking pace there is no motion worth drawing and the emitter is silent: a
+   * hovering vehicle trailing vapour reads as a leak.
+   */
+  wakeTrail(dt: number, x: number, y: number, vx: number, vy: number, halfWidth: number): void {
+    const speed = Math.hypot(vx, vy);
+    if (speed < WAKE_FLOOR) return;
+
+    const intensity = clamp01((speed - WAKE_FLOOR) / (WAKE_FULL - WAKE_FLOOR));
+    this.wakeEmit += dt * (10 + intensity * 46);
+
+    const dx = vx / speed;
+    const dy = vy / speed;
+
+    while (this.wakeEmit >= 1) {
+      this.wakeEmit -= 1;
+      const seg = this.trailFree.pop();
+      if (!seg) return;
+
+      // Alternating corners rather than both at once: half the streaks at twice the
+      // interval costs nothing and keeps the two sides from pulsing in lockstep.
+      const side = this.wakeSide = -this.wakeSide;
+      seg.x = x + side * halfWidth * 0.85;
+      seg.y = y - halfWidth * 0.5;
+      seg.z = (Math.random() - 0.5) * 0.8;
+      seg.dx = dx;
+      seg.dy = dy;
+      seg.len = 0.8 + intensity * 4.5;
+      seg.age = 0;
+      seg.life = 0.2 + Math.random() * 0.22;
+      // Cold and faint. Additive, so these numbers are what it adds to the scene.
+      const glow = 0.1 + intensity * 0.24;
+      seg.r = glow * 0.82;
+      seg.g = glow * 0.9;
+      seg.b = glow;
+    }
+  }
+
+  private wakeSide = 1;
 
   /** Impact plume. */
   burst(x: number, y: number): void {
@@ -375,12 +445,14 @@ export class Effects {
 
       // White-hot at the head, cooling to orange down the length — the same gradient a
       // real streak has, and the thing that keeps it from reading as a drawn line.
-      col[j] = fade;
-      col[j + 1] = fade * (0.72 + 0.28 * s.heat);
-      col[j + 2] = fade * (0.42 + 0.5 * s.heat);
-      col[j + 3] = fade * 0.65;
-      col[j + 4] = fade * 0.24;
-      col[j + 5] = fade * 0.06;
+      col[j] = fade * s.r;
+      col[j + 1] = fade * s.g;
+      col[j + 2] = fade * s.b;
+      // Tail at a fraction of the head, so every streak has the same falloff whatever it
+      // is made of — that gradient is what keeps a line from reading as a drawn stroke.
+      col[j + 3] = fade * s.r * 0.34;
+      col[j + 4] = fade * s.g * 0.30;
+      col[j + 5] = fade * s.b * 0.26;
     }
 
     this.trail.geometry.attributes.position.needsUpdate = true;

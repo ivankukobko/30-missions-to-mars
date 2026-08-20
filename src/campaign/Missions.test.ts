@@ -4,6 +4,7 @@ import {
   MISSION_COUNT,
   ENTRY_VELOCITY,
   airframeFor,
+  musicTrackFor,
   cargoShape,
   getMission,
   worldAt,
@@ -458,6 +459,45 @@ describe('airframe assignment', () => {
   });
 });
 
+describe('music track', () => {
+  it('follows the client unless the mission says otherwise', () => {
+    for (const m of MISSIONS) {
+      if (m.musicTrack) continue;
+      expect(musicTrackFor(m)).toBe(m.client);
+    }
+  });
+
+  it('ends the campaign in the key it opened in', () => {
+    // Ixion's theme under Kessler's final contract. The outpost has gone dark by mission
+    // 30 and cuts in anyway, quoting mission 1's opening line verbatim — the music is
+    // what makes that land as a return rather than as a stray transmission.
+    expect(musicTrackFor(getMission(30)!)).toBe(musicTrackFor(getMission(1)!));
+    expect(musicTrackFor(getMission(30)!)).toBe('outpost');
+  });
+
+  it('leaves the thirtieth run Kessler in every respect except the music', () => {
+    // The override is a comment on the contract, not a change to it. If this ever starts
+    // failing, the mission was rewritten and the callback no longer means what it meant.
+    const last = getMission(30)!;
+    expect(last.client).toBe('kessler');
+    expect(airframeFor(last)).toBe('hauler');
+    expect(last.target).toBe('kessler-deep');
+  });
+
+  it('overrides nothing else in the campaign', () => {
+    // Deliberately exact. A second override is a design decision, not a tuning tweak, and
+    // should have to be argued for here before it ships.
+    const overridden = MISSIONS.filter((m) => m.musicTrack).map((m) => m.id);
+    expect(overridden).toEqual([30]);
+  });
+
+  it('names a track that actually has a theme', () => {
+    for (const m of MISSIONS) {
+      expect(CORPS[musicTrackFor(m)]).toBeDefined();
+    }
+  });
+});
+
 describe('pad widths', () => {
   const pads = (): Extract<Prop, { kind: 'pad' }>[] =>
     worldAt(MISSION_COUNT, 0).props.filter(
@@ -502,19 +542,20 @@ describe('excavations', () => {
   });
 
   it('collapses the Kessler shaft records into one deepening bore', () => {
-    // Mission 15 opens it 58 deep, mission 20 drives it to 172. Two records sharing an
-    // x — both anchored to the same real wall via the same formula, not a hand-typed
-    // constant any more (see `TerrainDigs.ts`'s `mount: 'floor'`) — and a shaft built
-    // from both would lay a floor slab across the deep bore.
-    const digs = resolvedWorldAt(20, 0).digs;
+    // Three records: mission 15 opens it 58 deep, 21 drives it to 172, 25 breaks it into
+    // the chasm at 303. All share an x — anchored to the same real wall via the same
+    // formula, not a hand-typed constant any more (see `TerrainDigs.ts`'s `mount: 'floor'`)
+    // — and a shaft built from more than one of them would lay a floor slab across the
+    // deep bore, at the exact height the previous stage's deck used to be.
+    const digs = resolvedWorldAt(25, 0).digs;
     const kesslerX = digs.find((d, i) => digs.some((o, j) => j !== i && Math.abs(o.x - d.x) < 1))?.x;
-    expect(kesslerX, 'expected two dig records sharing an x').toBeDefined();
+    expect(kesslerX, 'expected the shaft records to share an x').toBeDefined();
     const same = digs.filter((d) => Math.abs(d.x - kesslerX!) < 1);
-    expect(same.length).toBeGreaterThan(1);
+    expect(same.map((d) => d.depth)).toEqual([58, 172, 303]);
 
     const merged = mergeDigs(same);
     expect(merged).toHaveLength(1);
-    expect(merged[0].depth).toBe(172);
+    expect(merged[0].depth).toBe(303);
   });
 
   it('keeps distinct bores separate', () => {

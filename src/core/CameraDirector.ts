@@ -157,9 +157,9 @@ export class CameraDirector {
        * slice of what is coming. See the flight framing's note on the same property.
        */
       return {
-        distance: lerp(16, 28, pace),
+        distance: lerp(20, 38, pace),
         offsetY: lerp(2.7, 4.8, pace),
-        pitch: -0.17,
+        pitch: -0.7,
         fov: 50,
         leadX: 0.065,
         leadY: 0.054,

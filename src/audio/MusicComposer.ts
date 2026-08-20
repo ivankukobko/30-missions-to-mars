@@ -1,6 +1,16 @@
 import type { CorpId } from '../world/CanyonSpec.ts';
 import { WobbleBass } from './WobbleBass.ts';
 
+/**
+ * Which theme is playing.
+ *
+ * An alias rather than its own union, deliberately: the themes are per-charter and there
+ * is no second name for them to drift from. It exists so that a mission overriding its
+ * music says *what* it is overriding, and so a track that is not a charter — a finale
+ * cue, a shutdown drone — can be added here without touching the mission schema.
+ */
+export type MusicTrack = CorpId;
+
 /** A triad as semitone offsets from the key's tonic. */
 type Chord = readonly [number, number, number];
 
@@ -35,7 +45,7 @@ interface Theme {
  *   and held for two steps. It is the darkest move available without changing key, and
  *   it is the one that sounds like going down.
  */
-const THEMES: Record<CorpId, Theme> = {
+const THEMES: Record<MusicTrack, Theme> = {
   outpost: { root: 55.0, progression: [I, I, iii, I] }, // A
   helion: { root: 61.74, progression: [I, IV, I, IV] }, // B
   kessler: { root: 46.25, progression: [I, iv, iv, I] }, // F#
@@ -175,7 +185,7 @@ export class MusicComposer {
   private overtoneGain: GainNode | null = null;
   private isPlaying = false;
 
-  private activeCorp: CorpId = 'outpost';
+  private activeTrack: MusicTrack = 'outpost';
   /** Read back only to sound the ident — the figure *is* this number. */
   private missionId = 1;
   private currentChordIdx = 0;
@@ -278,7 +288,7 @@ export class MusicComposer {
     const current = Math.floor(now / BAR_SECONDS);
     if (this.nextBar < current) this.nextBar = current + 1;
 
-    const theme = THEMES[this.activeCorp] ?? THEMES.outpost;
+    const theme = THEMES[this.activeTrack] ?? THEMES.outpost;
     while (this.nextBar * BAR_SECONDS < now + LOOKAHEAD) {
       const at = this.nextBar * BAR_SECONDS;
       const bar = wobbleBar(this.missionId, this.nextBar);
@@ -306,7 +316,7 @@ export class MusicComposer {
   private emitIdent(): void {
     if (!this.ctx || !this.destination || this.isMuted || !this.isPlaying) return;
 
-    const theme = THEMES[this.activeCorp] ?? THEMES.outpost;
+    const theme = THEMES[this.activeTrack] ?? THEMES.outpost;
     const chord = theme.progression[this.currentChordIdx];
     const start = this.ctx.currentTime + 0.4;
 
@@ -356,8 +366,8 @@ export class MusicComposer {
     this.nextBar = -1;
   }
 
-  public setMissionContext(corp: CorpId, missionId: number): void {
-    this.activeCorp = corp;
+  public setMissionContext(track: MusicTrack, missionId: number): void {
+    this.activeTrack = track;
     this.missionId = missionId;
     this.currentChordIdx = 0;
     // Bars for the outgoing mission may already be queued a second ahead. Drop them, or
@@ -388,7 +398,7 @@ export class MusicComposer {
    */
   private applyCurrentChord(): void {
     if (!this.ctx || this.ambientOscs.length < 5) return;
-    const theme = THEMES[this.activeCorp] ?? THEMES.outpost;
+    const theme = THEMES[this.activeTrack] ?? THEMES.outpost;
     const [a, b, c] = theme.progression[this.currentChordIdx];
     const voicing = [a - 12, a, b, c, a + 12];
 

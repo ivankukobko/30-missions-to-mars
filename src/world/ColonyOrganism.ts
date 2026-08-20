@@ -34,6 +34,52 @@ import type { SubstrateField } from './ColonySubstrate.ts';
  *  to draw a walkway. */
 export const LINK = { east: 1, west: 2, up: 4, down: 8 } as const;
 
+/**
+ * What a cell's *surroundings* are, as opposed to what it is joined to — the second thing
+ * the renderer is allowed to vary a structure on.
+ *
+ * A bitmask like `LINK`, and for the same reason: a cell can be several of these at once
+ * (a face onto the approach lane that is also a rival seam), so an enum would force a
+ * priority order nobody has a reason to pick, and picking one wrong is a silent loss of
+ * the other fact rather than an error.
+ *
+ * **Set by `ColonyPlan`, never here and never by the renderer.** Growth decides where a
+ * colony goes and knows nothing about routes beyond `forbidden`; these are read off the
+ * settled cell set and the network it was grown against, in one pass, at the point where
+ * determinism is already guaranteed. That keeps the renderer's own rule intact — it reads
+ * facts the simulation produced, it does not form a second opinion about what a cell is.
+ */
+export const TRAIT = { laneWest: 1, laneEast: 2, laneBehind: 4, grounded: 8 } as const;
+
+/**
+ * Fronting a lane on either side.
+ *
+ * The two sides are separate bits rather than one `routeFront` flag because a lamp that
+ * marks a route has to be mounted on the face the route actually runs past — a light on
+ * the camera-facing side tells a pilot inside the lane nothing, since that face is edge-on
+ * to them. Which side is therefore not decoration, it is the whole content of the fact.
+ *
+ * Both bits at once is legitimate and means a cell with lanes to east and west — a pillar
+ * between two approaches, lit on both flanks.
+ */
+export const LANE = TRAIT.laneWest | TRAIT.laneEast | TRAIT.laneBehind;
+
+/**
+ * `laneBehind` is the cell's *own* column being a lane, which only an outer layer can be:
+ * growth bars the play plane from a channel (`layer === 0 && forbidden(...)`) and bars
+ * nothing else, so the layers front and back build straight through one.
+ *
+ * That makes those cells the wall a pilot is flying *at* while they are in the channel —
+ * the single most valuable surface in the colony for navigation, and until now the only
+ * unlit one. They take a camera-facing panel rather than a flank vane, because "beside the
+ * lane" and "at the end of it" are seen from completely different angles.
+ *
+ * A cell can hold this and a flank bit at once, and gets both fittings, each square to its
+ * own face. No attempt is made to blend the pair into some diagonal compromise: two
+ * fittings that each face the right way read better than one facing neither, and the
+ * diagonal case is rare enough that it would be tuning nobody could see.
+ */
+
 export interface OrganismCell {
   corp: CorpId;
   /** 0-based position in this corp's own build order — see the doc comment above. */
@@ -71,6 +117,8 @@ export interface PlacedCell {
   links: number;
   /** Part of the growing edge: drawn as bare frame, built hull next mission. */
   scaffold: boolean;
+  /** `TRAIT` bitmask — what this cell's surroundings are. */
+  traits: number;
 }
 
 export interface Spore {
@@ -216,6 +264,32 @@ const W_LATERAL = 0.7;
  * fenced — a last resort, not a preference — so it sits barely above `MIN_SCORE`.
  */
 const W_DEPTH = 0.05;
+
+/**
+ * How much more a filament in an outer layer wants rock under it than one in the play plane.
+ *
+ * The play plane is where a charter builds its showpiece — cantilevered, ambitious, and the
+ * thing the player flies past. The layers behind and in front are service: storage, plant,
+ * the mass you bury for shielding, which on Mars is the only reason to build back there at
+ * all. Two different jobs, and until now they were scored identically.
+ *
+ * What that produced is visible from any off-axis camera: `reachOf` lets depth neighbours
+ * brace each other at **no cantilever cost**, so while `MAX_CANTILEVER` holds a run to two
+ * cells in-plane, a run in z is unbounded. A mass can therefore spread arbitrarily deep on
+ * a few thin legs, and it did — a slab of pipework hanging in mid-canyon with the rock
+ * nowhere near it.
+ *
+ * Multiplying `W_SURFACE` by `1 + PER_LAYER * |layer|` is the whole fix: an outer tip pays a
+ * real price for leaving the rock, while layer 0 keeps exactly the freedom it has today.
+ * Nothing else needs saying, because the scaffold rule already reads support — whatever
+ * still reaches into open air is `!grounded` and renders as bare frame on its own.
+ */
+const W_SURFACE_PER_LAYER = 1.1;
+
+/** How far off the play plane a cell is, for the surface weighting above. */
+function layerSurface(layer: number): number {
+  return W_SURFACE * (1 + W_SURFACE_PER_LAYER * Math.abs(layer));
+}
 
 /**
  * How far a run of structure may reach with nothing under it before it needs a leg.
@@ -493,7 +567,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       const footing = substrate.at(col, row, tip.layer) === "surface" || at(col, row - 1, tip.layer)?.corp === tip.corp;
       const adjacentRivals = rivals(tip.corp, col, row, tip.layer);
       const score =
-        W_SURFACE * (footing ? 1 : 0) +
+        layerSurface(tip.layer) * (footing ? 1 : 0) +
         W_ATTRACT * homeward * (here - pull(tip.corp, col, row)) +
         W_LATERAL * (shape[tip.corp]?.lateral ?? 1) * (d.dr === 0 ? 1 : 0) +
         W_STRAIGHT * (d.link === tip.lastDir ? 1 : 0) -
@@ -563,7 +637,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       if (cellReach === null) continue;
       const score =
         W_DEPTH * (shape[tip.corp]?.depth ?? 1) +
-        W_SURFACE * (substrate.at(tip.col, tip.row, layer) === 'surface' ? 1 : 0) -
+        layerSurface(layer) * (substrate.at(tip.col, tip.row, layer) === 'surface' ? 1 : 0) -
         W_HEIGHT * (shape[tip.corp]?.height ?? 1) * (tip.row / lattice.rows) ** 2 +
         W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(tip.col, tip.row, layer), step, 3);
       // Depth never encroaches: the cell in front of or behind your own is your own

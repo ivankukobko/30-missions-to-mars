@@ -118,16 +118,32 @@ export function driftAngle(vx: number, vy: number): number {
 }
 
 /**
- * Below this the direction of travel is noise rather than a reading.
+ * The band of speeds the vector arrow is for.
  *
- * A vehicle at 0.02 u/s has a velocity angle that swings wildly on rounding alone, and
- * an arrow chasing it reads as a fault. Under the threshold the arrow is simply absent.
+ * Below the floor the direction of travel is noise: a vehicle at 0.02 u/s has a velocity
+ * angle that swings wildly on rounding alone, and an arrow chasing it reads as a fault.
+ *
+ * Above the ceiling the *wake* has it covered. The hull drags a pair of streaks from
+ * `WAKE_FLOOR` (2.5) upward, and those say direction and speed in world space, larger and
+ * more legibly than an overlay ever could — so at cruise the arrow is a second answer to a
+ * question already answered.
+ *
+ * What the wake cannot do is the last stretch. It switches off at 2.5, which is exactly
+ * `MAX_LANDING_SPEED`: the whole of a survivable final approach happens below the speed
+ * at which the trail exists. That is the band where "am I drifting, and how much" is the
+ * only question left, and it is the one the arrow now owns — along with the numeric speed
+ * and the reddening past tolerance, neither of which a trail can carry.
+ *
+ * The two overlap between 2.5 and 6 rather than meeting at a point, so neither pops in or
+ * out against an empty screen.
  */
 export const DRIFT_FLOOR = 0.15;
+export const DRIFT_CEILING = 6;
 
-/** Whether the motion is worth drawing a direction for at all. */
+/** Whether the motion is in the band the arrow is responsible for. */
 export function drifting(vx: number, vy: number): boolean {
-  return Math.hypot(vx, vy) >= DRIFT_FLOOR;
+  const speed = Math.hypot(vx, vy);
+  return speed >= DRIFT_FLOOR && speed < DRIFT_CEILING;
 }
 
 /**

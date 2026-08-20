@@ -36,7 +36,9 @@ const colony = (x: number, cols = 1, rows = 1): Prop => {
     for (let r = 0; r < rows; r++) {
       // z=0 throughout: the play plane is the only layer `checkLayout` judges, so a
       // fixture built anywhere else would be invisible to every rule under test.
-      cells.push({ x: x + c * 12, y: r * 12, z: 0, links: 0, scaffold: false });
+      // `links`/`traits` are render-only — `checkLayout` judges footprints, so a fixture
+      // that leaves both empty is exercising every rule under test.
+      cells.push({ x: x + c * 12, y: r * 12, z: 0, links: 0, scaffold: false, traits: 0 });
     }
   }
   return {

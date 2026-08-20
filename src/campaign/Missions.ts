@@ -1,6 +1,7 @@
 import type { Prop } from '../world/Colony.ts';
 import type { CorpId } from '../world/CanyonSpec.ts';
 import type { AirframeId } from '../entities/Airframe.ts';
+import type { MusicTrack } from '../audio/MusicComposer.ts';
 import { resolveLayout } from './Layout.ts';
 import { snapToColumn } from '../world/ColonyLattice.ts';
 import type { DigEntry } from './TerrainDigs.ts';
@@ -66,6 +67,16 @@ export interface Mission {
    * `airframeFor`, which is where the campaign's actual answer lives.
    */
   airframe?: AirframeId;
+  /**
+   * Overrides the theme this run plays. Left unset, it comes from the client — see
+   * `musicTrackFor`.
+   *
+   * Separate from `airframe` on purpose, even though both default off the client. The
+   * vehicle is a fact about the contract and cannot disagree with who signed it; the
+   * music is a comment on it, and the whole reason to name a track explicitly is to let
+   * it say something the client field cannot.
+   */
+  musicTrack?: MusicTrack;
   /** Built at the start of this mission and standing for every mission after. */
   adds?: { props?: Prop[]; digs?: DigEntry[] };
   /**
@@ -139,6 +150,23 @@ export interface BriefCard {
  */
 export function resolveBriefCards(mission: Mission): BriefCard[] {
   return mission.messages.map((m) => ({ title: m.sender, body: m.content.trim() }));
+}
+
+/**
+ * Which theme a run plays: its client's, unless the mission says otherwise.
+ *
+ * Only mission 30 overrides it, and the brief is why. Ixion cuts into Kessler's final
+ * contract with mission 1's opening line, word for word — "We are the only thing at the
+ * bottom of this canyon, and we intend to stay that way" — from an outpost that went dark
+ * two runs earlier. The campaign ends in the key it started in, under a charter that is
+ * not there any more, while the vehicle and the payload stay Kessler's.
+ *
+ * That is the case for the field existing at all. Deriving the theme from the client was
+ * right for twenty-nine missions and had no way to express the thirtieth, because the
+ * thing being said is precisely that the music and the employer have come apart.
+ */
+export function musicTrackFor(mission: Mission): MusicTrack {
+  return mission.musicTrack ?? mission.client;
 }
 
 export function airframeFor(mission: Mission): AirframeId {

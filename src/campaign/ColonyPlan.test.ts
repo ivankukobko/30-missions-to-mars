@@ -3,7 +3,8 @@ import * as THREE from 'three';
 import { MISSIONS } from './Missions.ts';
 import { planColonies, missionWorlds, campaignPadSites } from './ColonyPlan.ts';
 import { CHANNEL_HALF } from './ColonyChannels.ts';
-import { COLONY_CELL_SIZE } from '../world/ColonyLattice.ts';
+import { COLONY_CELL_SIZE, COLONY_LAYER_SPACING } from '../world/ColonyLattice.ts';
+import { LANE, TRAIT } from '../world/ColonyOrganism.ts';
 import { checkLayout } from './Layout.ts';
 import { CanyonGenerator } from '../world/CanyonGenerator.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
@@ -103,6 +104,77 @@ describe('growth against real terrain', () => {
     const b = plan(22, 12345).colonies;
 
     expect(a).toEqual(b);
+  });
+
+  /**
+   * The renderer's standing rule is that it reads facts the simulation produced and never
+   * forms a second opinion (`ColonyRender.ts`'s header). `TRAIT` is the newest thing it
+   * reads, so this pins the fact itself: the flag is exactly "a neighbour of this cell is
+   * airspace the player uses", not an approximation of it that happens to look right.
+   *
+   * Both directions matter. A flag set where there is no lane draws lamps into open rock;
+   * a lane left unflagged is the failure that hides, because the colony still looks fine
+   * — it just quietly stops lighting the approaches the feature exists to light.
+   */
+  it('flags exactly the cells with a face onto a lane, on the correct side', () => {
+    for (const seed of SEEDS) {
+      const { colonies, lattice, network } = plan(30, seed);
+      let flagged = 0;
+      let total = 0;
+      for (const colony of colonies) {
+        for (const cell of colony.cells) {
+          const col = lattice.colAt(cell.x);
+          const row = lattice.rowAt(cell.y);
+          const where = `seed ${seed} ${colony.corp} cell (${col}, ${row})`;
+          /**
+           * Each side checked separately, not merely "is it flagged at all".
+           *
+           * The side is the whole content of this trait — the renderer hangs the lamp on
+           * that flank, so a west lane recorded as an east one puts the light on the wall
+           * facing away from the channel it exists to mark. That failure is invisible in
+           * any aggregate: the colony is still lit, still lit in the right places, and only
+           * wrong when you fly the lane and find the far side glowing.
+           */
+          // Exactly the four cells sharing a face with a lane, in plan — see `ColonyPlan`.
+          // Flanks in the play plane, behind in the layer immediately front or back, and
+          // nothing on a diagonal.
+          const layer = Math.round(cell.z / COLONY_LAYER_SPACING);
+          const inPlane = layer === 0;
+          const adjacent = Math.abs(layer) === 1;
+          expect((cell.traits & TRAIT.laneWest) !== 0, `${where} west`).toBe(
+            inPlane && network.onLane(col - 1, row),
+          );
+          expect((cell.traits & TRAIT.laneEast) !== 0, `${where} east`).toBe(
+            inPlane && network.onLane(col + 1, row),
+          );
+          expect((cell.traits & TRAIT.laneBehind) !== 0, `${where} behind`).toBe(
+            adjacent && network.onLane(col, row),
+          );
+          /**
+           * And the invariant that makes `laneBehind` meaningful: the play plane can never
+           * hold one, because growth bars layer 0 from a channel. If this ever fires, a
+           * colony has grown into a flight lane — a far larger problem than a misplaced lamp.
+           */
+          if (cell.z === 0) expect(cell.traits & TRAIT.laneBehind, `${where} in-plane`).toBe(0);
+          total++;
+          if (cell.traits & LANE) flagged++;
+        }
+      }
+      /**
+       * A band, not a floor.
+       *
+       * The floor is the obvious half — no frontage at all means the renderer is branching
+       * on dead weight. The ceiling is the half that was actually needed: the first version
+       * of this predicate tested `blocked` on all four neighbours and flagged 42–52% of
+       * every colony, 87% of Ixion's, and *passed a floor-only assertion happily*. A trait
+       * that is true of most cells is not a trait, and nothing in the suite noticed. Half
+       * is a generous bound — the real figures are 29–32% — chosen to catch degeneracy
+       * rather than to pin the growth model, which is free to move within it.
+       */
+      const share = flagged / total;
+      expect(share, `seed ${seed}: ${flagged}/${total} cells flagged`).toBeGreaterThan(0.05);
+      expect(share, `seed ${seed}: ${flagged}/${total} cells flagged`).toBeLessThan(0.5);
+    }
   });
 
   it('roots each corp on its own side of the canyon', () => {

@@ -1,11 +1,16 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { CORPS, type CorpId } from './CanyonSpec.ts';
-import { LINK, type PlacedCell } from './ColonyOrganism.ts';
-import { COLONY_LAYER_SPACING, type Lattice } from './ColonyLattice.ts';
+import { LINK, TRAIT, type PlacedCell } from './ColonyOrganism.ts';
+import {
+  COLONY_LAYER_GAP,
+  COLONY_LAYER_SPACING,
+  COLONY_VESSEL_RADIUS,
+  type Lattice,
+} from './ColonyLattice.ts';
 import type { SubstrateField } from './ColonySubstrate.ts';
 import type { ChannelNetwork } from '../campaign/ColonyChannels.ts';
-import { fadeNearLander } from './LanderFade.ts';
+import { patchDepth } from './LanderFade.ts';
 
 /**
  * Draws a grown colony.
@@ -13,64 +18,110 @@ import { fadeNearLander } from './LanderFade.ts';
  * Every choice here is read off something the simulation already produced — no new noise
  * field, no second opinion about what a cell is:
  *
- *   - **What a cell links to** decides its shape. One link is an end pod, two in line a
- *     can, two at a corner an elbow, three or more a hub drawn larger. The link set is
- *     real growth history (which neighbour this cell actually grew from or fused with),
- *     so the massing reads as something that spread outward from one point rather than a
- *     field of boxes that happen to touch.
- *   - **How new a cell is** decides whether it is built or bare frame. A cell on the
- *     colony's growing edge renders as scaffold, and is a hull module next mission — the
- *     one piece of campaign progression the player can verify by eye rather than take on
- *     trust.
+ *   - **What a cell links to** decides what it is *part of*. `colonyRuns` merges joined,
+ *     supported, built cells into one pressure vessel — vertical first, so the silhouette
+ *     is standing pipework rather than sprawl. The link set is real growth history (which
+ *     neighbour a cell actually grew from or fused with), so a vessel is a thing that
+ *     genuinely grew as one piece rather than boxes that happen to touch.
+ *   - **Whether it is supported** decides built or bare. A cell with rock or its own
+ *     structure beneath it is a sealed vessel; one thrown out over open air is an unclad
+ *     frame, and becomes a vessel on the mission a floor appears under it. That is the one
+ *     piece of campaign progression the player can verify by eye rather than take on trust.
+ *   - **What is beside it** decides its fittings — `TRAIT`, set in `ColonyPlan`. A lane to
+ *     east or west hangs beacons on that flank; everything else carries only its corp mark.
  *
- * Merged down to three meshes per corp. A mature canyon carries a few hundred cells,
- * each several boxes, and one draw call per box would cost more than the whole terrain.
+ * Merged down to a handful of meshes per corp — hull, frame, walkway, beacon, mark, once
+ * per transparency class. A mature canyon carries a few hundred cells, each several pieces,
+ * and one draw call apiece would cost more than the whole terrain.
  */
-
-/** Members of a scaffold cell's frame, as a fraction of the cell. Thin enough to read as
- *  open structure at flight distance, thick enough to survive the fog. */
-const MEMBER = 0.055;
-
-/** How much of its cell a built module fills, by how connected it is. Always short of
- *  the full bound — the same "a shape reads smaller than the bound it shares" convention
- *  used everywhere else in this codebase, and the margin is where the walkways land. */
-function moduleScale(links: number): number {
-  const degree = [LINK.east, LINK.west, LINK.up, LINK.down].filter((l) => (links & l) !== 0).length;
-  if (degree >= 3) return 0.78; // a hub: several ways in, so it is the big room
-  if (degree === 2) return 0.66;
-  return 0.54; // an end pod
-}
 
 /**
- * How much deeper than wide a module is, and the reason the colony stopped reading as
- * tile-work.
+ * Members of a scaffold cell's frame, as a fraction of the cell. Thin enough to read as
+ * open structure at flight distance, thick enough to survive the fog.
  *
- * Modules used to be cubes: `moduleScale` gives 0.54–0.78 of a cell in x and y, and the
- * depth was `min(s, DEPTH.colony)` — a clamp at 15 that a 9-unit module never reached. So
- * every room was as deep as it was wide, the camera saw essentially one face of each, and
- * a settlement six cells across came out as flat as the wall behind it. A player has to be
- * able to tell the maze from the backdrop at a glance, and at flight distance the only
- * cues that survive the fog are silhouette and the different angle a *side* face catches
- * the light at. A cube seen head-on has neither.
- *
- * Elongating along z gives both.
- *
- * **A layer's modules must never reach into the next layer's**, which is why the cap is
- * derived from `COLONY_LAYER_SPACING` rather than written down beside it. Two constants
- * that have to agree, agreeing by coincidence, is how a later change to either one quietly
- * fuses the three layers into a slab — and the failure is not obvious, it just looks
- * slightly wrong. `LAYER_GAP` is the clear air left between them, which is what the
- * depth-dimming and the fog need somewhere to land.
+ * Taken down about a third from 0.055, for the same reason the vessels lost a third of their
+ * section: heavy members read as though structural steel were plentiful. At this weight a
+ * frame reads as wire — which is what a charter would actually fly up here, and which lets
+ * the corp nodes at its corners carry the eye instead of the members.
  */
-const MODULE_STRETCH = 1.6;
-const LAYER_GAP = 5;
+const MEMBER = 0.038;
 
+/**
+ * `moduleScale` used to live here: 0.54 of a cell for an end pod, 0.66 for a can, 0.78 for
+ * a hub, so a module's size announced how connected it was.
+ *
+ * Gone, and the reason is worth keeping. It meant two *joined* modules were routinely
+ * different widths, and the stepped, mismatched edge that produced was the single strongest
+ * favela signal in the whole colony — an accretion of salvaged boxes rather than a built
+ * settlement. Connectivity is still read, by `colonyRuns`, but it now decides *what merges
+ * into one vessel* rather than how fat each cell is. One hull spec per charter is both more
+ * plausible and what lets a merged run read as a single pipe.
+ */
+
+/**
+ * How deep a vessel is: **as deep as it is wide.**
+ *
+ * Modules were stretched along z for a long time — up to 2.4× their own width — because
+ * they were boxes, and a cube seen head-on gives the camera neither a silhouette nor a side
+ * face catching light at a different angle, so a settlement six cells across came out as
+ * flat as the wall behind it. Elongating fixed that at the cost of turning every module into
+ * a tube pointed at the lens.
+ *
+ * A cylinder does not need the trick. Its section is round, so *every* view of it has a
+ * curved edge and a lit side; the depth cue is in the shape rather than in the proportions.
+ * Circular also means the vessel is honest about what it is — a pressure hull with one
+ * radius — and it is what lets the layers sit close together, since there is nothing to
+ * hold apart but the vessels themselves.
+ *
+ * The clamp stays as the guarantee it always was: **a layer's vessels must never reach into
+ * the next layer's**, and it is derived from the spacing rather than written down beside it.
+ * With the spacing now derived from the same diameter, the two cannot drift apart at all —
+ * see `COLONY_LAYER_SPACING`.
+ */
 function moduleDepth(size: number, limit: number): number {
-  return Math.min(size * MODULE_STRETCH, COLONY_LAYER_SPACING - LAYER_GAP, limit);
+  return Math.min(size, COLONY_LAYER_SPACING - COLONY_LAYER_GAP, limit);
 }
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
   const geo = new THREE.BoxGeometry(w, h, d);
+  geo.translate(x, y, z);
+  return geo;
+}
+
+
+/**
+ * A pressure vessel, which is what a module on Mars actually is.
+ *
+ * Boxes were the favela signal. A habitat holds atmosphere against near-vacuum, and pressure
+ * vessels are round for a reason nobody gets to design around — so a cylinder reads as
+ * engineered where a cube reads as improvised, before any detail is added. Merged along its
+ * own run it becomes one continuous pipe rather than a stack of cans, which is the industrial
+ * silhouette the references are built out of.
+ *
+ * **Eight sides, not smooth.** The game is hard-faceted throughout — `flatShading`,
+ * fixed-segment lathe hulls, lattice bracing — and a smooth cylinder would be the one
+ * rounded thing in the canyon. Eight facets at flight distance reads as a cylinder and as
+ * part of the same object vocabulary.
+ *
+ * The section is scaled to `depth`, which is now the diameter — so it is a true circle, and
+ * the `scale` call is a no-op the clamp is free to change its mind about. It was elliptical
+ * while the colony still needed the z-elongation a box demanded; see `moduleDepth`.
+ */
+const PIPE_SIDES = 8;
+
+function pipe(
+  radius: number,
+  length: number,
+  depth: number,
+  axis: 'x' | 'y',
+  x: number,
+  y: number,
+  z: number,
+): THREE.BufferGeometry {
+  const geo = new THREE.CylinderGeometry(radius, radius, length, PIPE_SIDES);
+  // `CylinderGeometry` stands on y; a lying pipe is the same vessel turned a quarter turn.
+  if (axis === 'x') geo.rotateZ(Math.PI / 2);
+  geo.scale(1, 1, depth / (radius * 2));
   geo.translate(x, y, z);
   return geo;
 }
@@ -126,6 +177,171 @@ function frameMembers(cell: PlacedCell, size: number, z: number): THREE.BufferGe
  */
 const LAYER_DIM = 0.34;
 
+/**
+ * Thickness of every emissive fitting, as a fraction of the face it is mounted on.
+ *
+ * **Emissive only, no `PointLight`.** `Shaft.buildLights` records why: real lamps were the
+ * frame's bottleneck at thirteen, and a mature canyon carries these on hundreds of cells. An
+ * emissive strip contributes nothing to the light budget and, per that same comment, is what
+ * actually survives the fog at flight distance — the strips down a bore are legible long
+ * before anything they fail to illuminate is.
+ *
+ * Corp colour rather than a lamp white, matching the walkways: the useful thing to read at a
+ * glance is not that the lane is lit but *whose* frontage is lighting it, which is the one
+ * piece of territory information the massing alone cannot carry.
+ *
+ * Thin, and it has been thinned twice. Fittings this small are read as *lines* — an outline
+ * traced on a shape — and a line stays a line at any distance, where a lit panel just becomes
+ * a bright blob and every module ends up wearing one.
+ */
+const LAMP_THICK = 0.09;
+
+/**
+ * The corp colour as a *light* rather than as paint.
+ *
+ * Emissive fed straight from `theme.color` came out pale, and the cause is the renderer's
+ * ACES filmic tone mapping (`Game.ts`): it lifts highlights and **desaturates as it lifts**,
+ * which is what makes film highlights believable and what turns a cyan lamp white. The
+ * corp colours are also already light — Kessler's is a pale cyan — so they start most of the
+ * way to the top of the curve before the lamp's own intensity is applied.
+ *
+ * Both halves are corrected here. Saturation goes to full, and lightness is pulled *down*,
+ * which reads backwards until you remember the intensity multiplier comes afterwards: a
+ * darker, fully saturated base has room to be lifted and still arrive with its hue intact,
+ * where a pale base simply clips. The colour going in has to be more saturated than the
+ * colour wanted out.
+ */
+function neon(hex: number, lightness: number): THREE.Color {
+  const c = new THREE.Color(hex);
+  const hsl = { h: 0, s: 0, l: 0 };
+  c.getHSL(hsl);
+  return c.setHSL(hsl.h, 1, Math.min(hsl.l, lightness));
+}
+
+
+
+/**
+ * The longest run of cells drawn as one building.
+ *
+ * Four rather than unbounded because the point is a *vocabulary* — pods, cans, hubs and now
+ * halls — not "the wider the better". A run of nine merged into one box stops reading as a
+ * structure with parts and starts reading as the bounding volume of one, which is the exact
+ * quality the per-cell massing was built to avoid. Four is also where the roof collar still
+ * looks like a fitting rather than a stripe.
+ */
+const MAX_RUN = 4;
+
+/**
+ * Contiguous horizontal runs that render as a single building.
+ *
+ * **A render decision over a settled cell set, not a growth decision.** Nothing here claims
+ * ground, so budget, `reachOf`, the cantilever limit and the route-demolition rule are all
+ * untouched, and — the part that makes it safe — the merged hull sits inside the union of
+ * the full-cell colliders those cells already carry (`Colony.buildColonyStructure`), whose
+ * standing rule is that what you see may be leaner than what stops you but never fatter.
+ * Growth places one cell at a time, as it always did.
+ *
+ * It also means demolition needs no special case: a channel cut through the middle of a
+ * three-cell hall arrives *before* this runs, so what is left is two shorter buildings.
+ * The lane reads as having been cut through the block, which is what happened.
+ *
+ * Gated on `TRAIT.grounded` and on built hulls. A cantilevered hall reads as a mistake at
+ * any width, and merging scaffold would erase the one piece of campaign progression the
+ * player can verify by eye.
+ *
+ * **Ordered by row then column, never by the order cells arrive**, because the greedy scan
+ * below is only deterministic if its input is. `ColonyPlan` happens to sort by x first
+ * today; depending on that would make this correct by coincidence, and a colony that merged
+ * differently on a retry is the same unfairness a shifting demolition would be.
+ */
+export interface ColonyBuilding {
+  cells: PlacedCell[];
+  /** The run's own direction — `'y'` for a standing pipe, `'x'` for a lying one. A single
+   *  cell is reported as `'y'`, so an unmerged colony is still a field of standing sections
+   *  rather than a special case the renderer has to carry. */
+  axis: 'x' | 'y';
+}
+
+const AXES = {
+  y: { across: (c: PlacedCell) => c.x, along: (c: PlacedCell) => c.y, ahead: LINK.up, behind: LINK.down },
+  x: { across: (c: PlacedCell) => c.y, along: (c: PlacedCell) => c.x, ahead: LINK.east, behind: LINK.west },
+} as const;
+
+function mergeable(c: PlacedCell): boolean {
+  return !c.scaffold && (c.traits & TRAIT.grounded) !== 0;
+}
+
+/** Greedy runs along one axis, over a canonically sorted input. Both axes share this so
+ *  neither can drift from the other in what counts as joined. */
+function runsAlong(cells: PlacedCell[], cellSize: number, axis: 'x' | 'y'): PlacedCell[][] {
+  const a = AXES[axis];
+  const sorted = [...cells].sort((p, q) => a.across(p) - a.across(q) || a.along(p) - a.along(q));
+  const runs: PlacedCell[][] = [];
+  let run: PlacedCell[] = [];
+  for (const cell of sorted) {
+    const prev = run[run.length - 1];
+    // Half a cell of tolerance on both axes: these are lattice-derived world coordinates,
+    // so the comparison is really "same line, next station" and an exact float equality
+    // would be asking arithmetic to round the way this expression hopes it does.
+    const joins =
+      prev !== undefined &&
+      run.length < MAX_RUN &&
+      mergeable(prev) &&
+      mergeable(cell) &&
+      Math.abs(a.across(cell) - a.across(prev)) < cellSize * 0.5 &&
+      Math.abs(a.along(cell) - a.along(prev) - cellSize) < cellSize * 0.5 &&
+      // Adjacent is not enough — they have to be *joined*. Two cells that grew from
+      // different filaments and happen to touch are two buildings that share a wall, and
+      // the link mask is the only record of which of those two things happened.
+      (prev.links & a.ahead) !== 0 &&
+      (cell.links & a.behind) !== 0;
+    if (joins) {
+      run.push(cell);
+    } else {
+      if (run.length > 0) runs.push(run);
+      run = [cell];
+    }
+  }
+  if (run.length > 0) runs.push(run);
+  return runs;
+}
+
+/**
+ * **Vertical first, then horizontal over what is left.**
+ *
+ * Two axes means a cell could belong to either — a 2×2 block is two standing pipes or two
+ * lying ones, and something has to choose or the same cell ends up drawn twice. A fixed
+ * priority is the cheapest resolution that keeps the partition exact, and vertical wins
+ * because that is the silhouette this colony is short of: a settlement of horizontal runs
+ * reads as sprawl, and standing pipes give the tall industrial masses the whole look is
+ * aiming at. Horizontal runs still form wherever a row had no vertical claim on it, which
+ * is what keeps the massing from becoming a comb.
+ */
+export function colonyRuns(cells: PlacedCell[], cellSize: number): ColonyBuilding[] {
+  const claimed = new Set<PlacedCell>();
+  const out: ColonyBuilding[] = [];
+
+  for (const axis of ['y', 'x'] as const) {
+    const free = cells.filter((c) => !claimed.has(c));
+    for (const run of runsAlong(free, cellSize, axis)) {
+      // Singles are left for the next pass — a cell alone on this axis may still be part
+      // of a run on the other, and claiming it here would forbid that.
+      if (run.length < 2) continue;
+      out.push({ cells: run, axis });
+      for (const c of run) claimed.add(c);
+    }
+  }
+  for (const cell of cells) if (!claimed.has(cell)) out.push({ cells: [cell], axis: 'y' });
+
+  // Canonical output order, so the geometry is emitted identically on a replay regardless
+  // of which pass happened to find each building.
+  out.sort(
+    (p, q) =>
+      p.cells[0].y - q.cells[0].y || p.cells[0].x - q.cells[0].x || p.axis.charCodeAt(0) - q.axis.charCodeAt(0),
+  );
+  return out;
+}
+
 export function buildColonyCells(
   scene: THREE.Scene,
   corp: CorpId,
@@ -138,76 +354,269 @@ export function buildColonyCells(
   const objects: THREE.Object3D[] = [];
 
   /**
-   * One merged mesh set **per layer**, not one for the whole colony.
+   * One merged mesh set **per transparency class**, not per layer.
    *
-   * Three times the meshes — nine per corp rather than three — and worth it twice over: a
-   * layer needs its own material to be dimmed or faded at all, and the front layer needs
-   * to be transparent independently of the two behind it. Still merged within a layer, so
-   * a few hundred cells stay a handful of draw calls rather than a few thousand.
+   * It used to be per layer, for one reason: `LAYER_DIM` was a multiply on each material's
+   * `color`, so a layer needed its own material to be dimmed at all. That is now a fragment
+   * multiply keyed off world z (`patchDepth`), which removes the only thing that forced the
+   * split — and with it the rule that no piece of geometry may span two layers, which is
+   * what a depth merge will need.
+   *
+   * What survives is a genuine two-way split the player can feel. Everything in front of the
+   * play plane must be `transparent` with `depthWrite: false` so it can thin around the
+   * vehicle; the play plane itself must write depth. So: near and solid, and the boundary
+   * between them is a gameplay requirement rather than a rendering convenience.
+   *
+   * Shadows follow the class. The back layer now casts along with the play plane, which was
+   * previously avoided on the grounds that a shadow from a layer the player cannot see has
+   * nothing above it to explain it — accepted deliberately, because keeping it would have
+   * meant a third class and put layers -1 and 0 back in separate meshes, defeating the
+   * change.
    */
-  const layers = new Map<number, PlacedCell[]>();
-  for (const cell of cells) {
-    const list = layers.get(cell.z) ?? [];
-    list.push(cell);
-    layers.set(cell.z, list);
-  }
+  const near: PlacedCell[] = [];
+  const solid: PlacedCell[] = [];
+  for (const cell of cells) (cell.z > 0 ? near : solid).push(cell);
 
-  for (const [layerZ, layerCells] of [...layers].sort((a, b) => a[0] - b[0])) {
-    const front = layerZ > 0;
-    /**
-     * How far *behind* the play plane this layer sits, in layers. Zero for the play plane
-     * and for anything in front of it — see `LAYER_DIM`. Measured in layers rather than
-     * cell-widths because the spacing is two cells, and dividing by the cell size would
-     * make the back layer twice as dim as intended.
-     */
-    const behind = Math.max(0, -layerZ) / COLONY_LAYER_SPACING;
+  for (const [isNear, classCells] of [
+    [false, solid],
+    [true, near],
+  ] as const) {
+    if (classCells.length === 0) continue;
     const hulls: THREE.BufferGeometry[] = [];
     const frames: THREE.BufferGeometry[] = [];
     const walks: THREE.BufferGeometry[] = [];
-    const at = z + layerZ;
+    const beacons: THREE.BufferGeometry[] = [];
+    const marks: THREE.BufferGeometry[] = [];
 
-    for (const cell of layerCells) {
-      if (cell.scaffold) {
-        frames.push(...frameMembers(cell, cellSize, at));
-      } else {
-        const s = moduleScale(cell.links) * cellSize;
-        const deep = moduleDepth(s, depth);
-        hulls.push(box(s, s, deep, cell.x, cell.y, at));
-        // A collar on the roof so a module isn't a bare cube — cheap, and it is what makes
-        // a run of cans read as pressurised hardware rather than massing. Its own depth
-        // follows the module's, or it reads as a fin stuck on the front of a long can.
-        hulls.push(box(s * 0.42, s * 0.18, deep * 0.42, cell.x, cell.y + s * 0.56, at));
-      }
-
-      // Walkways, drawn once per edge: only the +x and +y halves of each link pair. Links
-      // are within a layer by construction (`LINK` has no depth members), so a walkway
-      // never spans front to back — there is nothing to draw there that would read.
-      const t = cellSize * 0.16;
-      if (cell.links & LINK.east) walks.push(box(cellSize, t, t, cell.x + cellSize / 2, cell.y, at));
-      if (cell.links & LINK.up) walks.push(box(t, cellSize, t, cell.x, cell.y + cellSize / 2, at));
+    // Runs are still found one layer at a time — merging *across* layers is a separate
+    // change, and this one only removes the batching that would have blocked it.
+    const layers = new Map<number, PlacedCell[]>();
+    for (const cell of classCells) {
+      const list = layers.get(cell.z) ?? [];
+      list.push(cell);
+      layers.set(cell.z, list);
     }
 
-    const shade = (hex: number): THREE.Color => new THREE.Color(hex).multiplyScalar(1 - LAYER_DIM * behind);
+    for (const [layerZ, layerCells] of [...layers].sort((a, b) => a[0] - b[0])) {
+      const at = z + layerZ;
+
+      for (const building of colonyRuns(layerCells, cellSize)) {
+        const run = building.cells;
+        const span = run.length;
+        const first = run[0];
+        const last = run[span - 1];
+        const vertical = building.axis === 'y';
+        /**
+         * One radius for every vessel, and a *full* cell of length per section.
+         *
+         * `moduleScale` used to set this per cell — 0.54 for an end pod, 0.78 for a hub — so
+         * two joined modules were visibly different widths and the whole mass came out
+         * stepped and ragged. That mismatch was the strongest favela signal we produced.
+         * A charter running one pressure hull spec is both more plausible and what makes a
+         * merged run read as one pipe instead of a stack of tins.
+         *
+         * The section is `cellSize` long rather than inset, so consecutive sections meet.
+         * Poking a little into rock where a pipe meets the canyon wall is fine and reads as
+         * a vessel set into the cliff, which is what a real habitat would do for shielding.
+         */
+        const radius = cellSize * COLONY_VESSEL_RADIUS;
+        const deep = moduleDepth(radius * 2, depth);
+        const faceZ = deep / 2;
+        const face = radius * 2;
+        const length = span * cellSize;
+        // The building's own extent across the flank the lane lamps hang on: its diameter
+        // when it stands, its full length when it lies.
+        const width = vertical ? face : length;
+        const cx = (first.x + last.x) / 2;
+        const cy = (first.y + last.y) / 2;
+        const bare = span === 1 && first.scaffold;
+        if (bare) {
+          frames.push(...frameMembers(first, cellSize, at));
+          /**
+           * Corp lights at the frame's eight corners.
+           *
+           * A bare lattice has no surface to carry a fitting, so it used to say nothing about
+           * whose it was — and scaffolding is exactly the state the campaign wants read at a
+           * glance, since it is the visible half of "this charter is still expanding". Corners
+           * rather than members: they mark the cell's own corners, so a cluster of scaffold
+           * reads as a lit wireframe of the volume being claimed.
+           */
+          const h = cellSize * 0.86;
+          const node = h * 0.13;
+          for (const sx of [-1, 1]) {
+            for (const sy of [-1, 1]) {
+              for (const sz of [-1, 1]) {
+                marks.push(box(node, node, node, first.x + (sx * h) / 2, first.y + (sy * h) / 2, at + (sz * h) / 2));
+              }
+            }
+          }
+        } else {
+          hulls.push(pipe(radius, length, deep, building.axis, cx, cy, at));
+          /**
+           * A flange at each end of the run rather than a collar on its roof.
+           *
+           * The collar was a fitting for a box. A pipe's own vocabulary is the joint: a
+           * slightly proud ring where one section is bolted to the next, which also hides the
+           * seam where a run meets whatever it butts against. Drawn at the run's two ends
+           * only — one per section would be a screw thread, not a building.
+           */
+          const ring = cellSize * 0.09;
+          for (const end of [-1, 1]) {
+            const ex = vertical ? cx : cx + (end * length) / 2;
+            const ey = vertical ? cy + (end * length) / 2 : cy;
+            hulls.push(pipe(radius * 1.14, ring, deep * 1.14, building.axis, ex, ey, at));
+          }
+        }
+
+        for (let i = 0; i < span; i++) {
+          const cell = run[i];
+          /**
+           * Fitting size off the **cell**, not off the vessel it is bolted to.
+           *
+           * A lamp is a lamp: its size is what a charter ships, not a fraction of whatever
+           * pipe it ends up on. Deriving it from `face` meant the fittings shrank twice over
+           * when the vessels were thinned — from 1.08 units to 0.69 — which is most of why
+           * the lane markings went dim. Under ACES tone mapping a bright small fitting just
+           * clips to white and stops getting brighter, so lit *area* is the lever that
+           * actually works, and this is where the area went.
+           */
+          const t = cellSize * LAMP_THICK;
+
+          /**
+           * The house fitting, on every room rather than only the ones beside a lane: one lit
+           * port, camera-facing.
+           *
+           * A horizontal band used to sit below it. Both together were too much — a canyon of
+           * modules each carrying two lit elements on the face you always see reads as noise,
+           * and the lane marking drowned in it. The port alone is enough to say "pressurised
+           * and occupied", and everything the *edges* now carry reads against a quiet face.
+           *
+           * Only hulls: a frame has no wall to hang a port on, and the open lattice is the
+           * whole point of drawing it.
+           */
+          if (!bare) {
+            marks.push(box(face * 0.3, face * 0.22, t * 0.7, cell.x, cell.y, at + faceZ * 0.92));
+          }
+
+          /**
+           * The wall at the end of the channel.
+           *
+           * This cell's own column *is* a lane, which only an outer layer can be — growth
+           * bars the play plane from a channel and bars nothing else. So a pilot inside that
+           * channel is flying straight at this face, which makes it the single most useful
+           * surface in the colony for navigation and, until now, the only unlit one.
+           *
+           * Square to the camera, generous, and in the bright bucket: it tells you where the
+           * corridor *goes*, where a flank vane only tells you that you are beside one.
+           * Deliberately no yaw and no diagonal blending when a flank bit is also set — two
+           * fittings each square to their own face read better than one facing neither.
+           */
+          if (cell.traits & TRAIT.laneBehind) {
+            // The *same* pair of stripes the flanks carry, turned onto the camera-facing
+            // face — same thickness, same length, same offset from centre. It was a single
+            // large panel, which made a lane read as two different fittings depending on
+            // which side of it you were: one alphabet for beside, another for ahead. One
+            // marking that simply appears on whichever face the lane is on is both easier
+            // to learn and honest about being the same thing.
+            const half = bare ? cellSize * 0.86 * 0.46 : radius * 0.62;
+            const along = bare ? cellSize * 0.86 * 0.5 : deep * 0.7;
+            for (const sy of [-1, 1]) {
+              beacons.push(box(along, t, t, cell.x, cell.y + sy * half, at + faceZ + t / 2));
+            }
+          }
+
+          /**
+           * The lane marking, **on the flank the lane actually runs past**.
+           *
+           * A lamp on the camera-facing side is edge-on to a pilot inside the channel, which
+           * is the one place it needs to be legible from — so marking a route with front-face
+           * fittings tells you a route exists only once you are already looking at the colony
+           * side-on. Mounted on the flank instead, the lit face is square to the lane and the
+           * approach reads as a lit corridor from inside it. This is also why `TRAIT` carries
+           * `laneWest`/`laneEast` rather than one flag: the side *is* the fact.
+           *
+           * **Two stripes along the flank's top and bottom edges**, running in z so they
+           * present their length to something travelling down the channel. Edges rather than
+           * one bar across the middle of the face: a pilot in a narrow lane sees the building
+           * mostly foreshortened, and what survives that is the outline — so lighting the
+           * outline draws the shape of the gap they are flying through, which is the thing
+           * actually being navigated. A bar in the middle of a face lights a wall.
+           *
+           * Hung off `width`, the building's own outer face, so a hall's stripes land on the
+           * hall's end rather than on the end cell's narrower one. An interior cell of a hall
+           * can never be flagged, since its neighbour is occupied and an occupied cell is not
+           * a lane.
+           *
+           * All of it lands in the same merged bucket, so richer frontage costs geometry —
+           * which merges for free — and not another material. That trade is the only reason
+           * any of this can afford to be more than one box.
+           */
+          for (const [bit, sx] of [
+            [TRAIT.laneWest, -1],
+            [TRAIT.laneEast, 1],
+          ] as const) {
+            if ((cell.traits & bit) === 0) continue;
+            const h = cellSize * 0.86;
+            // The frame's own leg spacing where there is a frame, the vessel's own flank
+            // where there is a hull — either way the strip sits *on* the structure. A lying
+            // pipe is flanked along its whole length, a standing one only at its diameter,
+            // which is why this reads `width` rather than assuming one of the two.
+            const edgeX = bare ? cell.x + (sx * h) / 2 : cx + sx * (width / 2) * 0.94;
+            const half = bare ? h * 0.46 : radius * 0.62;
+            const along = bare ? h * 0.5 : deep * 0.7;
+            for (const sy of [-1, 1]) {
+              beacons.push(box(t, t, along, edgeX, cell.y + sy * half, at));
+            }
+          }
+
+          // Walkways, drawn once per edge: only the +x and +y halves of each link pair. Links
+          // are within a layer by construction (`LINK` has no depth members), so a walkway
+          // never spans front to back — there is nothing to draw there that would read.
+          //
+          // An east walkway is skipped for every member but the last, because that link is
+          // now *inside* a hull — geometry the merge made invisible, and the merged mesh is
+          // where invisible geometry stops being free.
+          const wt = cellSize * 0.16;
+          if (cell.links & LINK.east && i === span - 1) {
+            walks.push(box(cellSize, wt, wt, cell.x + cellSize / 2, cell.y, at));
+          }
+          if (cell.links & LINK.up) walks.push(box(wt, cellSize, wt, cell.x, cell.y + cellSize / 2, at));
+        }
+      }
+    }
+
     // `transparent` has to be set at construction even though the material is opaque
     // almost everywhere: three.js decides the render queue from it, and flipping it later
     // forces a shader recompile mid-flight.
-    const fade = front ? { transparent: true, depthWrite: false } : {};
+    const fade = isNear ? { transparent: true, depthWrite: false } : {};
 
     const add = (parts: THREE.BufferGeometry[], material: THREE.MeshStandardMaterial): void => {
       if (parts.length === 0) return;
       const merged = mergeGeometries(parts, false);
       for (const part of parts) part.dispose();
       if (!merged) return;
-      // Fades around the vehicle so it can never hide it — see `LanderFade`. Every cell
-      // in this layer sits in front of the play plane, so the depth gate is a formality.
-      if (front) fadeNearLander(material, 0);
+      /**
+       * Depth handled entirely in the shader now — see `patchDepth`.
+       *
+       * The near class also thins around the vehicle so it can never hide it; every cell in
+       * it sits in front of the play plane, so that gate is a formality. Both classes dim
+       * with depth, and because the dim is keyed off world z rather than off which mesh a
+       * fragment belongs to, a module that spans layers darkens along its own length
+       * instead of taking one flat tone from the layer it was filed under.
+       */
+      patchDepth(material, {
+        fadeInFrontOf: isNear ? 0 : null,
+        dimPerLayer: LAYER_DIM,
+        dimFrom: z,
+        dimSpacing: COLONY_LAYER_SPACING,
+      });
       const mesh = new THREE.Mesh(merged, material);
-      // Only the play plane casts: a shadow from a layer the player cannot see lands on
-      // the canyon floor with nothing above it to explain it.
-      mesh.castShadow = layerZ === 0;
+      // The near class does not cast: it is the geometry the player is meant to see past,
+      // and a shadow from something being faded out is a shadow with no visible source.
+      mesh.castShadow = !isNear;
       // Behind everything opaque, so a faded front module never sorts in front of the
       // lander's own geometry.
-      if (front) mesh.renderOrder = 1;
+      if (isNear) mesh.renderOrder = 1;
       scene.add(mesh);
       objects.push(mesh);
     };
@@ -215,7 +624,7 @@ export function buildColonyCells(
     add(
       hulls,
       new THREE.MeshStandardMaterial({
-        color: shade(theme.hull),
+        color: theme.hull,
         roughness: 0.55,
         metalness: 0.18,
         flatShading: true,
@@ -225,7 +634,7 @@ export function buildColonyCells(
     add(
       frames,
       new THREE.MeshStandardMaterial({
-        color: shade(theme.hull),
+        color: theme.hull,
         roughness: 0.85,
         metalness: 0.1,
         flatShading: true,
@@ -235,9 +644,69 @@ export function buildColonyCells(
     add(
       walks,
       new THREE.MeshStandardMaterial({
-        color: shade(theme.color),
+        /**
+         * Corridors are structure, not lighting.
+         *
+         * They glowed for a while — the connective network drawn out of a mass of dark cubes,
+         * which did read well against the old boxes. Retired once the modules became vessels:
+         * a corridor is a duct between two pressure hulls, and a canyon where every duct is
+         * lit puts the plumbing on the same footing as the lane markings, which are the only
+         * thing here a pilot actually steers by. The emissive budget belongs to the fittings
+         * and to the scaffold nodes.
+         */
         roughness: 0.4,
         metalness: 0.3,
+        flatShading: true,
+        ...fade,
+      }),
+    );
+    add(
+      beacons,
+      new THREE.MeshStandardMaterial({
+        // Housing in hull grey, light in corp colour. Setting both to the corp colour at
+        // emissive strength drove every channel to 1 and the bars came out as flat white
+        // slabs — the hue that was the whole point of using the corp's colour was the first
+        // thing the brightness destroyed. The dark body also gives the lit face an edge to
+        // read against, which is what makes it a fitting rather than a glowing rectangle.
+        color: theme.hull,
+        // Dimmed with depth like everything else. A lamp is not exempt from aerial
+        // perspective — the far side of a canyon full of lit frontage reading as bright as
+        // the near side is the exact cue that flattened the three layers into one before.
+        emissive: neon(theme.color, 0.42),
+        /**
+         * **Beacons lead, marks identify** — and the two get separate materials because
+         * that is a difference in what the light is *for*, not a difference in decoration.
+         *
+         * A lane stripe is a navigation aid: the pilot is steering by it, so it has to win
+         * against the canyon at flight distance. A port on a hull or a node on a scaffold
+         * corner is a badge — it says who built this and that it is occupied, and nothing
+         * about where to go. Run at one brightness, the badges are as loud as the aids and
+         * a mature canyon becomes a field of equally bright dots with no route in it, which
+         * is what "monotonic and unnavigatable" was describing in the first place.
+         *
+         * Worth the extra merged mesh per class by the same rule every other material here
+         * is judged on: spend one where the thing genuinely is a different substance, and
+         * this is the one case where two fittings mean opposite things to a pilot.
+         */
+        emissiveIntensity: 3.2,
+        roughness: 0.5,
+        metalness: 0,
+        flatShading: true,
+        ...fade,
+      }),
+    );
+    add(
+      marks,
+      new THREE.MeshStandardMaterial({
+        color: theme.hull,
+        // Darker base *and* less lift than the beacons, which is one change rather than
+        // two: ACES desaturates as it lifts, so every step down in brightness is a step up
+        // in how much of the corp's hue survives. A mark is a badge — it wants to be read
+        // as green or amber or cyan more than it wants to be bright.
+        emissive: neon(theme.color, 0.3),
+        emissiveIntensity: 0.75,
+        roughness: 0.5,
+        metalness: 0,
         flatShading: true,
         ...fade,
       }),
@@ -301,7 +770,13 @@ export function buildColonyGizmos(scene: THREE.Scene, debug: ColonyDebug, z: num
     if (!merged) return;
     const lines = new THREE.LineSegments(
       merged,
-      new THREE.LineBasicMaterial({ color: colour, transparent: true, opacity, fog: false, depthTest: false }),
+      new THREE.LineBasicMaterial({
+        color: colour,
+        transparent: true,
+        opacity,
+        fog: false,
+        depthTest: false,
+      }),
     );
     scene.add(lines);
     objects.push(lines);
@@ -313,7 +788,11 @@ export function buildColonyGizmos(scene: THREE.Scene, debug: ColonyDebug, z: num
     const points = channel.points.map((p) => new THREE.Vector3(p.x, p.y, z));
     const line = new THREE.Line(
       new THREE.BufferGeometry().setFromPoints(points),
-      new THREE.LineBasicMaterial({ color: 0x36f5a0, fog: false, depthTest: false }),
+      new THREE.LineBasicMaterial({
+        color: 0x36f5a0,
+        fog: false,
+        depthTest: false,
+      }),
     );
     scene.add(line);
     objects.push(line);

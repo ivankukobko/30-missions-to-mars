@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BOOT_SECONDS,
+  DRIFT_CEILING,
   DRIFT_FLOOR,
   bootPhase,
   bootSweep,
@@ -194,6 +195,21 @@ describe('drifting', () => {
     const each = DRIFT_FLOOR * 0.8;
     expect(drifting(each, 0)).toBe(false);
     expect(drifting(each, -each)).toBe(true);
+  });
+
+  it('hands over to the wake above the ceiling', () => {
+    // At cruise the hull's own streaks say direction and speed, larger and in world
+    // space. A second answer to the same question is clutter.
+    expect(drifting(0, -DRIFT_CEILING)).toBe(false);
+    expect(drifting(0, -40)).toBe(false);
+  });
+
+  it('covers the whole of a survivable approach', () => {
+    // The wake stops at 2.5, which is also the touchdown tolerance — so every speed a
+    // landing can be made at falls inside the arrow's band and outside the wake's.
+    for (const v of [0.2, 1, 2.4, 2.5, 4]) {
+      expect(drifting(0, -v), `${v} u/s`).toBe(true);
+    }
   });
 });
 

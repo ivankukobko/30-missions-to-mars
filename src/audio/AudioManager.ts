@@ -1,5 +1,4 @@
-import type { CorpId } from '../world/CanyonSpec.ts';
-import { MusicComposer } from './MusicComposer.ts';
+import { MusicComposer, type MusicTrack } from './MusicComposer.ts';
 import { SoundSynthesizer } from './SoundSynthesizer.ts';
 
 /** Master level when not muted. */
@@ -131,8 +130,8 @@ export class AudioManager {
 
   // ------------------------------------------------------------------------- MUSIC DELEGATION
 
-  public setMissionContext(corp: CorpId, missionId: number): void {
-    this.composer.setMissionContext(corp, missionId);
+  public setMissionContext(track: MusicTrack, missionId: number): void {
+    this.composer.setMissionContext(track, missionId);
   }
 
   /** No-op with music muted: a mission load must not restart a score the player turned

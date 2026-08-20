@@ -64,25 +64,51 @@ export interface LatticeTerrain {
  * back layers build straight past a corridor, and a route reads as a slot cut through a
  * deep mass rather than a gap the settlement grew around.
  */
-export const COLONY_LAYERS = [-1, 0, 1] as const;
+export const COLONY_LAYERS = [-2, -1, 0, 1] as const;
 
 export type Layer = (typeof COLONY_LAYERS)[number];
 
 /**
- * World distance between one layer and the next — **wider than a cell, deliberately.**
+ * A pressure vessel's radius, as a fraction of the cell — one spec for every module the
+ * colony builds (`ColonyRender.pipe`). Tune by eye.
  *
- * It was exactly `COLONY_CELL_SIZE`, back when a module was a cube of 6–9 units and the
- * gap between layers was most of the spacing. Modules are now elongated along z to stop
- * the colony reading as tile-work (`MODULE_STRETCH`), and a full cell of depth against a
- * full cell of spacing leaves nothing between them: the three layers abut face to face and
- * fuse into one slab, which throws away the separation they exist to provide.
+ * Down from 0.46, in two steps, for the same reason both times: at that width a vessel very
+ * nearly filled its cell and the settlement read as though hull plate were cheap. It is not
+ * — a charter is shipping it up a gravity well — and the slack left around each pipe is what
+ * reads as the walkways and gantries between them.
  *
- * At two cells the layers are unmistakably separate objects at flight distance, with a
- * clear band of canyon between them for the depth-dimming and the fog to land in. 1.5 was
- * tried first and reads as one crowded mass — the gap is there in the geometry but the
- * camera's own perspective closes it up again.
+ * It lives here rather than beside the geometry that draws it because the layer spacing
+ * below is derived from it, and a spacing that had to agree with a constant in another
+ * module by coincidence is exactly how the layers quietly fuse.
  */
-export const COLONY_LAYER_SPACING = COLONY_CELL_SIZE * 2;
+export const COLONY_VESSEL_RADIUS = 0.32;
+
+/** Across the vessel, which is also how deep it is: the section is circular, so a module is
+ *  as deep as it is wide. */
+export const COLONY_VESSEL_DIAMETER = COLONY_CELL_SIZE * COLONY_VESSEL_RADIUS * 2;
+
+/**
+ * Clear air between one layer's vessels and the next's.
+ *
+ * The one authored number in this group, and the only one that is a judgement rather than a
+ * consequence. It was 5, back when modules were stretched to 2.4× their width along z and
+ * the layers had to be two full cells apart to keep from meeting. With circular sections
+ * there is nothing to hold apart but the vessels themselves, so the gap can be what it
+ * actually wants to be: enough for the silhouettes to separate and for the depth-dimming to
+ * have somewhere to land, and no more.
+ */
+export const COLONY_LAYER_GAP = 2.8;
+
+/**
+ * World distance between one layer and the next — **derived, not authored.**
+ *
+ * A module is as deep as it is wide, so the spacing is one vessel plus the gap and nothing
+ * else. Written this way the two can never disagree: a change to the vessel radius moves the
+ * layers to match, where the previous pair of independent constants (a `× 2` here against a
+ * `MODULE_STRETCH` there) could drift into the layers abutting face to face and fusing into
+ * one slab — a failure that is not obvious, it just looks slightly wrong.
+ */
+export const COLONY_LAYER_SPACING = COLONY_VESSEL_DIAMETER + COLONY_LAYER_GAP;
 
 export interface Lattice {
   cellSize: number;

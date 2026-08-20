@@ -16,6 +16,7 @@ import { Progress, scoreLanding } from '../campaign/Progress.ts';
 import {
   getMission,
   airframeFor,
+  musicTrackFor,
   MISSION_COUNT,
   ENTRY_VELOCITY,
   type Mission,
@@ -232,6 +233,14 @@ export class Game {
    * Loading and presenting stay one function because every route into a mission has to
    * go through the same one, or a second entry path drifts from this one.
    */
+  /**
+   * The mission whose brief was last shown, so a re-entry can open on its final card.
+   *
+   * Session state on purpose, not saved: a player returning tomorrow should get the
+   * transmission in full, and one returning from a crash thirty seconds ago should not.
+   */
+  private lastBriefed: number | null = null;
+
   private loadMission(id: number, present = true): void {
     const mission = getMission(id);
     if (!mission) {
@@ -378,7 +387,7 @@ export class Game {
     this.ui.setMission(mission, this.targetPad);
     if (present) this.beginUplink();
 
-    audio.setMissionContext(mission.client, mission.id);
+    audio.setMissionContext(musicTrackFor(mission), mission.id);
     audio.startAmbient();
 
     // Readout follows whatever is actually loaded, including retries and next-mission
@@ -442,7 +451,9 @@ export class Game {
         },
       },
       () => this.begin(),
+      this.lastBriefed === mission.id,
     );
+    this.lastBriefed = mission.id;
   }
 
   private begin(): void {
@@ -689,6 +700,17 @@ export class Game {
         entry,
       );
     }
+
+    // Always on, whatever the speed. Two short streaks off the hull corners say which way
+    // the vehicle is going and roughly how fast before the panel's numbers do.
+    this.effects.wakeTrail(
+      elapsed,
+      lander.renderX,
+      lander.renderY,
+      lander.vx,
+      lander.vy,
+      lander.visualBounds.halfWidth,
+    );
 
     this.updateProximity(elapsed, lander);
     this.updateHud(lander, elapsed);

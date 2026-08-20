@@ -243,9 +243,12 @@ export class Interface {
     bestRank: Rank | null,
     vehicle: BriefVehicle,
     onBegin: () => void,
+    resumed = false,
   ): void {
     this.pauseManifest = this.manifestFor(mission, vehicle, bestRank);
-    buildBrief(mission, { showPanel: (content) => this.showPanel(content) }, onBegin);
+    buildBrief(mission, { showPanel: (content) => this.showPanel(content) }, onBegin, {
+      resumed,
+    });
   }
 
   /**

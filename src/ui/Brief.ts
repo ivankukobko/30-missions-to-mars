@@ -41,7 +41,29 @@ export interface BriefHost {
   showPanel(content: HTMLElement): void;
 }
 
-export function buildBrief(mission: Mission, host: BriefHost, onBegin: () => void): void {
+export interface BriefOptions {
+  /**
+   * True when this mission has already been briefed in this session — a retry, a reseed,
+   * or a jump back to it.
+   *
+   * The brief then opens on its **last** card rather than its first. Nothing is hidden:
+   * that card carries the address and the button, which is all a returning player needs,
+   * and the dots show the pages behind it as already passed.
+   *
+   * This is the single biggest reason briefs go unread. Text length is not — the whole
+   * campaign is about two minutes of teletype — but a player who crashes three times on
+   * mission 21 pages the same cards four times, learns that briefs are an obstacle, and
+   * never reads one again.
+   */
+  resumed?: boolean;
+}
+
+export function buildBrief(
+  mission: Mission,
+  host: BriefHost,
+  onBegin: () => void,
+  opts: BriefOptions = {},
+): void {
   const corp = CORPS[mission.client];
   const cards = resolveBriefCards(mission);
 
@@ -83,17 +105,17 @@ export function buildBrief(mission: Mission, host: BriefHost, onBegin: () => voi
     body: card.body,
   }));
 
-  new BriefRun(pages, host, onBegin).show();
+  new BriefRun(pages, host, onBegin, opts.resumed ? pages.length - 1 : 0).show();
 }
 
 class BriefRun {
-  private at = 0;
   private typing: Typing | null = null;
 
   constructor(
     private pages: Page[],
     private host: BriefHost,
     private onBegin: () => void,
+    private at = 0,
   ) {}
 
   show(): void {
@@ -128,6 +150,15 @@ class BriefRun {
         dots.append(el('span', `brief-dot ${i === this.at ? 'on' : ''}`));
       }
       card.append(dots);
+
+      // Escape is the only way out of a brief that does not read it, so it has to be
+      // visible. Sitting in the dots row rather than beside the button keeps it out of
+      // the path of the key a player is already pressing.
+      if (!last) {
+        const skip = el('button', 'brief-skip', 'SKIP · ESC');
+        skip.addEventListener('click', () => this.skip());
+        dots.append(skip);
+      }
     }
 
     const advance = el('button', 'primary', last ? 'BEGIN DESCENT' : 'NEXT');
@@ -161,10 +192,32 @@ class BriefRun {
    * read yet on the very first keystroke.
    */
   private onKey(e: KeyboardEvent): void {
+    if (e.code === 'Escape') {
+      e.preventDefault();
+      e.stopPropagation();
+      this.skip();
+      return;
+    }
     if (e.code !== 'Space' && e.code !== 'Enter' && e.code !== 'NumpadEnter') return;
     e.preventDefault();
     e.stopPropagation();
     this.next();
+  }
+
+  /**
+   * Jump to the last card — the one with the address and the button — without launching.
+   *
+   * Deliberately not "skip the brief and fly": a player who mistakes Escape for a pause
+   * key should lose the prose, not be thrown into a descent they did not ask for.
+   */
+  private skip(): void {
+    if (this.at >= this.pages.length - 1) return;
+    this.typing?.finish();
+    this.detach();
+    audio.init();
+    audio.playUiBeep(520, 'square', 0.03);
+    this.at = this.pages.length - 1;
+    this.show();
   }
 
   private next(): void {

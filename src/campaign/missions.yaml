@@ -39,10 +39,7 @@ missions:
           Radar is up and slaved to your feed — altitude, range and target bearing, all of it off the mast you set down yesterday. Our pad is in as well, so from here on you are flying to an address.
       - sender: IXION OUTPOST
         content: >-
-          You placed it better than the specification asked for. We have started calling you the navigator. It is not a rank anyone here has the standing to award, but it has stuck.
-      - sender: IXION OUTPOST
-        content: >-
-          Second run. Watch your descent rate — the canyon floor is not forgiving and neither is the west wall.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.
+          You placed it better than the specification asked for. We have started calling you the navigator. It is not a rank anyone here has the standing to award, but it has stuck.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.
     adds:
       props:
         - kind: pad
@@ -65,10 +62,7 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Heavier load today, navigator. Mass makes the airframe slow to answer — start your corrections earlier than the figures suggest.
-      - sender: IXION OUTPOST
-        content: >-
-          The lag is worse than the mass number implies. We have never worked out why.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
+          Heavier load today, navigator, and the lag is worse than the mass number implies. We have never worked out why.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
 
   - id: 4
     client: outpost
@@ -250,10 +244,7 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open, and it is open because we filed for it.
-      - sender: IXION OUTPOST
-        content: >-
-          Heavy load, navigator, and a narrower corridor than the last time you flew it.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.
+          Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open, navigator, and it is open because we filed for it.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.
 
   - id: 13
     client: helion
@@ -331,7 +322,7 @@ missions:
           Pad is in at the shaft floor. Fifty-eight metres below the canyon, walls close on both sides.
       - sender: KESSLER DEEP
         content: >-
-          Come down slow and come down straight, tin can. Light load today, and that is deliberate — I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Descend the shaft. Deliver to KESSLER SHAFT.
+          Light load today, tin can, and that is deliberate — I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Descend the shaft. Deliver to KESSLER SHAFT.
     adds:
       props:
         - kind: pad
@@ -441,13 +432,6 @@ missions:
       - sender: KESSLER DEEP
         content: >-
           Pylons anchor the lining. If they are not seated, everything we put below them comes back up the hard way.<br/><br/><b>OBJECTIVE</b> Deliver pylons to KESSLER SHAFT.
-    adds:
-      digs:
-        - id: kessler-shaft
-          anchorToWall: east
-          mount: floor
-          halfWidth: 12
-          depth: 172
 
   - id: 21
     client: kessler
@@ -461,11 +445,23 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          First platform is bolted into the shaft wall, forty-six metres down.
+          The pylons held. We took the shaft down overnight and relaid the deck on the new floor, a hundred and seventy metres under the rim.
       - sender: KESSLER DEEP
         content: >-
-          Line up over the mouth and descend straight. The shaft is barely wider than your gear and there is no room to correct once you are inside it. Get it wrong above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER LEDGE.
+          The shaft is barely wider than your gear and there is no room to correct once you are inside it. Get it wrong above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER LEDGE.
     adds:
+      # The sinking mission 20's pylons paid for, carved *after* that delivery rather than
+      # before it — which is what its own brief says ("goes down another hundred and thirty
+      # metres tonight") and what the decks need. `kessler-shaft`'s deck is `attachToDig`,
+      # so carving this a mission early dropped the working deck to -169 for mission 20 and
+      # then stood the next one back up at -45: a 124-unit climb in the one direction this
+      # shaft is only ever supposed to go.
+      digs:
+        - id: kessler-shaft
+          anchorToWall: east
+          mount: floor
+          halfWidth: 12
+          depth: 172
       props:
         - kind: pad
           corp: kessler
@@ -473,9 +469,18 @@ missions:
           col: 30
           row: -7
           x: 60
-          y: -45
+          # Placeholder. `attachToDig` resolves both from the bore's real floor — see
+          # mission 16's deck, authored the same way.
+          y: -169
           width: 11
-          xFromDig: kessler-shaft
+          attachToDig: kessler-shaft
+    # One deck in the Kessler bore at a time. The shaft pad is `attachToDig`, so mission
+    # 20's sinking already dragged it from -54 to the new floor at -168 — leaving it
+    # standing would put two Kessler decks in the same hole with nothing but the ledge
+    # ever flown to again. Nothing targets `kessler-shaft` after 20, so striking it here
+    # costs no destination.
+    decommissions:
+      - kessler-shaft
 
   - id: 22
     client: helion
@@ -545,11 +550,19 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Second platform, a hundred and forty-two metres down. Below the ledge the shaft squeezes and the fog goes black.
+          We broke into the chasm and the shaft went with it. Three hundred metres down now, and the deck went down with the floor. Below the old ledge line it squeezes and the fog goes black.
       - sender: KESSLER DEEP
         content: >-
           Trust the altimeter, not the optical feed. Down there the two will disagree, and the altimeter will be the one that is right.<br/><br/><b>OBJECTIVE</b> Deliver to KESSLER DEEP.
     adds:
+      # The abyss this phase is named for, and the reason `failDepth` drops to -320 here
+      # while nothing in the canyon used to reach past -172. The shaft is what opens it.
+      digs:
+        - id: kessler-shaft
+          anchorToWall: east
+          mount: floor
+          halfWidth: 12
+          depth: 303
       props:
         - kind: pad
           corp: kessler
@@ -557,9 +570,15 @@ missions:
           col: 30
           row: -23
           x: 60
-          y: -141
+          # Placeholder — `attachToDig` resolves it to the new floor.
+          y: -300
           width: 11
-          xFromDig: kessler-shaft
+          attachToDig: kessler-shaft
+    # The ledge was the working deck for missions 21-23 and is superseded the moment the
+    # deep platform opens below it — same rule as mission 21's. `kessler-deep` is the last
+    # Kessler destination in the campaign, so the bore holds exactly one deck from here on.
+    decommissions:
+      - kessler-ledge
 
   - id: 26
     client: helion
@@ -596,7 +615,7 @@ missions:
           Heaviest object anyone has flown in this canyon. West wall to the bottom of the shaft, through everything both charters have built.
       - sender: KESSLER DEEP
         content: >-
-          I would not hand this run to anyone else. Take the weight down slowly and do not let it get ahead of you.<br/><br/><b>OBJECTIVE</b> Deliver the shell to KESSLER DEEP.
+          I would not hand this run to anyone else.<br/><br/><b>OBJECTIVE</b> Deliver the shell to KESSLER DEEP.
 
   - id: 28
     client: outpost
@@ -640,6 +659,10 @@ missions:
 
   - id: 30
     client: kessler
+    # Ixion's key, on a Kessler contract, after the outpost has gone dark. The brief is
+    # the reason: mission 1's opening line comes back verbatim over a channel nobody is
+    # left to transmit on.
+    musicTrack: outpost
     payload:
       name: Final Charge
       mass: 1.8

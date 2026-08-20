@@ -19,11 +19,14 @@ Enhance the narrative impact, environmental storytelling, and faction immersion 
 
 ## Planned Enhancements
 
-### 1. Ixion Outpost Shutdown & Visual Transformation (Mission 20)
+### 1. Ixion Outpost Shutdown & Visual Transformation (Mission 28)
 
 * **Current State**: Ixion Outpost's pad is targetable in early missions, but its eventual decline is conveyed mostly through text.
 * **Enhancement**:
-  * **Pad Power-Down**: Around Mission 20, the Ixion outpost pad's green landing lights flicker and go dark.
+  * **Pad Power-Down**: At Mission 28 — the shutdown brief, not 20; this plan predates the campaign
+    settling on where Ixion ends — the outpost pad's landing lights go dark. The navigation
+    radar does **not**: Ixion leaves it powered on purpose and says so, and mission 30 depends
+    on it still transmitting. See `docs/lore.md`.
   * **Corporate Claim Beacons**: Helion and Kessler emissive survey beacons spawn over the abandoned pad and probe yard.
   * **Prop Eviction**: Scientific equipment is replaced by corporate construction staging props in later missions.
 
@@ -53,7 +56,8 @@ Integrate real-time environmental analysis into the Guidance AI's system diagnos
 ## Implementation Plan
 
 1. **Phase 1: Prop & Lighting State Shifts (`Colony.ts` / `Missions.ts`)**
-   * Add `unpowered` / `abandoned` prop visual states for Ixion structures post-Mission 20.
+   * Add `unpowered` / `abandoned` prop visual states for Ixion structures post-Mission 28,
+     excluding the radar.
 2. **Phase 2: Contextual Diagnostic Generator (`Missions.ts`)**
    * Add helper to calculate canyon clearance & past wreck metrics for the Guidance AI briefing card.
 3. **Phase 3: Web Audio Acoustic Effects (`Game.ts` / `Effects.ts`)**

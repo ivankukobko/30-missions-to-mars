@@ -7,7 +7,7 @@ import { resolveTerrainAnchoredDigs, applyDigAttachments } from './TerrainDigs.t
 import { CanyonGenerator } from '../world/CanyonGenerator.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { CANYON } from '../world/CanyonSpec.ts';
-import { Shaft, boreDirection, isFloorMounted } from '../world/Shaft.ts';
+import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
 import type { Excavation } from '../world/CanyonGenerator.ts';
 import type { Prop } from '../world/Colony.ts';
 
@@ -18,12 +18,12 @@ import type { Prop } from '../world/Colony.ts';
  * this is the one place that has to build an actual canyon per case to be worth
  * anything, so it stays deliberately small — a handful of mission ids spanning the
  * campaign's real terrain milestones (pre-dig, first floor dig, the wall-mounted
- * cavern dig, the deep shaft, fully built) rather than the full 30, and two seeds
+ * cavern dig, the shaft's two deepenings, fully built) rather than the full 30, and two seeds
  * rather than a wide sweep. `mastX` is fixed at 0 throughout: colony geometry never
  * depends on it (only the collider-less `radar` prop does), so sweeping it here would
  * just rebuild the same terrain repeatedly for no new coverage.
  */
-const IDS = [1, 15, 19, 20, 30];
+const IDS = [1, 15, 19, 20, 25, 30];
 /**
  * 631729407 is here for a specific reason: it is a narrow canyon whose wall rises 12 units
  * clear of Helion's mouth band at the front edge of the cavern's own z-extent. That row
@@ -98,11 +98,21 @@ describe('the real pipeline against real terrain', () => {
     // cavern like Helion's, contradicting a campaign's worth of "come down straight"
     // briefing text. Checked on every seed this suite already sweeps, not just one.
     for (const seed of SEEDS) {
-      const { digs } = runPipeline(20, seed);
-      const kesslerX = digs.find((d, i) => digs.some((o, j) => j !== i && Math.abs(o.x - d.x) < 1))?.x;
-      expect(kesslerX, `seed ${seed}: expected two dig records sharing an x`).toBeDefined();
-      const shaft = digs.find((d) => Math.abs(d.x - kesslerX!) < 1)!;
-      expect(isFloorMounted(boreDirection(shaft).dir), `seed ${seed}`).toBe(true);
+      const { digs, props } = runPipeline(20, seed);
+      /**
+       * Located by the deck bolted to it, rather than by hunting for two dig records that
+       * share an x — which is how this used to find the shaft, and which quietly stopped
+       * working when the second record moved to mission 21. That idiom was testing "the
+       * campaign happens to have deepened this bore by mission 20", which is a fact about
+       * the ledger's staging and not the property this test is named for.
+       */
+      const deck = props.find(
+        (p): p is Extract<Prop, { kind: 'pad' }> => p.kind === 'pad' && p.id === 'kessler-shaft',
+      );
+      expect(deck, `seed ${seed}: no Kessler shaft deck to locate the bore by`).toBeDefined();
+      const shaft = digs.find((d) => Math.abs(d.x - deck!.x) < 1);
+      expect(shaft, `seed ${seed}: deck at x=${deck!.x} sits in no dig`).toBeDefined();
+      expect(isFloorMounted(boreDirection(shaft!).dir), `seed ${seed}`).toBe(true);
     }
   });
 
@@ -191,74 +201,54 @@ describe('a wall-mounted mouth can still be capped, and is caught', () => {
 });
 
 /**
- * `wallHoleBoundary`/`buildCollar` (`CanyonGenerator.ts`, `Shaft.ts`) — the mesh-seam
- * stitching between the terrain's own cut hole and a wall-mounted bore's mouth ring.
- * Built against real terrain deliberately, same reasoning as the mouth-capping block
- * above: the boundary only means anything once real `heightAt`/`wallMouthY` exist to
- * measure it against.
+ * The excavation is **flyable along a corridor and solid across it** — the one property the
+ * whole underground exists to provide, checked against real terrain on every seed.
+ *
+ * This replaces a test of `wallHoleBoundary`/`buildCollar`, the mesh stitching between the
+ * terrain's cut hole and a bore's mouth ring. That machinery is gone: `AntFarm` carves on the
+ * colony grid and samples the terrain per column for its own top edge, so the face starts at
+ * the ground instead of reaching for it and there is no seam left to bridge. The old test
+ * still passes — it builds its own `Shaft` — which is exactly why it had to go rather than be
+ * left green: it was guarding geometry the game no longer builds.
+ *
+ * What is asserted instead is what a pilot actually depends on. A collider missing from a
+ * corridor wall is a hole you fall through; a collider *across* the corridor is a mission
+ * that cannot be flown. Both are invisible in a screenshot and neither is expressible as a
+ * property of a mesh seam.
  */
-describe("a wall mount's hole boundary lines up with the bore's own mouth ring", () => {
-  it("resolves cleanly for Helion's real cavern, on every seed checked", () => {
-    for (const seed of SEEDS) {
-      const canyon = new CanyonGenerator(new THREE.Scene(), new PhysicsWorld(-6), seed);
-      const world = worldAt(19, 0);
-      const resolvedDigs = resolveTerrainAnchoredDigs(world.digs, canyon);
-      canyon.build(resolvedDigs.digs, []);
+describe('a carved excavation is open along its axis and closed across it', () => {
+  for (const seed of SEEDS) {
+    it(`seed ${seed}: Kessler's shaft can be descended and its walls stop you`, () => {
+      const physics = new PhysicsWorld(-6);
+      const canyon = new CanyonGenerator(new THREE.Scene(), physics, seed);
+      const world = worldAt(20, 0);
+      const resolved = resolveTerrainAnchoredDigs(world.digs, canyon);
+      canyon.build(resolved.digs, []);
 
-      const dig = resolvedDigs.digs.find((d) => d.direction && d.direction.y > -0.9)!;
-      expect(dig, `seed ${seed}: expected a wall-mounted dig in this ledger`).toBeDefined();
+      const dig = resolved.digs.find((d) => !d.direction || d.direction.y < -0.9);
+      expect(dig, `seed ${seed}: expected a floor-mounted dig in this ledger`).toBeDefined();
 
-      const hole = canyon.wallHoleBoundary(dig);
+      // The mouth, computed the way `CanyonGenerator.build` computes its own: the natural
+      // floor, full stop. The heightfield no longer dips into a dig, so there is no pit
+      // floor to walk back up from.
+      const mouthY = canyon.heightAt(dig!.x, 0);
+      const top = mouthY - CANYON.CELL;
+      const bottom = mouthY - dig!.depth + CANYON.CELL * 2;
+
+      // Down the axis: open. A radius well under the corridor half-width, so this is asking
+      // whether the shaft is flyable rather than whether it is generously wide.
       expect(
-        hole,
-        `seed ${seed}: a real, already-flown dig should resolve — a null here means the ` +
-          'collar silently stopped covering it',
+        physics.sweep(dig!.x, top, dig!.x, bottom, 1),
+        `seed ${seed}: the shaft is blocked somewhere down its own axis`,
+      ).toBeNull();
+
+      // Across it: solid. Swept from the axis out past the carve, so a wall that failed to
+      // emit a collider shows up as a sweep that never touches anything.
+      const mid = (top + bottom) / 2;
+      expect(
+        physics.sweep(dig!.x, mid, dig!.x + dig!.halfWidth + CANYON.CELL * 3, mid, 1),
+        `seed ${seed}: swept out of the shaft without hitting a wall`,
       ).not.toBeNull();
-
-      // The low edge closes on a genuine terrain crossing on every seed measured while
-      // building this (see `wallHoleBoundary`'s own doc comment) — pinned specifically,
-      // not just "resolves at all", so a terrain change that quietly breaks the
-      // crossing walk shows up here rather than only by eye.
-      const mouthY = canyon.wallMouthY(dig);
-      for (const p of hole!.low.points) {
-        expect(Math.abs(p.y - mouthY), `seed ${seed} low edge at z=${p.z}`).toBeLessThanOrEqual(
-          dig.halfWidth + 0.5,
-        );
-      }
-
-      // The shaft's own mouth ring — a standalone `Shaft`, built the exact way
-      // `CanyonGenerator.build()` builds its own, so this doesn't need `canyon`'s
-      // private `shafts` list exposed just for the test to reach one.
-      const shaft = new Shaft(new THREE.Scene(), dig, mouthY, seed);
-      const { neg, pos } = shaft.mouthEdges();
-      // Both rings run the same z stations, so either serves to measure the span.
-      const lowRing = neg[0].x <= pos[0].x ? neg : pos;
-
-      /**
-       * **Every hole row is spanned by the ring** — the direction `buildEdgeStrip` needs.
-       *
-       * It walks the *ring* and interpolates the hole edge at each ring z, so a hole row
-       * outside the ring's own span would be left with nothing bridging it: a strip of
-       * open terrain edge with the canyon showing through. The converse is fine and is
-       * now normal — the ring runs the bore's full `lengthZ` while the hole is only the
-       * rows where the mouth is genuinely open (see `wallHoleBoundary`), and a ring row
-       * past the hole's end is buried in the rock the terrain kept.
-       *
-       * This used to assert the opposite, which held only while every row of every
-       * checked seed happened to be in band.
-       */
-      const ringZs = lowRing.map((p) => p.z);
-      const ringSpan: [number, number] = [Math.min(...ringZs), Math.max(...ringZs)];
-      for (const edge of [hole!.low, hole!.high]) {
-        for (const p of edge.points) {
-          expect(p.z, `seed ${seed} hole row z=${p.z} is outside the ring`).toBeGreaterThanOrEqual(
-            ringSpan[0] - CANYON.CELL,
-          );
-          expect(p.z, `seed ${seed} hole row z=${p.z} is outside the ring`).toBeLessThanOrEqual(
-            ringSpan[1] + CANYON.CELL,
-          );
-        }
-      }
-    }
-  });
+    });
+  }
 });

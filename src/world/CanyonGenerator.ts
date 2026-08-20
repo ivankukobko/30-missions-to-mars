@@ -2,69 +2,13 @@ import * as THREE from 'three';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { Noise, clamp01, lerp, smoothstep } from './Noise.ts';
 import { CANYON, FACET_CELL, PALETTE } from './CanyonSpec.ts';
-import { Shaft, boreDirection, isFloorMounted, type Vec2 } from './Shaft.ts';
+import { boreDirection, isFloorMounted, type Vec2 } from './Shaft.ts';
+import { AntFarm, BACK_Z, FRONT_Z } from './AntFarm.ts';
+import { carveFromDig, type ShaftCarve } from './ShaftGrid.ts';
 import { fadeNearLander } from './LanderFade.ts';
 import { buildRubble, rubbleAlong, type RubbleSite } from './Rubble.ts';
 
-/**
- * How far a wall-mouth search may drift in x from the dig's own x while still counting
- * as "near the mouth".
- *
- * Not the size of the hole — the height band (`dig.halfWidth` either side of the
- * mouth's own y) is what actually bounds that, since the wall's height is what a sweep
- * over x is checked against. This is a pre-filter only, generous enough that it never
- * clips a real mouth's x-span at any authored half-width, tight enough that it does not
- * evaluate `heightIn` — a noise call — for the whole row on every dig.
- */
-const WALL_MOUTH_RUN = 30;
 
-/**
- * A pit dug into the canyon floor by the colony. Unlike the props in Colony.ts this
- * one really does modify the terrain — but only downward, which a heightfield can
- * express. The overhang that makes it a *cave* is a separate `caveRoof` prop.
- *
- * `direction` is the one exception: a bore travelling anywhere but straight down opens
- * a mouth partway up a wall, with rock continuing above and below it at the same x —
- * multi-valued in y, which no heightfield can express regardless of which way the bore
- * points. That mouth is carved by omitting terrain quads over its footprint and gapping
- * the collider profile there, not by lowering a column the way a floor dig is — see
- * `CanyonGenerator.build`'s mouth-carving pass and `Shaft`'s own header comment.
- */
-export interface Excavation {
-  x: number;
-  halfWidth: number;
-  /** How far below the natural floor the pit bottoms out. */
-  depth: number;
-  /**
-   * How far the pit extends down the canyon. Without this a dig is an infinite
-   * trench — descending into it shows two parallel walls and nothing closing the
-   * back, which is exactly the flat ant-farm read. Given an extent, the shaft has a
-   * far wall behind it and reads as a hole in the ground. Defaults to 3x halfWidth.
-   */
-  lengthZ?: number;
-  /**
-   * Unit-ish vector the bore travels along from its mouth, in the x/y play plane.
-   * Defaults to straight down `{x: 0, y: -1}` — every dig authored before this field
-   * existed keeps its exact current geometry, since that was the only direction there
-   * was. Needn't be pre-normalised; `Shaft` normalises it once.
-   */
-  direction?: { x: number; y: number };
-}
-
-/** One edge of a wall-mounted dig's real hole boundary, z-ordered to match
- *  `Shaft.zs()` — see `CanyonGenerator.wallHoleBoundary`. */
-export interface WallHoleEdge {
-  points: { x: number; y: number; z: number }[];
-  colors: THREE.Color[];
-}
-
-/** A wall-mounted dig's real hole boundary, both edges — see
- *  `CanyonGenerator.wallHoleBoundary`, the only producer, and `Shaft.buildCollar`, the
- *  only consumer. */
-export interface WallHoleBoundary {
-  low: WallHoleEdge;
-  high: WallHoleEdge;
-}
 
 /**
  * A level bench in the landscape. Rather than carving terrain down to a fixed
@@ -77,6 +21,43 @@ export interface Shelf {
   x: number;
   halfWidth: number;
   shoulder: number;
+}
+
+/**
+ * How far either side of a wall-mounted dig the collider profile samples densely.
+ *
+ * All that is left of a constant that used to do three jobs: this, the width of the mesh's
+ * mouth omission, and the band the collider was split over. The other two are gone — the
+ * hole is cut from the excavation's own cells now, so it cannot disagree with the geometry
+ * the way three independent numbers could.
+ */
+const WALL_MOUTH_RUN = 30;
+
+/**
+ * A hole cut into the canyon.
+ *
+ * Authored as a tube — an x, a half-width, a depth and a direction — which is what the
+ * ledger still writes and what eighteen modules still read. `ShaftGrid.carveFromDig`
+ * rasterises it onto the colony grid, and `AntFarm` builds the geometry from those cells;
+ * this stays as the bounding description everything that only needs to ask "is there a hole
+ * near this x" keeps working from.
+ */
+export interface Excavation {
+  x: number;
+  halfWidth: number;
+  /** How far the bore runs from its mouth, along `direction`. */
+  depth: number;
+  /**
+   * How far the excavation extends down the canyon. Retained because `mergeDigs` and the
+   * campaign's own checks still reason in these terms; the corridors' real depth is set by
+   * `AntFarm`, from the grid.
+   */
+  lengthZ?: number;
+  /**
+   * Unit-ish vector the bore travels along from its mouth, in the x/y play plane. Defaults
+   * to straight down. Needn't be pre-normalised; `boreDirection` normalises it once.
+   */
+  direction?: { x: number; y: number };
 }
 
 /**
@@ -115,17 +96,6 @@ export function mergeDigs(digs: Excavation[]): Excavation[] {
 }
 
 /** An excavation the current slice reaches, with its z-only terms already resolved. */
-interface RowDig {
-  x: number;
-  halfWidth: number;
-  /** How strongly this slice blends toward the pit floor, 0..1. */
-  along: number;
-  /** How far the mouth's lip is broken out of true here. */
-  lip: number;
-  /** Height of the pit floor at this depth down the canyon. */
-  pit: number;
-}
-
 /**
  * One cross-section's worth of terrain terms that do not vary with x.
  *
@@ -145,7 +115,6 @@ interface Row {
   phase: number;
   /** Height each shelf levels its ground to. Index-aligned with `shelves`. */
   shelfLevel: number[];
-  digs: RowDig[];
 }
 
 const tmpColor = new THREE.Color();
@@ -165,7 +134,8 @@ export class CanyonGenerator {
   private disposables: THREE.Object3D[] = [];
   private excavations: Excavation[] = [];
   private shelves: Shelf[] = [];
-  private shafts: Shaft[] = [];
+  private shafts: AntFarm[] = [];
+  private carves: ShaftCarve[] = [];
   /** Cache for `wallMouthY`, rebuilt each `build()`. */
   private wallMouthCache = new Map<Excavation, number>();
   /** Public so other generators (the colony) can key their own placement off the same
@@ -311,37 +281,6 @@ export class CanyonGenerator {
    * operands, hoisted to where they stop repeating.
    */
   private row(z: number): Row {
-    const digs: RowDig[] = [];
-    for (const dig of this.excavations) {
-      // Floor-pit carving only, deliberately: a wall-mounted bore's opening is cut by
-      // `overShaft` omitting mesh quads and `carveWallMouths` splitting the collider,
-      // not by lerping the height field toward a "pit floor" — a wall mount has no pit,
-      // it has a hole partway up a slope. Without this filter a wall-mounted dig still
-      // got gathered here and its `pit = floorRelief - depth` target got blended in
-      // wherever `onFloor` hadn't fully decayed to 0 yet, which reaches surprisingly
-      // far past `floorHalf` (`WALL_RUN` is the blend width) — found live on Helion's
-      // first wall-mounted cavern: `heightAt` at the mouth's own x read 45 units lower
-      // than the natural wall surface once the dig existed, gouging a phantom floor pit
-      // into a slope that should have stayed solid rock right up to the real opening.
-      if (!isFloorMounted(boreDirection(dig).dir)) continue;
-
-      // Full depth at the mouth, closing off down the canyon. A dig the slice does not
-      // reach is dropped here rather than skipped once per column.
-      const extent = dig.lengthZ ?? dig.halfWidth * 3;
-      const along = 1 - smoothstep((Math.abs(z) - extent * 0.35) / (extent * 0.65));
-      if (along <= 0.001) continue;
-
-      digs.push({
-        x: dig.x,
-        halfWidth: dig.halfWidth,
-        along,
-        // Breaks the lip out of true, so the mouth reads as blasted rock rather than a
-        // machined slot. Only the edge moves; the pit keeps its full width at depth.
-        lip: this.noise.fbm(z * 0.06 + 131, dig.x * 0.11 + 17) * (CANYON.CELL * 0.9),
-        pit: this.floorRelief(dig.x, z) - dig.depth,
-      });
-    }
-
     return {
       z,
       centre: this.centreAt(z),
@@ -349,7 +288,6 @@ export class CanyonGenerator {
       floorY: this.floorYAt(z),
       phase: this.noise.fbm(z * 0.002, 97) * 0.4 * CANYON.TERRACE_HEIGHT,
       shelfLevel: this.shelves.map((s) => this.floorRelief(s.x, z)),
-      digs,
     };
   }
 
@@ -448,17 +386,23 @@ export class CanyonGenerator {
       }
     }
 
-    if (includeDigs) {
-      for (const dig of row.digs) {
-        const dd = Math.abs(x - dig.x);
-        const shoulder = CANYON.CELL;
-        if (dd >= dig.halfWidth + shoulder) continue;
-
-        const across = 1 - smoothstep(Math.max(0, dd - dig.halfWidth + dig.lip) / shoulder);
-        y = lerp(y, dig.pit, across * dig.along);
-      }
-    }
-
+    /**
+     * **The floor no longer dips into a dig.**
+     *
+     * It used to lerp toward `floorRelief - depth` over a one-cell shoulder, which is what
+     * made an excavation a funnel: the quads straddling the rim stretched from natural
+     * ground down to the pit floor, and those long dark triangles hanging into the shaft
+     * were visible from inside it. A heightfield can only ever express a hole as a steep
+     * surface, because it has one y per x.
+     *
+     * `AntFarm` draws the rock below ground now, so the field does not have to try. The
+     * terrain stays at its natural height and is simply *absent* over the carve — a real
+     * hole, cut in the mesh and in the collider from the same cells.
+     *
+     * `includeDigs` survives as a parameter because callers still ask for "natural" height
+     * to mean something specific, and it is now trivially true for every caller.
+     */
+    void includeDigs;
     return y;
   }
 
@@ -658,24 +602,6 @@ export class CanyonGenerator {
     return y;
   }
 
-  /**
-   * A wall mouth's real hole boundary at one z-row and one edge (the lower-x or the
-   * higher-x side) — a point the terrain mesh actually renders, plus the colour
-   * `shade()` gives it, so a collar built from this can fade from the terrain's own
-   * rendered colour rather than a guessed one. See `wallHoleBoundary`.
-   */
-  private shadeAt(x: number, y: number, z: number): THREE.Color {
-    // Cheap two-sample local slope, the same way `TerrainDigs.ts`'s `wallNormalInward`
-    // already estimates one — not the mesh's own computed vertex normal, which isn't
-    // available outside `buildCanyon`'s own geometry pass.
-    const delta = 2;
-    const y0 = this.heightAt(x - delta, z);
-    const y1 = this.heightAt(x + delta, z);
-    const slope = (y1 - y0) / (2 * delta);
-    const up = clamp01(1 / Math.hypot(slope, 1));
-    const depthTint = smoothstep(Math.abs(z) / 520) * 0.4; // mirrors buildCanyon's own tint
-    return this.shade(x, y, up, depthTint).clone();
-  }
 
   /**
    * A wall-mounted dig's real hole boundary — the two z-ordered curves
@@ -708,69 +634,6 @@ export class CanyonGenerator {
    * against real terrain — the same "public because a second caller needs it" reason
    * `wallMouthY` is public, not because anything outside `build()` uses it at runtime.
    */
-  wallHoleBoundary(dig: Excavation): WallHoleBoundary | null {
-    const mouthY = this.wallMouthY(dig);
-    const half = dig.halfWidth;
-    const extent = (dig.lengthZ ?? dig.halfWidth * 3) / 2;
-    const fine = CANYON.CELL / 8; // matches colliderProfile's own fine pitch near a mouth
-    const inBand = (x: number, z: number) => Math.abs(this.heightAt(x, z) - mouthY) <= half;
-
-    /**
-     * The contiguous run of z-rows around the play plane where the mouth is genuinely
-     * open — **the same rule the x walks below use, for the same reason.**
-     *
-     * This used to bail on the first out-of-band row and return null for the whole dig, so
-     * one bad slice at the edge of the extent cost the collar *everywhere* and the opening
-     * rendered as a raw hole with nothing bridging it. It is not a rare seed: the canyon
-     * meanders in z, so at the front or back of a mouth's own extent the wall has often
-     * risen clear of the band. Measured on seed 631729407, Helion's cavern is in band at
-     * z=+3 and z=−9 and 12.2 units out of it at z=+15 — one row of fifteen, and the
-     * cavern had no collar at all.
-     *
-     * `overShaft` cuts the hole per row, so a row out of band has no hole to bridge and
-     * simply does not need a collar. Taking the run containing z=0 keeps the strip
-     * contiguous — it can never bridge across a row that was left solid — while `null`
-     * now means only what it should: the mouth is not open on the play plane at all.
-     */
-    const zs: number[] = [];
-    for (let z = 0; z <= extent + 1e-6; z += CANYON.CELL) {
-      if (!inBand(dig.x, z)) break;
-      zs.unshift(z);
-    }
-    if (zs.length === 0) return null;
-    for (let z = -CANYON.CELL; z >= -extent - 1e-6; z -= CANYON.CELL) {
-      if (!inBand(dig.x, z)) break;
-      zs.push(z);
-    }
-
-    const low: WallHoleEdge = { points: [], colors: [] };
-    const high: WallHoleEdge = { points: [], colors: [] };
-    for (const z of zs) {
-      let lowX = dig.x - WALL_MOUTH_RUN;
-      for (let x = dig.x; x >= dig.x - WALL_MOUTH_RUN; x -= fine) {
-        if (!inBand(x, z)) {
-          lowX = x + fine;
-          break;
-        }
-      }
-      let highX = dig.x + WALL_MOUTH_RUN;
-      for (let x = dig.x; x <= dig.x + WALL_MOUTH_RUN; x += fine) {
-        if (!inBand(x, z)) {
-          highX = x - fine;
-          break;
-        }
-      }
-
-      const lowY = this.heightAt(lowX, z);
-      const highY = this.heightAt(highX, z);
-      low.points.push({ x: lowX, y: lowY, z });
-      low.colors.push(this.shadeAt(lowX, lowY, z));
-      high.points.push({ x: highX, y: highY, z });
-      high.colors.push(this.shadeAt(highX, highY, z));
-    }
-
-    return { low, high };
-  }
 
   /**
    * Does this terrain quad sit over a shaft bore?
@@ -786,25 +649,27 @@ export class CanyonGenerator {
    * so this branch asks whether the quad's own natural height sits within the dig's
    * half-width of the mouth's height instead. See `WALL_MOUTH_RUN`.
    */
-  private overShaft(x0: number, x1: number, z0: number, z1: number, row: Row): boolean {
-    for (const dig of this.excavations) {
-      const extent = (dig.lengthZ ?? dig.halfWidth * 3) / 2;
-      if (Math.min(z0, z1) < -extent || Math.max(z0, z1) > extent) continue;
-      const half = dig.halfWidth;
-
-      if (isFloorMounted(boreDirection(dig).dir)) {
-        if (Math.min(x0, x1) >= dig.x - half && Math.max(x0, x1) <= dig.x + half) return true;
-        continue;
-      }
-
-      if (Math.min(x0, x1) < dig.x - WALL_MOUTH_RUN || Math.max(x0, x1) > dig.x + WALL_MOUTH_RUN) {
-        continue;
-      }
-      const mouthY = this.wallMouthY(dig);
-      const y = this.heightIn((x0 + x1) / 2, row);
-      if (Math.abs(y - mouthY) <= half) return true;
+  /** Whether a point in the play cross-section falls in carved-out rock, within the depth
+   *  band the corridors actually occupy. The single source for both the mesh hole and the
+   *  collider split. */
+  private inCarve(x: number, y: number, z: number): boolean {
+    // **Exactly the corridor's own z extent**, with no padding. A cell of slack either side
+    // cut twelve units of terrain front and back that the corridor does not fill, so the
+    // shaft opened into rock that simply stopped existing — walls short of the hole they
+    // were cut for. The hole and the thing filling it are the same span by construction now.
+    if (z < BACK_Z || z > FRONT_Z) return false;
+    for (const carve of this.carves) {
+      if (carve.has(carve.grid.colAt(x), carve.grid.rowAt(y))) return true;
     }
     return false;
+  }
+
+  private overShaft(x0: number, x1: number, z0: number, z1: number, row: Row): boolean {
+    // The quad's own centre, against the carve. One rule for both mounts: the two used to
+    // be a half-width band for floor digs and a `WALL_MOUTH_RUN`-wide height band for wall
+    // ones, neither of which matched the bore they were cutting for.
+    const x = (x0 + x1) / 2;
+    return this.inCarve(x, this.heightIn(x, row), (z0 + z1) / 2);
   }
 
   /**
@@ -818,18 +683,20 @@ export class CanyonGenerator {
    * The criterion matches `overShaft`'s exactly, so the visual hole and the collision
    * hole are the same hole.
    */
-  private carveWallMouths(points: Vec2[]): Vec2[][] {
-    const wallDigs = this.excavations.filter((d) => !isFloorMounted(boreDirection(d).dir));
-    if (wallDigs.length === 0) return [points];
-
+  /**
+   * Splits the collider profile wherever it crosses carved rock.
+   *
+   * Was `carveWallMouths`, and only ever cut wall mounts — a floor dig relied on the
+   * heightfield dipping instead, so the profile followed a funnel down into the pit. With
+   * the dip gone the profile would run straight across every shaft mouth and seal it, so
+   * this now cuts both, from the same cells the mesh hole is cut from.
+   */
+  private carveMouths(points: Vec2[]): Vec2[][] {
+    if (this.carves.length === 0) return [points];
     const runs: Vec2[][] = [];
     let current: Vec2[] = [];
     for (const p of points) {
-      const inMouth = wallDigs.some((dig) => {
-        if (Math.abs(p.x - dig.x) > WALL_MOUTH_RUN) return false;
-        return Math.abs(p.y - this.wallMouthY(dig)) <= dig.halfWidth;
-      });
-      if (inMouth) {
+      if (this.inCarve(p.x, p.y, 0)) {
         if (current.length > 1) runs.push(current);
         current = [];
       } else {
@@ -904,6 +771,17 @@ export class CanyonGenerator {
      */
     this.excavations = mergeDigs(excavations);
     this.wallMouthCache = new Map();
+    /**
+     * The carve, resolved once and read by everything that has to agree about where the
+     * rock is missing: the mesh (`overShaft`), the collider (`carveMouths`) and `AntFarm`'s
+     * own faces. This replaced three separate notions of the same hole — a heightfield dip
+     * with a `CANYON.CELL` shoulder, a mesh omission on `dig.x ± halfWidth`, and a collider
+     * split on a `WALL_MOUTH_RUN` band — which could and did disagree by a few units each.
+     * There is one set of cells now, and a hole is exactly those cells.
+     */
+    this.carves = this.excavations.map((dig) =>
+      carveFromDig(dig, isFloorMounted(boreDirection(dig).dir) ? this.heightAt(dig.x, 0) : this.wallMouthY(dig)),
+    );
     this.shelves = [
       ...this.naturalShelves(),
       ...padSites.map((x) => ({ x, halfWidth: 9, shoulder: 10 })),
@@ -920,7 +798,7 @@ export class CanyonGenerator {
      * still needs every x for the z=0 render row; only the physics copy is split, and
      * resampled finer near the mouth first — see `colliderProfile`.
      */
-    for (const run of this.carveWallMouths(this.colliderProfile())) {
+    for (const run of this.carveMouths(this.colliderProfile())) {
       this.physics.addPolyline(run, 'rock');
     }
 
@@ -944,20 +822,23 @@ export class CanyonGenerator {
     for (const dig of this.excavations) {
       const natural = this.heightAt(dig.x, 0);
       const floorMounted = isFloorMounted(boreDirection(dig).dir);
-      const mouthY = floorMounted ? natural + dig.depth : natural;
-      const shaft = new Shaft(this.scene, dig, mouthY, this.seed);
-      shaft.build(this.physics);
-      // Bridges the terrain's own cut hole to the bore's own mouth ring — see
-      // `wallHoleBoundary`'s doc comment for why floor mounts don't need this (they
-      // already meet within `RELIEF`, by construction) and wall mounts do.
-      if (!floorMounted) {
-        const hole = this.wallHoleBoundary(dig);
-        shaft.buildCollar(hole);
-        if (hole) spoil.push(...this.mouthSpoil(dig, hole));
-      } else {
-        spoil.push(...this.pitSpoil(dig, mouthY));
-      }
-      this.shafts.push(shaft);
+      // The natural floor *is* the mouth now — `floorDetail` no longer dips, so `heightAt`
+      // no longer returns a pit floor that had to be walked back up from.
+      const mouthY = natural;
+      /**
+       * Carved on the colony's own grid, not built as a tube — see `AntFarm`.
+       *
+       * There is no `buildCollar` call here any more and that is the point of the change.
+       * The collar existed to bridge a bore's mouth ring to the terrain's cut hole, two
+       * curves from unrelated noise fields that could be brought close and never made to
+       * meet; every seam defect this canyon has had lived in that gap. The face samples the
+       * terrain per column at its own depth instead, so it *starts* at the ground rather
+       * than reaching for it, and there is nothing left to bridge.
+       */
+      const farm = new AntFarm(this.scene, carveFromDig(dig, mouthY), this, this.seed);
+      farm.build(this.physics);
+      spoil.push(...(floorMounted ? this.pitSpoil(dig, mouthY) : []));
+      this.shafts.push(farm);
     }
 
     /**
@@ -971,29 +852,6 @@ export class CanyonGenerator {
     if (rubble) this.disposables.push(rubble);
   }
 
-  /**
-   * Broken stone banked along a wall mouth's join with the terrain.
-   *
-   * The collar bridges a hole the terrain cut by one rule to a ring the bore built by
-   * another, and on a shallow wall those two are very different sizes — so the strip that
-   * spans them creases, and no amount of shading hides a crease. Spoil along the join is
-   * what an excavation actually leaves there, and it breaks the line so the eye stops
-   * following it. The seam is still underneath; it is simply no longer the thing you see.
-   *
-   * Both edges get it, and the sizes differ: the low edge is the cut face above the mouth
-   * where bigger slabs calve, the high edge is the run-out below where the spoil finishes
-   * finer.
-   */
-  private mouthSpoil(dig: Excavation, hole: WallHoleBoundary): RubbleSite[] {
-    // Sized off the bore, so a wider cavern calves bigger blocks. At 0.45 of the
-    // half-width the largest of them are a third the height of the mouth — big enough to
-    // read as rock at flight distance, which the first, far smaller pass was not.
-    const size = dig.halfWidth * 0.45;
-    return [
-      ...rubbleAlong(hole.low.points, this.seed, { size, spread: size * 1.5, per: 2, salt: 11 }),
-      ...rubbleAlong(hole.high.points, this.seed, { size: size * 0.75, spread: size * 1.8, per: 2, salt: 23 }),
-    ];
-  }
 
   /**
    * The same, ringing a floor pit's lip.
