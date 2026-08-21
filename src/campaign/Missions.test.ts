@@ -9,6 +9,9 @@ import {
   getMission,
   worldAt,
   resolveBriefCards,
+  EPILOGUE,
+  PROLOGUE,
+  RIM_SITES,
 } from './Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
 import { CORPS } from '../world/CanyonSpec.ts';
@@ -57,6 +60,19 @@ const clientVoice = (m: (typeof MISSIONS)[number]): string =>
 const IDS = MISSIONS.map((m) => m.id);
 
 /**
+ * The missions that are a delivery for a charter — every mission except the prologue.
+ *
+ * Mission 1 is in the table, is numbered and is scored, because the player has no way to
+ * perceive "which of these did a company pay for" and a vehicle going down is a mission.
+ * But it is the one run with no client on the other end: no payload mass, no address, no
+ * brief, and a vehicle no charter operates. Every rule below about what a *contract* looks
+ * like is asserted against this list rather than against `MISSIONS`, so that the
+ * prologue's exemptions stay deliberate and visible instead of being special-cased one
+ * `if` at a time inside each test.
+ */
+const DELIVERIES = MISSIONS.filter((m) => m.id !== PROLOGUE.id);
+
+/**
  * Radar positions worth checking.
  *
  * `mastX` is chosen by the player — wherever they set down on mission 1 — so it is an
@@ -99,7 +115,7 @@ describe('campaign table', () => {
   });
 
   it('gives every mission a payload with a positive mass', () => {
-    for (const m of MISSIONS) {
+    for (const m of DELIVERIES) {
       expect(m.payload.name.length, `mission ${m.id}`).toBeGreaterThan(0);
       expect(m.payload.mass, `mission ${m.id}`).toBeGreaterThan(0);
     }
@@ -110,7 +126,7 @@ describe('campaign table', () => {
   });
 
   it('writes a brief with an objective for every mission', () => {
-    for (const m of MISSIONS) {
+    for (const m of DELIVERIES) {
       expect(transmission(m), `mission ${m.id}`).toContain('OBJECTIVE');
     }
   });
@@ -123,7 +139,7 @@ describe('campaign table', () => {
     // boilerplate deliberately comes after the instruction, so the descent begins from a
     // page with nothing about flying on it. That is the whole point of the annex, so it
     // is asserted rather than tidied away.
-    for (const m of MISSIONS) {
+    for (const m of DELIVERIES) {
       const cards = resolveBriefCards(m);
       const carrying = cards.filter((c) => c.body.includes('<b>OBJECTIVE</b>'));
       expect(carrying.length, `mission ${m.id}`).toBe(1);
@@ -134,10 +150,13 @@ describe('campaign table', () => {
     }
   });
 
-  it('names an address for every mission except the first', () => {
-    // Mission 1 carries the navigation system itself, so there is nowhere to deliver to.
+  it('names an address for every mission except the two that plant landmarks', () => {
+    // The only two runs with nowhere to deliver to, and they are the two that leave
+    // something standing: mission 1 sets down the uplink relay on the rim, mission 2 is
+    // still carrying the navigation mast that every later address is measured from.
     expect(MISSIONS[0].target).toBeNull();
-    for (const m of MISSIONS.slice(1)) {
+    expect(MISSIONS[1].target).toBeNull();
+    for (const m of MISSIONS.slice(2)) {
       expect(m.target, `mission ${m.id}`).not.toBeNull();
     }
   });
@@ -151,7 +170,7 @@ describe('campaign table', () => {
   });
 
   it('starts every mission within the playable width', () => {
-    for (const m of MISSIONS) {
+    for (const m of DELIVERIES) {
       expect(Math.abs(m.start.x), `mission ${m.id}`).toBeLessThan(CANYON.PLAY_HALF_X);
     }
   });
@@ -196,8 +215,12 @@ describe('worldAt accumulation', () => {
     // Mission 1's own `adds` are empty, and — unlike before colony generation moved to
     // `ColonyGeneration.ts` — nothing else fills the gap: `worldAt` no longer bakes in
     // Ixion's colony (or any corp's) at all. See docs/plans/procedural_colony_growth.md.
+    //
+    // The dead relays are excluded rather than counted. They are not ledger: nothing
+    // delivered them and no mission adds them, which is the whole claim they make — they
+    // were lying in this canyon before any charter arrived. See `DEAD_RELAYS`.
     const world = worldAt(1);
-    expect(world.props).toEqual([]);
+    expect(world.props.filter((p) => p.kind !== 'relay')).toEqual([]);
     expect(world.digs).toEqual([]);
   });
 
@@ -364,12 +387,13 @@ describe('who the briefs are talking to', () => {
   });
 
   it('lets Ixion name you, and only after you have earned it', () => {
-    const ixion = briefs.filter((b) => b.client === 'outpost');
+    const ixion = briefs.filter((b) => b.client === 'outpost' && b.id !== PROLOGUE.id);
     const first = ixion[0];
 
-    // Mission 1 is the run that plants the radar. The name is a consequence of it, so
-    // it cannot appear in the brief that sends you out to do it.
-    expect(first.id).toBe(1);
+    // Mission 2 is the run that plants the radar — mission 1 is the prologue, which
+    // Ixion has no way to transmit on. The name is a consequence of that landing, so it
+    // cannot appear in the brief that sends you out to make it.
+    expect(first.id).toBe(2);
     expect(first.text).not.toMatch(/navigator/i);
     for (const b of ixion.slice(1)) expect(b.text).toMatch(/navigator/i);
   });
@@ -408,7 +432,7 @@ describe('airframe assignment', () => {
   });
 
   it('sends every client out on its own airframe, with no exceptions', () => {
-    for (const m of MISSIONS) {
+    for (const m of DELIVERIES) {
       const expected =
         m.client === 'helion' ? 'helion' : m.client === 'kessler' ? 'hauler' : 'lander';
       expect(airframeFor(m)).toBe(expected);
@@ -416,14 +440,16 @@ describe('airframe assignment', () => {
   });
 
   it('opens the campaign on the lander, so the tutorial teaches one scheme', () => {
-    // Four Ixion contracts of rotate-and-thrust before another frame appears at all.
-    for (const id of [1, 2, 3, 4]) {
+    // The prologue flies the relay, which is nobody's charter and teaches one control.
+    expect(airframeFor(getMission(1)!)).toBe('relay');
+    // Then four Ixion contracts of rotate-and-thrust before another frame appears at all.
+    for (const id of [2, 3, 4, 5]) {
       expect(airframeFor(getMission(id)!)).toBe('lander');
     }
     // The order the unfamiliar frames arrive in is deliberate: translation first, which
     // has nothing to recover, then the twin, which needs its control mapping explained.
-    expect(airframeFor(getMission(5)!)).toBe('helion');
-    expect(airframeFor(getMission(6)!)).toBe('hauler');
+    expect(airframeFor(getMission(6)!)).toBe('helion');
+    expect(airframeFor(getMission(7)!)).toBe('hauler');
   });
 
   it("hands over a frame on the client's own first contract, not a mission later", () => {
@@ -439,7 +465,7 @@ describe('airframe assignment', () => {
 
     // Where the scheme changes matters; how it is explained is the brief panel's job,
     // and the manifest already names the vehicle and the control mapping.
-    expect(first.id).toBe(6);
+    expect(first.id).toBe(7);
   });
 
   it('flies all frames often enough for each to be a skill', () => {
@@ -678,7 +704,7 @@ describe('cargoShape', () => {
 
 describe('brief cards', () => {
   it('gives every mission a transmission', () => {
-    for (const m of MISSIONS) {
+    for (const m of DELIVERIES) {
       expect(resolveBriefCards(m).length, `mission ${m.id}`).toBeGreaterThanOrEqual(1);
     }
   });
@@ -694,25 +720,51 @@ describe('brief cards', () => {
     }
   });
 
-  it('lets the outpost cut into somebody else\'s contract, and only there', () => {
-    // The three interruptions in the campaign. 15 is Kessler opening the floor, 19 is
+  it('interrupts a contract four times, and never lets the interruption end it', () => {
+    // 3 is Helion noticing the outpost exist, 15 is Kessler opening the floor, 19 is
     // Helion abandoning the surface, and 30 is the one nobody can be sending.
-    const cutIn = MISSIONS.filter((m) =>
-      resolveBriefCards(m).some((c) => CORP_NAMES.has(c.title) && c.title !== CORPS[m.client].name),
-    );
-    expect(cutIn.map((m) => m.id)).toEqual([15, 19, 30]);
-    for (const m of cutIn) {
-      const outsiders = resolveBriefCards(m).filter(
+    //
+    // They are rationed. The card system supports a second sender on every brief, and
+    // using it on every brief would make an interruption ordinary — the silence between
+    // these is what makes one land.
+    const outsiders = (m: (typeof MISSIONS)[number]) =>
+      resolveBriefCards(m).filter(
         (c) => CORP_NAMES.has(c.title) && c.title !== CORPS[m.client].name,
       );
+
+    const cutIn = MISSIONS.filter((m) => outsiders(m).length > 0);
+    expect(cutIn.map((m) => m.id)).toEqual([3, 15, 19, 30]);
+
+    for (const m of cutIn) {
       // Never the last word: the client resumes, and the address is still theirs to give.
       // On 19 they resume in their own paperwork rather than in their name, which is why
       // this compares against the client's last card and not against the corp name.
       const cards = resolveBriefCards(m);
       const own = ownCards(m);
       expect(cards[cards.length - 1], `mission ${m.id}`).toStrictEqual(own[own.length - 1]);
-      for (const c of outsiders) expect(c.title, `mission ${m.id}`).toBe('IXION OUTPOST');
     }
+  });
+
+  it('interrupts the outpost once, at the start, and lets them do it three times at the end', () => {
+    // The campaign's shape in one assertion. Mission 3 is the only time Ixion is cut into
+    // — a machine that has heard their assay and is not addressing them about it — and
+    // every interruption after it is Ixion doing the cutting.
+    //
+    // So the canyon's first victim is its last voice, and mission 3 and mission 30 are
+    // the same brief structure thirty missions apart: someone talking, someone arriving
+    // on a channel they were not invited to, and the first party carrying on regardless.
+    const interruptedIxion = MISSIONS.filter(
+      (m) =>
+        m.client === 'outpost' &&
+        resolveBriefCards(m).some((c) => CORP_NAMES.has(c.title) && c.title !== 'IXION OUTPOST'),
+    );
+    expect(interruptedIxion.map((m) => m.id)).toEqual([3]);
+
+    const ixionCutting = MISSIONS.filter(
+      (m) =>
+        m.client !== 'outpost' && resolveBriefCards(m).some((c) => c.title === 'IXION OUTPOST'),
+    );
+    expect(ixionCutting.map((m) => m.id)).toEqual([15, 19, 30]);
   });
 
   it('gives mission 1 the last word, in mission 30, unchanged', () => {
@@ -723,8 +775,10 @@ describe('brief cards', () => {
     const LINE =
       'We are the only thing at the bottom of this canyon, and we intend to stay that way.';
 
+    // Mission 2, not 1: the prologue is silent, so the first sentence the player ever
+    // reads is the first thing Ixion says once the link they just landed is up.
     const carrying = MISSIONS.filter((m) => transmission(m).includes(LINE));
-    expect(carrying.map((m) => m.id)).toEqual([1, 30]);
+    expect(carrying.map((m) => m.id)).toEqual([2, 30]);
 
     const card = resolveBriefCards(MISSIONS[29]).find((c) => c.body.includes(LINE))!;
     expect(card.title).toBe('IXION OUTPOST');
@@ -740,7 +794,7 @@ describe('brief cards', () => {
     //
     // Helion is not a person but a form, and a form's pages are headed by their section,
     // so its headings move instead.
-    for (const m of MISSIONS) {
+    for (const m of DELIVERIES) {
       const titles = ownCards(m).map((c) => c.title);
       if (m.client === 'helion') {
         expect(new Set(titles).size, `mission ${m.id}`).toBe(titles.length);
@@ -754,7 +808,7 @@ describe('brief cards', () => {
     // A page turn is a beat. This is the cap that stops one being spent on a wall of
     // text, and it holds for prose as well as for Helion's form — the longest card in
     // the campaign is 228.
-    for (const m of MISSIONS) {
+    for (const m of DELIVERIES) {
       for (const card of resolveBriefCards(m)) {
         const visible = card.body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
         expect(visible.length, `mission ${m.id}, card "${card.title}"`).toBeLessThan(240);
@@ -794,7 +848,7 @@ describe('the Helion contract form', () => {
     // The other two charters address you; that is the whole point of what they call you.
     // Helion's absence of a second person is the same device with nothing behind it, and
     // one stray "you" is all it takes to put a person on the other end of the link.
-    expect(helion.length).toBe(10);
+    expect(helion.length).toBe(9);
     for (const m of helion) {
       expect(`M${m.id}: ${clientVoice(m)}`).not.toMatch(
         /\b(you|your|yours|we|us|our|ours)\b/i,
@@ -858,5 +912,215 @@ describe('the Helion contract form', () => {
     for (const m of helion) {
       expect(clientVoice(m), `mission ${m.id}`).toContain('RETURN EXPECTED: NO');
     }
+  });
+});
+
+/**
+ * The epilogue is the one card sequence with no mission behind it, so every rule the
+ * suite holds over the campaign stops applying to it by default. That makes it exactly
+ * where the voices drift — and it is the last thing the player reads.
+ */
+describe('the epilogue', () => {
+  const body = (sender: string) =>
+    EPILOGUE.filter((m) => m.sender === sender)
+      .map((m) => m.content)
+      .join(' ');
+
+  it('closes with the console and the two charters still able to speak', () => {
+    // Ixion is not on it. They went dark at 28 and stayed dark; the mast quoting mission
+    // 1 during the brief is the last thing they do.
+    expect(EPILOGUE.map((m) => m.sender)).toEqual([
+      'KESSLER DEEP',
+      'UPLINK',
+      'HELION EXTRACTION',
+    ]);
+    expect(EPILOGUE.map((m) => m.register ?? 'corp')).toEqual(['corp', 'sys', 'corp']);
+  });
+
+  it('confirms the delivery before anything else happens', () => {
+    // Otherwise the sequence reads as a crash on the one run the player got right.
+    expect(EPILOGUE[0].content).toMatch(/seated|delivered|confirmed/i);
+  });
+
+  it('cuts Kessler off, and lets nothing resume', () => {
+    // He is interrupted twice in two briefs. In mission 30 the carrier cuts in and he
+    // picks the sentence back up; here there is no third card of his.
+    expect(EPILOGUE[0].content.trim()).toMatch(/—$/);
+    expect(EPILOGUE.filter((m) => m.sender === 'KESSLER DEEP')).toHaveLength(1);
+  });
+
+  it('holds Helion to its own rules to the last line', () => {
+    const helion = body('HELION EXTRACTION');
+    expect(helion).not.toMatch(/\b(you|your|yours|we|us|our|ours)\b/i);
+    expect(helion).not.toContain('<b>');
+    expect(helion).toMatch(/CONTRACT 4471-C · REV \d+ · AUTO/);
+  });
+
+  it('revises past the last contract rather than reusing its number', () => {
+    const last = MISSIONS.filter((m) => m.client === 'helion').pop()!;
+    const prev = Number(/REV (\d+)/.exec(clientVoice(last))![1]);
+    expect(Number(/REV (\d+)/.exec(body('HELION EXTRACTION'))![1])).toBeGreaterThan(prev);
+  });
+
+  it('never crams a card here either', () => {
+    for (const m of EPILOGUE) {
+      const visible = m.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      expect(visible.length, m.sender).toBeLessThan(240);
+    }
+  });
+});
+
+describe('the prologue', () => {
+  it('is mission 1 of thirty, not a thirty-first mission bolted on', () => {
+    // It is numbered, scored and in the table, because "which of these did a company pay
+    // for" is an author's distinction the player has no way to perceive: a vehicle went
+    // down, so it was a mission. What pays for it is the one thing the campaign never
+    // shows, so numbering it costs nothing and leaving it out cost a whole flight.
+    expect(PROLOGUE.id).toBe(1);
+    expect(MISSIONS[0]).toBe(PROLOGUE);
+    expect(MISSION_COUNT).toBe(30);
+    expect(IDS).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+  });
+
+  it('has nobody to talk to it', () => {
+    // The link is what you are delivering, so there is no brief, no sender and no card.
+    // `Game` reads exactly this to skip the brief and hand the vehicle straight over.
+    expect(PROLOGUE.messages).toEqual([]);
+    expect(resolveBriefCards(PROLOGUE)).toEqual([]);
+  });
+
+  it('is the only mission nobody can transmit on', () => {
+    // A guard on the rule rather than on the prologue: if a second silent mission ever
+    // appears, the brief-skipping path in `Game` starts applying somewhere it was never
+    // designed for, and it does so without a single test going red.
+    const silent = MISSIONS.filter((m) => m.messages.length === 0);
+    expect(silent.map((m) => m.id)).toEqual([PROLOGUE.id]);
+  });
+
+  it('has no address, because there is nobody to have given it one', () => {
+    expect(PROLOGUE.target).toBeNull();
+  });
+
+  it('flies the relay rather than the nominal client\'s airframe', () => {
+    // Without the explicit override `airframeFor` would hand this run Ixion's TD-4, off
+    // a `client` that only exists because the field is not optional.
+    expect(airframeFor(PROLOGUE)).toBe('relay');
+    expect(MISSIONS.filter((m) => airframeFor(m) === 'relay')).toHaveLength(1);
+  });
+
+  it('enters straight down, because a drifting entry cannot land', () => {
+    // Regression guard on a real dead end. `resolveContact` tests total speed, not
+    // vertical speed, and this vehicle has no way to null a sideways velocity — so any
+    // non-zero `vx` arrives above `MAX_LANDING_SPEED` however well it is flown, and the
+    // prologue becomes unwinnable with nothing on screen to say why.
+    expect(PROLOGUE.entry?.vx ?? 0).toBe(0);
+  });
+
+  it('enters over the graded shelf, so there is ground under it on every seed', () => {
+    // The rim's natural flats move with the seed; `RIM_SITES` is what guarantees one.
+    const shelf = { lo: Math.min(...RIM_SITES) - 9, hi: Math.max(...RIM_SITES) + 9 };
+    expect(PROLOGUE.start.x).toBeGreaterThanOrEqual(shelf.lo);
+    expect(PROLOGUE.start.x).toBeLessThanOrEqual(shelf.hi);
+  });
+});
+
+describe('the relays', () => {
+  const relays = (id: number, relay: { x: number; y: number | null } | null = null) =>
+    worldAt(id, 0, null, relay).props.filter((p) => p.kind === 'relay');
+
+  it('seeds four dead ones, in the canyon from the first mission to the last', () => {
+    // They predate every charter — that is the entire claim — so they cannot arrive with
+    // one, and they cannot be cleared away by one either.
+    expect(relays(1)).toHaveLength(4);
+    expect(relays(30)).toHaveLength(4);
+    expect(relays(30).every((p) => p.kind === 'relay' && !p.live)).toBe(true);
+  });
+
+  it('leaves the rim empty on a save that has not flown the prologue', () => {
+    // Same discipline as `mastY`: no position is invented for a save that never recorded
+    // one. Four corpses and no live link is a legible state; a relay standing at a
+    // guessed x is not.
+    expect(relays(1).filter((p) => p.kind === 'relay' && p.live)).toHaveLength(0);
+  });
+
+  it('stands the live one wherever the prologue put it, from mission 1 on', () => {
+    // No `id >=` gate, unlike the radar's `id >= 2`. The mast is cargo mission 1 is still
+    // carrying; the relay is already on the rim before mission 1 begins.
+    const live = relays(1, { x: 148, y: 239 }).filter((p) => p.kind === 'relay' && p.live);
+    expect(live).toHaveLength(1);
+    expect(live[0]).toMatchObject({ x: 148, y: 239, live: true });
+  });
+
+  it('is the one prop in the game that belongs to nobody', () => {
+    // Every other variant in the `Prop` union carries a `corp`. If one is ever added
+    // here, the `--sys` livery in `buildRelay` has quietly become a lie.
+    for (const p of relays(30, { x: 148, y: 239 })) {
+      expect(p).not.toHaveProperty('corp');
+    }
+  });
+
+  it('guarantees one sighting near the pad the player lands on most', () => {
+    // `outpost-main` is at x −14 and is the target eight times from mission 2. The other
+    // three are properly missable, which is what makes finding one feel found.
+    const xs = relays(2).map((p) => p.x);
+    expect(xs.some((x) => Math.abs(x - -14) < 30)).toBe(true);
+  });
+});
+
+describe("Helion's mass allowance", () => {
+  /** The printed figure on each contract, in order. */
+  const printed = MISSIONS.filter((m) => m.client === 'helion').map((m) => {
+    const card = resolveBriefCards(m).find((c) => c.body.includes('ALLOWANCE REMAINING'))!;
+    return { id: m.id, mass: m.payload.mass, value: Number(/ALLOWANCE REMAINING: ([\d.]+) T/.exec(card.body)![1]) };
+  });
+
+  it('prints a figure on every contract and nowhere else', () => {
+    // The notice on mission 3 is from Helion and is not a contract, so it carries no
+    // allowance — the number is a property of contract 4471-C, not of the sender.
+    expect(printed).toHaveLength(9);
+    const carrying = MISSIONS.filter((m) =>
+      resolveBriefCards(m).some((c) => c.body.includes('ALLOWANCE REMAINING')),
+    );
+    expect(carrying.every((m) => m.client === 'helion')).toBe(true);
+  });
+
+  it('actually equals the ceiling minus everything consigned so far', () => {
+    /**
+     * The whole point of the mechanic, and the one thing about it that can rot silently.
+     *
+     * The figures are authored text, not computed at runtime, so changing any Helion
+     * payload mass leaves nine hand-written numbers describing a contract that no longer
+     * exists. Nothing on screen would look wrong — a falling number still falls — which is
+     * exactly the class of error a reader cannot catch and a test can.
+     */
+    const CEILING = 11.0;
+    let consigned = 0;
+    for (const row of printed) {
+      consigned += row.mass;
+      expect(row.value, `mission ${row.id}`).toBeCloseTo(CEILING - consigned, 5);
+    }
+  });
+
+  it('falls every single contract and never reaches zero', () => {
+    // Monotonic because nothing is ever returned — `RETURN EXPECTED: NO` appears on every
+    // conditions card in the campaign, and this is the number that makes that line cost
+    // something. Never zero because Helion stops contracting while it still has lift: the
+    // last consignment is 0.3 t of paper, which is what fits in what is left.
+    for (let i = 1; i < printed.length; i++) {
+      expect(printed[i].value, `mission ${printed[i].id}`).toBeLessThan(printed[i - 1].value);
+    }
+    expect(printed[printed.length - 1].value).toBeGreaterThan(0);
+    expect(printed[printed.length - 1].value).toBeLessThan(1);
+  });
+
+  it('spends its last real lift on the seam charges, not on the writ', () => {
+    // The arbitration writ is the lightest thing Helion ships and it is shipped last, and
+    // the allowance is why: after the seam charges there is 0.7 t of contract left. A
+    // company that ends its campaign posting a document is a company that has run out of
+    // room for anything else, and nothing anywhere says so.
+    const last = printed[printed.length - 1];
+    const penultimate = printed[printed.length - 2];
+    expect(last.mass).toBeLessThan(penultimate.mass);
+    expect(last.mass).toBeLessThanOrEqual(penultimate.value);
   });
 });

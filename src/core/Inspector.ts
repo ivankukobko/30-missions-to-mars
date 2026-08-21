@@ -30,6 +30,12 @@ export interface InspectorHost {
    *  currently-loaded canyon already matches this mission's own digs. */
   terrain(): CanyonGenerator;
   loadMission(id: number): void;
+  /**
+   * Straight to the ending, which has no mission index of its own — it is what happens
+   * *after* the last delivery lands, so unlike the prologue it cannot be reached by
+   * typing a number.
+   */
+  beginEpilogue(): void;
   /** Rebuilds the world on a different seed, keeping the current mission. */
   useSeed(seed: number): void;
   /** Whether the growth gizmos are currently drawn — see `ColonyRender.buildColonyGizmos`. */
@@ -133,6 +139,8 @@ export class Inspector {
         <label>mission <input id="dbg-mission" type="number" min="1" max="${MISSION_COUNT}" value="1" /></label>
         <button id="dbg-prev" title="previous mission">&lt;</button>
         <button id="dbg-next" title="next mission">&gt;</button>
+        <button id="dbg-prologue" title="mission zero: the UL-5 relay">prologue</button>
+        <button id="dbg-epilogue" title="what arrives after the thirtieth delivery">epilogue</button>
         <label>seed <input id="dbg-seed" type="number" /></label>
         <button id="dbg-apply">Apply</button>
         <button id="dbg-random" title="random seed">Roll</button>
@@ -164,6 +172,7 @@ export class Inspector {
     seedField.value = String(this.host.seed());
 
     const go = (id: number) => {
+
       const clamped = Math.max(1, Math.min(MISSION_COUNT, id));
       missionField.value = String(clamped);
       this.host.loadMission(clamped);
@@ -176,7 +185,16 @@ export class Inspector {
     this.panel.querySelector('#dbg-next')!.addEventListener('click', () =>
       go(this.host.missionId() + 1),
     );
-    missionField.addEventListener('change', () => go(parseInt(missionField.value, 10) || 1));
+    missionField.addEventListener('change', () => {
+      const typed = parseInt(missionField.value, 10);
+      go(Number.isFinite(typed) ? typed : 1);
+    });
+
+    // The prologue is mission 1 now, so this is a shortcut rather than a back door.
+    this.panel.querySelector('#dbg-prologue')!.addEventListener('click', () => go(1));
+    this.panel
+      .querySelector('#dbg-epilogue')!
+      .addEventListener('click', () => this.host.beginEpilogue());
 
     const applySeed = (seed: number) => {
       seedField.value = String(seed);

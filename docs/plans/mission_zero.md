@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed.** Nothing is built. This is the decision record to argue with before anything
+**Built.** Verified below, then built. Two things in this document turned out to be wrong once measured; both are corrected in place and flagged with **Corrected**. This is the decision record to argue with before anything
 in `Airframe`, `Mission`, `Progress`, `Layout`, `Colony` or `Game.loadMission` moves.
 
 ---
@@ -16,6 +16,25 @@ It is the uplink relay. Once it is standing, the charters can reach you. Until t
 nobody can, which is the whole design.
 
 ## What it buys
+
+> **Corrected — the relay's position is not the player's choice.** This plan counts the
+> relay among "the only two objects in the canyon whose position the player chose". That
+> cannot be true of a vehicle with one control. An entry with a sideways `vx` was tried
+> precisely to buy it — thrust slows the fall, a slower fall drifts further, so *when* you
+> burn becomes *where* you land — and it makes the prologue unwinnable: `resolveContact`
+> tests total speed, not vertical speed, against `MAX_LANDING_SPEED` of 2.4, and a vehicle
+> that cannot rotate and has no lateral thruster can never null a sideways velocity.
+> Measured, it descended to four units above the shelf at −1.4 and skimmed across it.
+> The relay now enters straight down over a graded shelf; the mast in mission 1, flown
+> with full controls, remains the one object the player really sites.
+
+> **Corrected — the rim is graded, not found.** "Is there ground on the rim to land on"
+> had a subtler answer than yes: there is, and *where* moves with the seed. Bare rock only
+> counts as a landing when the contact normal clears `MAX_GROUND_LANDING_SLOPE`, so an
+> authored `start.x` tuned against one seed's flats is a coin toss on every other. Three
+> sites in `RIM_SITES` now go into `canyon.build` alongside `campaignPadSites`, levelling
+> a ~54-unit shelf on every seed — the same mechanism the campaign already uses to
+> guarantee ground under a pad that rests on it.
 
 **The only silent mission in the game.** No brief, no card, no sender, no music. Nobody
 can talk to you before the link exists, so the first voice in the campaign — Ixion's
@@ -171,15 +190,42 @@ than the relay being placed at a guess — the same discipline as the mast heigh
 
 ---
 
-## Verify before building
+## Verified before building
 
-- **Is there ground on the rim to land on?** The canyon generator raises walls to
-  `RIM_Y`; whether the surface above is flat enough to be a landing site, and how wide,
-  decides whether the prologue works at all. Everything else here assumes it does.
-- **Is the relay actually visible on entry?** 830–1050 units of fall past it is the
-  argument, but the camera director frames the lander, and fog thickens with depth
-  (`Game.ts` lerps toward `0x2e1409` below the rim). A light that is never legible is a
-  feature nobody sees.
+Both questions are now measured, on seed 1696448283. Both answers are yes, and the second
+one narrows the claim this plan was making.
+
+**Is there ground on the rim to land on? Yes, but not where this plan assumed.** The
+canyon mouth is all slope: everything inside |x| < 130 is climbing at 2–5 units per 5 of
+x. The rim proper begins around |x| ≈ 130 and undulates between y 210 and 270, with usable
+flats 10–20 wide — the widest are **x 140…160** (20 across, 3 of drop) and **x −150…−140**.
+
+That is roughly **twice `PLAY_HALF_X`**, which sounded fatal and is not: `PLAY_HALF_X` is
+referenced in exactly one place, `CanyonGenerator.floorEdgeAt`, and never bounds the
+vehicle. The rim is reachable. It also means the only flat ground *is* the band the relay
+wants to be in, so "land on the rim" puts the player where the design needs them without
+the prologue having to fence them in.
+
+**Is the relay visible on entry? Yes — for the first third of the fall, not all of it.**
+Projecting a relay at (145, 239) into the camera through a mission-1 entry:
+
+| Vehicle at | NDC | |
+| --- | --- | --- |
+| y 1070 (entry) | (0.58, −0.72) | on screen, lower right |
+| y 700 | (1.03, −0.72) | just past the edge |
+| y 300 | (4.45, −0.48) | off |
+| y 120 | (26.6, 13.06) | off |
+
+So the argument in *What it buys* — 830–1050 units of falling past it — is wrong as
+written. The real figure is about 370 units, five seconds of a twelve-second entry. That
+is still the right five seconds: it is exactly the stretch where the uplink bar is filling
+and the controls are dead, which is the only claim the design actually needs. The line
+should say so rather than overstating it.
+
+One consequence worth carrying: the relay's x is **player-chosen and frozen**, so
+visibility is a property of where they put it. Landing far out along the rim buys a relay
+nobody ever sees again. The flats are in the visible band, which handles the common case,
+but the prologue should not encourage wandering.
 
 ---
 

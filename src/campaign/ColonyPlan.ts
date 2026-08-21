@@ -404,12 +404,14 @@ export function missionWorlds(
   mastX: number | null,
   mastY: number | null,
   terrain: PlanTerrain,
+  /** Where the player's relay stands, or null before the prologue is flown. */
+  relay: { x: number; y: number | null } | null = null,
 ): (missionId: number) => MissionWorld {
   const cache = new Map<number, MissionWorld>();
   return (missionId) => {
     const hit = cache.get(missionId);
     if (hit) return hit;
-    const world = worldAt(missionId, mastX, mastY);
+    const world = worldAt(missionId, mastX, mastY, relay);
     const resolved = resolveTerrainAnchoredDigs(world.digs, terrain);
     const out: MissionWorld = {
       props: applyDigAttachments(world.props, resolved.endpoints),
@@ -572,7 +574,17 @@ export function planColonies(
       const first = corpMissions[0];
       if (!first || first.id > m) continue; // this corp hasn't started yet
 
-      const elapsed = corpMissions.filter((x) => x.id <= m);
+      /**
+       * The corp's own missions so far, minus any this campaign froze for them.
+       *
+       * A frozen mission is one whose cargo arrived and was never installed — see
+       * `colonyFrozen`. Dropping it from the count is what makes the injunction visible
+       * in the geometry: for the two missions it holds, the player flies over a colony
+       * that does not grow, and nothing anywhere says so in words.
+       */
+      const elapsed = corpMissions.filter(
+        (x) => x.id <= m && !(x.colonyFrozen ?? []).includes(corp),
+      );
       const earnedPoints = elapsed.reduce((sum, x) => sum + (scores[String(x.id)] ?? 0), 0);
 
       const currentMission = MISSIONS.find((x) => x.id === m);

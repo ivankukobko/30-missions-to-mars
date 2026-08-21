@@ -4,7 +4,8 @@ import { CameraDirector } from './CameraDirector.ts';
 import { Inspector } from './Inspector.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { maxSafeSpeed } from '../physics/Kinematics.ts';
-import { CanyonGenerator } from '../world/CanyonGenerator.ts';
+import { CanyonGenerator, type Excavation } from '../world/CanyonGenerator.ts';
+import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
 import { Colony, type PadInfo } from '../world/Colony.ts';
 import { forgetFadedMaterials } from '../world/LanderFade.ts';
 import { CANYON, CORPS, PALETTE } from '../world/CanyonSpec.ts';
@@ -16,13 +17,16 @@ import { Progress, scoreLanding } from '../campaign/Progress.ts';
 import {
   getMission,
   airframeFor,
+  PROLOGUE,
+  RIM_SITES,
   musicTrackFor,
   MISSION_COUNT,
   ENTRY_VELOCITY,
   type Mission,
 } from '../campaign/Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
-import { clamp01, damp, lerp } from '../world/Noise.ts';
+import { clamp01, damp, hash01, lerp } from '../world/Noise.ts';
+import type { RubbleSite } from '../world/Rubble.ts';
 import { audio } from '../audio/AudioManager.ts';
 import { VolumetricFog } from '../world/VolumetricFog.ts';
 import { checkLayout } from '../campaign/Layout.ts';
@@ -39,6 +43,7 @@ const CEILING_Y = CANYON.RIM_Y + 1500;
 type State =
   | 'MENU'
   | 'UPLINK'
+  | 'FALL'
   | 'BRIEF'
   | 'PLAYING'
   | 'PAUSED'
@@ -66,6 +71,72 @@ const UPLINK_SECONDS = 3;
 
 /** Controls during the uplink: none of them. */
 const IDLE_INPUT: InputState = { left: false, right: false, main: false };
+
+/**
+ * The epilogue: the same handshake, and nobody on the other end of it.
+ *
+ * Every mission this game has ever run opens with `UPLINK` — falling, no console, no
+ * instruments, dead controls, and a bar that completes in exactly three seconds and hands
+ * the vehicle over. The ending is that sequence with the handover deleted. Nothing here
+ * is a cutscene: it is the real simulation, the real entry, the real camera, and the one
+ * line that ends the fall simply never runs.
+ *
+ * That is the whole design. Thirty times the player has felt three seconds pass and their
+ * hands come alive, so the moment it does not arrive is legible without a word of
+ * narration — and it is legible *in their hands*, which is the one place this game can
+ * say something a text card cannot.
+ *
+ * The bar crawls rather than freezing. Frozen reads as a bug and invites a reload; an
+ * asymptote reads as something still trying, and it is already visibly behind at the
+ * three-second mark — 0.75 where every other mission is finished — so the wrongness
+ * starts before the moment of expected handover rather than at it.
+ */
+const FALL_STALL_AT = 0.88;
+const FALL_STALL_TAU = 1.6;
+
+/**
+ * Where the beacon is picked up, and where the picture goes.
+ *
+ * Both are tested two ways and take **whichever comes first**, and that is not
+ * belt-and-braces — either test alone is wrong somewhere on the map.
+ *
+ * Altitude alone is wrong because the ground is not at `FLOOR_Y`. Mission 30 enters at
+ * x −18, where the terrain stands at y≈177 — up on the shoulder, sixty under the rim —
+ * so a cut at `FLOOR_Y + 45` would drive the vehicle a hundred and thirty units into
+ * rock. Colony size scales with the player's score too, so what is standing under that x
+ * differs from save to save.
+ *
+ * A ground lookup alone is wrong because the ground can fall away. Over the shaft it
+ * returns the shaft floor, three hundred metres lower, and the ending would become a
+ * function of excavation geometry that is still being written.
+ *
+ * `FALL_SIGNAL_RUN` is what makes the beacon's airtime a fact rather than an estimate.
+ * Detection and cut are measured the same two ways, offset by the same distance, so the
+ * beacon leads the ending by exactly that fall however the ending is reached: about three
+ * and a half seconds at entry speed, which is two clear strokes of the five-bar word and
+ * a third cut off. One is inaudible as a pattern; four resolve into a loop the player can
+ * dismiss as ambience.
+ *
+ * And **nothing may be allowed to land or crash here.** A touchdown would run the scoring
+ * path, a crash would raise a failure card with a retry button on it, and either would
+ * turn the ending into a mission you could get wrong. You lose the picture before the
+ * vehicle arrives, the same way you lost Kessler.
+ */
+const FALL_CUT_Y = CANYON.FLOOR_Y + 45;
+const FALL_CUT_HEIGHT = 45;
+const FALL_SIGNAL_RUN = 375;
+const FALL_IDENT_Y = FALL_CUT_Y + FALL_SIGNAL_RUN;
+const FALL_IDENT_HEIGHT = FALL_CUT_HEIGHT + FALL_SIGNAL_RUN;
+
+/**
+ * What the handshake says once the beacon is on it.
+ *
+ * `SOURCE UNRESOLVED` is the design in two words, in the same register Helion has filed
+ * in since REV 1 — a machine reporting that it cannot identify what it is hearing, which
+ * is a statement of fact and not of meaning. It exists for the players who will not hear
+ * the ident as a pattern; it tells them something is transmitting, and nothing else.
+ */
+const FALL_IDENT_LINE = 'SIGNAL DETECTED · IDENT 00001 · SOURCE UNRESOLVED';
 
 /**
  * Aerodynamic buffet — the vehicle coming in through the top of the atmosphere.
@@ -246,8 +317,13 @@ export class Game {
     if (!mission) {
       this.state = 'VICTORY';
       this.ui.setHudVisible(false);
+      // The epilogue first, then the campaign screen. The delivery is confirmed on its
+      // opening card before anything else happens, because a player who has just landed
+      // the last run has to know they succeeded before the ground moves — otherwise the
+      // whole sequence reads as a crash.
+      //
       // In place rather than through a page reload, now that there is a menu to land in.
-      this.ui.showVictory(() => this.newCanyon());
+      this.ui.showEpilogue(() => this.beginEpilogueFall());
       return;
     }
 
@@ -278,7 +354,7 @@ export class Game {
     // available. See docs/plans/procedural_colony_growth.md and `TerrainDigs.ts`.
     // Every mission's resolved world, memoised — this mission's for the terrain build
     // below, and every earlier mission's for the campaign walk `planColonies` makes.
-    const worlds = missionWorlds(this.progress.mastX, this.progress.mastY, this.canyon);
+    const worlds = missionWorlds(this.progress.mastX, this.progress.mastY, this.canyon, this.relayPlacement());
     this.physics.clear();
 
     // Resolved *before* `canyon.build()` — a wall-anchored dig's real x/direction come
@@ -296,7 +372,12 @@ export class Game {
     // rebuild. Clearing this inside either builder would be wrong — the canyon and the
     // colony both contribute, and whichever ran second would forget the other's.
     forgetFadedMaterials();
-    this.canyon.build(current.digs, campaignPadSites(worlds));
+    // The rim shelf is graded on every mission, not just the prologue: it is where the
+    // player's relay is standing for the rest of the campaign, and terrain that moved
+    // under a planted landmark would be the mast bug all over again. See `RIM_SITES`.
+    this.canyon.build(current.digs, [...campaignPadSites(worlds), ...RIM_SITES]);
+    // Kept for the epilogue, which has to know where the bores were in order to bury them.
+    this.currentDigs = current.digs;
 
     // Growth runs here, after `canyon.build()`, because the whole design depends on the
     // order: generate the landscape, fit a lattice to it, reserve every live pad's
@@ -333,6 +414,9 @@ export class Game {
       ? allProps.filter((p) => p.kind === 'colony' || p.kind === 'pad')
       : allProps;
     this.colony.build(shown, this.canyon, plan);
+    // A charter under injunction keeps its structures and loses its lights. See
+    // `Colony.darken` for why this rather than the growth freeze the field also drives.
+    this.colony.darken(mission.colonyFrozen ?? []);
 
     // A structure fast enough to cross the hull inside one substep can be passed clean
     // through, and the symptom is nothing happening — which looks exactly like nothing
@@ -380,15 +464,30 @@ export class Game {
     this.sun.target.position.set(mission.start.x, CANYON.FLOOR_Y, 0);
 
     this.ui.setHudVisible(false);
-    // Ranging comes off the radar, and on mission 1 the radar is still in the hold.
-    this.ui.setInstruments(id > 1);
+    // Ranging comes off the radar, which is mission 2's payload and is still in the hold
+    // while it is being flown. The relay has no panel to put rows on at all — see
+    // `Airframe.hasConsole`.
+    this.ui.setConsole(this.lander.airframe.hasConsole);
+    this.ui.setInstruments(this.lander.airframe.hasConsole && id > 2);
     // The panel belongs to the vehicle; the colours belong to whoever chartered it.
     this.ui.setAirframe(this.lander.airframe.scheme, CORPS[mission.client].color);
     this.ui.setMission(mission, this.targetPad);
     if (present) this.beginUplink();
 
-    audio.setMissionContext(musicTrackFor(mission), mission.id);
-    audio.startAmbient();
+    /**
+     * The prologue is engine and wind, and nothing else.
+     *
+     * It is the one mission with no charter to be scored for, so there is no theme that
+     * would be honest to play — every track in `THEMES` belongs to somebody who cannot
+     * reach you yet. The score arriving with the first voice, at mission 1, is worth more
+     * than a theme here.
+     */
+    if (mission.id !== PROLOGUE.id) {
+      audio.setMissionContext(musicTrackFor(mission), mission.id);
+      audio.startAmbient();
+    } else {
+      audio.stopAmbient();
+    }
 
     // Readout follows whatever is actually loaded, including retries and next-mission
     // transitions the inspector did not initiate.
@@ -418,6 +517,163 @@ export class Game {
     this.ui.hidePanel();
     this.ui.setHudVisible(false);
     this.ui.setUplink(0);
+  }
+
+  /** Whether the epilogue's beacon has already been picked up on this fall. */
+  private identSent = false;
+
+  /**
+   * Where the player's relay stands, in the shape `worldAt` wants, or null before the
+   * prologue has been flown.
+   *
+   * `y` may be null on its own while `x` is set — a save written before the touchdown
+   * height was tracked. That is deliberately passed through rather than filled in: the
+   * renderer resamples terrain in that case, and inventing a height here would hide which
+   * saves are approximating. Same discipline as `mastY`.
+   */
+  private relayPlacement(): { x: number; y: number | null } | null {
+    const x = this.progress.relayX;
+    return x === null ? null : { x, y: this.progress.relayY };
+  }
+
+  /** This mission's resolved excavations, as handed to `canyon.build`. */
+  private currentDigs: Excavation[] = [];
+
+  /**
+   * Stone piled over every bore mouth, for the epilogue.
+   *
+   * Only the bores that go **down**, tested with the same `isFloorMounted(boreDirection())`
+   * the generator itself carves by. A lateral working in the west wall is a room with a
+   * roof on it — Helion spent six contracts making sure of that — and filling its mouth
+   * with scree would say something about the west wall that a charge at the bottom of
+   * Kessler's shaft did not do.
+   *
+   * The lip comes from `surfaceFloorAt`, which is the canyon floor with the excavations
+   * *not* carved — the level the mouth was originally cut into, and the only correct
+   * answer here. The two obvious alternatives are both wrong in ways that look like
+   * scenery until you measure them: `heightAt` with digs included returns the shaft floor
+   * three hundred metres down, so every stone would drop to the bottom of the hole it is
+   * meant to be covering; and a physics `groundBelow` sampled beside the mouth reads
+   * whatever colony structure happens to stand there — measured, that put the pile at
+   * y≈190 over a mouth at y≈8.
+   *
+   * Deduplicated by mouth. Kessler's shaft is three excavations at the same x, one per
+   * time it was sunk deeper, and piling each of them separately would treble the stone at
+   * a single hole.
+   *
+   * Mounded rather than level: densest and highest over the centre line, thinning to
+   * nothing at the edges, because that is the shape a collapse leaves and a flat layer
+   * reads as a floor someone poured.
+   */
+  private epilogueRubble(): RubbleSite[] {
+    const seed = this.progress.seed;
+    const sites: RubbleSite[] = [];
+
+    const mouths = new Map<string, number>();
+    for (const dig of this.currentDigs) {
+      if (!isFloorMounted(boreDirection(dig).dir)) continue;
+      const key = dig.x.toFixed(1);
+      mouths.set(key, Math.max(mouths.get(key) ?? 0, dig.halfWidth));
+    }
+
+    let pile = 0;
+    for (const [key, halfWidth] of mouths) {
+      const x0 = parseFloat(key);
+      const lip = this.canyon.surfaceFloorAt(x0);
+      const span = halfWidth + 9;
+      const count = Math.round(span * 2.4);
+
+      for (let i = 0; i < count; i++) {
+        const across = (hash01(seed, i, pile, 0x5caf) - 0.5) * 2;
+        // 1 at the centre line, 0 at the edge of the span.
+        const mound = 1 - Math.abs(across);
+        sites.push({
+          x: x0 + across * span,
+          y: lip - 2 + hash01(seed, i, pile, 0x5cb0) * 8 * mound,
+          z: (hash01(seed, i, pile, 0x5cb1) - 0.5) * 16,
+          size: 2.6 + hash01(seed, i, pile, 0x5cb2) * 3.4,
+        });
+      }
+      pile++;
+    }
+
+    return sites;
+  }
+
+  /**
+   * The epilogue's fall: a handshake that never completes, over a canyon with the lights
+   * off.
+   *
+   * Reuses the world that is already standing. The player has just landed the charge on
+   * mission 30, so the terrain, the colonies and the physics are built and correct — the
+   * only honest thing left to change is that nothing is lit any more, and that is a
+   * post-pass over the built scene rather than a rebuild (see `Colony.blackout`).
+   *
+   * The vehicle is a new one, and the game never says whose. Its airframe is picked from
+   * the campaign seed — deterministic, like everything else that moves here — and it is
+   * carrying **mission 1's payload on mission 1's fuel**, which is the same fact the
+   * beacon transmits and the same fact Helion files as `CARRIER: CLASSIFICATION PENDING`.
+   * Whether this is your first delivery still transmitting from the rim or your
+   * replacement on its first run is not answered anywhere, and cannot be: the campaign
+   * spent thirty missions not answering things, and the ending is not the place to start.
+   */
+  private beginEpilogueFall(): void {
+    const first = getMission(1);
+    if (!first) return;
+
+    const frames = Object.values(AIRFRAMES);
+    const frame = frames[Math.abs(this.progress.seed) % frames.length];
+
+    this.colony.collapse(this.progress.seed, this.epilogueRubble());
+
+    this.lander?.dispose();
+    this.lander = new Lander(this.scene, first.payload, first.fuel, frame);
+    this.lander.invertThrusters = this.progress.invertThrusters;
+    // Nothing is going to reach the ground — see `FALL_CUT_HEIGHT` — but a vehicle that
+    // would have been refused its landing if it had is the wrong kind of detail to leave
+    // lying in an ending.
+    this.lander.allowGround = true;
+    this.lander.x = this.mission.start.x;
+    this.lander.y = this.mission.start.y;
+    this.lander.vx = ENTRY_VELOCITY.vx;
+    this.lander.vy = ENTRY_VELOCITY.vy;
+    this.lander.group.position.set(this.lander.x, this.lander.y, 0);
+    this.lander.pin();
+    audio.setEngineLayout(this.lander.airframe.engines.map((e) => e.x));
+
+    this.director.snapTo(this.lander.x, this.lander.y);
+
+    this.missionTime = 0;
+    this.accumulator = 0;
+    this.heightAboveGround = Infinity;
+    this.identSent = false;
+    this.lastFrame = performance.now();
+
+    this.state = 'FALL';
+    this.ui.hidePanel();
+    this.ui.setHudVisible(false);
+    // No console and no augmented layer, for the same reason no mission draws them during
+    // its own handshake: they belong to the airframe, and nobody is connected to this one.
+    this.ui.setInstruments(false);
+    this.ui.setUplink(0);
+  }
+
+  /**
+   * Loss of signal, and the end of the campaign.
+   *
+   * Reached from the frame loop on height above ground, or from Escape. There is no
+   * result card and no rank: this is not a run that can be passed or failed, and putting
+   * a retry button under it would say the opposite of everything above.
+   */
+  private endEpilogueFall(): void {
+    if (this.state !== 'FALL') return;
+    this.state = 'VICTORY';
+    this.ui.setUplink(null);
+    this.ui.setHudVisible(false);
+    // The ambience goes with the picture. Everything the player has been hearing for
+    // thirty missions arrives over the same link that just stopped answering.
+    audio.stopAmbient();
+    this.ui.showVictory(() => this.newCanyon());
   }
 
   /**
@@ -476,7 +732,17 @@ export class Game {
 
     // `this.lander.y` here is the settled touchdown height — `resolveContact` has
     // already run — so this is ground truth, not a terrain estimate. See `Saved.mastY`.
-    if (this.mission.target === null) {
+    /**
+     * Which landmark this landing plants.
+     *
+     * Branching on the id rather than on `target === null`, which used to be a safe proxy
+     * for "this is mission 1" and stopped being one the moment the prologue existed — it
+     * has no address either, and under the old test it would have planted Ixion's
+     * navigation mast on the rim with the relay still strapped to the deck.
+     */
+    if (this.mission.id === PROLOGUE.id) {
+      this.progress.setRelayPosition(this.lander.x, this.lander.y);
+    } else if (this.mission.target === null) {
       this.progress.setMastPosition(this.lander.x, this.lander.y);
     }
 
@@ -570,7 +836,37 @@ export class Game {
       // any machine and a retry replays it identically.
       this.stepSimulation(elapsed);
       this.ui.setUplink(clamp01(this.missionTime / UPLINK_SECONDS));
-      if (this.missionTime >= UPLINK_SECONDS) this.presentBrief();
+      // A mission with nothing to say hands the vehicle straight over. Only the prologue
+      // is in that position, and it is in it because the link does not exist yet: there
+      // is no card to show because there is nobody on the other end to have sent one.
+      if (this.missionTime >= UPLINK_SECONDS) {
+        if (this.mission.messages.length === 0) {
+          this.ui.setUplink(null);
+          this.begin();
+        } else {
+          this.presentBrief();
+        }
+      }
+    } else if (this.state === 'FALL') {
+      // The same stepper and the same dead controls as the uplink above — and no line
+      // that ends it. See `FALL_STALL_AT`.
+      this.stepSimulation(elapsed);
+      this.ui.setUplink(
+        FALL_STALL_AT * (1 - Math.exp(-this.missionTime / FALL_STALL_TAU)),
+        this.identSent ? FALL_IDENT_LINE : undefined,
+      );
+      const lander = this.lander;
+      if (
+        !this.identSent &&
+        lander &&
+        (lander.y < FALL_IDENT_Y || this.heightAboveGround < FALL_IDENT_HEIGHT)
+      ) {
+        this.identSent = true;
+        audio.playDistantIdent();
+      }
+      if (lander && (lander.y < FALL_CUT_Y || this.heightAboveGround < FALL_CUT_HEIGHT)) {
+        this.endEpilogueFall();
+      }
     } else if (this.state === 'SETTLING') {
       this.settleTimer -= elapsed;
       if (this.settleTimer <= 0) this.resolveSettle();
@@ -585,7 +881,8 @@ export class Game {
       // compensation would keep leading a target that is no longer moving —
       // sliding the framing off the vehicle the longer you stay paused.
       // The uplink is a real descent, so the camera leads it like any other.
-      const moving = this.state === 'PLAYING' || this.state === 'UPLINK';
+      const moving =
+        this.state === 'PLAYING' || this.state === 'UPLINK' || this.state === 'FALL';
       this.director.update(
         elapsed,
         // The drawn position, not the stepped one. Chasing the stepped position while
@@ -598,7 +895,7 @@ export class Game {
         this.heightAboveGround,
       );
     }
-    this.colony.update(elapsed, this.director.camera, this.lander ?? undefined);
+    this.colony.update(elapsed, this.director.camera, this.lander ?? undefined, this.missionTime);
     if (this.lander) {
       this.effects.update(elapsed, this.lander.x, this.lander.y, this.lander.vx, this.lander.vy);
     }
@@ -621,7 +918,8 @@ export class Game {
      * yet — which is the whole point of the sequence, and is why this substitutes a dead
      * input rather than skipping the step. The world has to keep moving.
      */
-    const input = this.state === 'UPLINK' ? IDLE_INPUT : this.input.getState();
+    const input =
+      this.state === 'UPLINK' || this.state === 'FALL' ? IDLE_INPUT : this.input.getState();
 
     while (this.accumulator >= FIXED_DT && steps < MAX_SUBSTEPS) {
       this.accumulator -= FIXED_DT;
@@ -635,6 +933,13 @@ export class Game {
       this.colony.kinematics.update(this.missionTime);
 
       const contact = lander.step(FIXED_DT, input, this.physics);
+
+      // The epilogue's fall has no outcomes. It is ended from the frame loop on height
+      // above ground, well clear of the surface, so none of the four below can be reached
+      // in practice — but a landing here would run the scoring path and a crash would put
+      // a retry button on the last thing in the game, and neither may ever be one terrain
+      // change away.
+      if (this.state === 'FALL') continue;
 
       if (contact.type === 'landed') {
         const wanted = this.mission.target;
@@ -1029,6 +1334,9 @@ export class Game {
 
     if (this.state === 'PLAYING') this.pause();
     else if (this.state === 'PAUSED') this.resume();
+    // The fall is unskippable in every other sense — there is nothing to press — so
+    // Escape is the only way past it for a player who has seen it before.
+    else if (this.state === 'FALL') this.endEpilogueFall();
     // Out of a submenu back to the root, and no further: the root menu is the floor.
     else if (this.state === 'MENU' && this.menuDepth > 0) this.openMenu();
   }
@@ -1240,6 +1548,17 @@ export class Game {
       pads: () => this.colony.pads,
       targetPad: () => this.targetPad,
       missionId: () => this.mission?.id ?? 1,
+      /**
+       * Straight into the ending, on whatever canyon is loaded.
+       *
+       * Goes through mission 30 first so the epilogue runs over the world it is about to
+       * bury — the collapse is a post-pass over the built scene, so triggering it on, say,
+       * mission 4's canyon would topple a settlement that never grew.
+       */
+      beginEpilogue: () => {
+        this.loadMission(MISSION_COUNT);
+        this.loadMission(MISSION_COUNT + 1);
+      },
       seed: () => this.progress.seed,
       scores: () => this.progress.points,
       mastX: () => this.progress.mastX,

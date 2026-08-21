@@ -160,7 +160,7 @@ interface HullProfile {
  * One silhouette per airframe, so a client is recognisable by hull alone at a range
  * where the trim colour has already fogged out.
  *
- * All three occupy the same vertical span as the box they replaced — only the radius
+ * They all occupy the same vertical span as the box they replaced — only the radius
  * curve differs — which is what lets this be a drop-in for `chassis` rather than a
  * renegotiation of where the deck, the gear or the engines sit.
  */
@@ -210,6 +210,29 @@ const HULL_PROFILES: Record<Airframe['id'], HullProfile> = {
       [0.3, 0.6],
       [0.65, 0.48],
       [1, 0.32],
+    ],
+  },
+  /**
+   * UL-5: a mast. The only profile that never swells.
+   *
+   * The three charter hulls are all variations on "wide in the middle" — a rocket, a
+   * barrel, a saucer — because all three are built around carrying something. This one
+   * carries nothing, and reads at a glance as a different *class* of object rather than
+   * a fourth vehicle: a pole with legs under it.
+   *
+   * That silhouette is load-bearing well past the prologue. Four dead relays are seeded
+   * half-buried in the canyon, and the only thing that makes them legible as corpses is
+   * that the player spent a mission flying this shape. Nothing labels them. So the
+   * profile has to survive being seen small, in dust, at a distance — which is why it is
+   * six facets and a straight taper rather than anything sculpted.
+   */
+  relay: {
+    segments: 6,
+    points: [
+      [0, 0.15],
+      [0.3, 0.19],
+      [0.72, 0.17],
+      [1, 0.13],
     ],
   },
 };

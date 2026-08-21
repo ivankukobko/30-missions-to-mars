@@ -16,7 +16,7 @@
  */
 
 import { CORPS } from '../world/CanyonSpec.ts';
-import { resolveBriefCards, type Mission } from '../campaign/Missions.ts';
+import { EPILOGUE, resolveBriefCards, type Mission } from '../campaign/Missions.ts';
 import { audio } from '../audio/AudioManager.ts';
 import { teletype, type Typing } from './Teletype.ts';
 
@@ -108,6 +108,27 @@ export function buildBrief(
   new BriefRun(pages, host, onBegin, opts.resumed ? pages.length - 1 : 0).show();
 }
 
+/**
+ * The epilogue, on the same cards as every brief in the campaign.
+ *
+ * Reuses the brief runner rather than inventing an ending screen, because the ending is
+ * the same kind of event as everything before it: somebody sending you something. The
+ * only difference is that one of the senders is not a charter — see `register`.
+ */
+export function buildEpilogue(host: BriefHost, onDone: () => void): void {
+  const liveries = new Map(Object.values(CORPS).map((c) => [c.name, c.color]));
+  const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
+
+  const pages: Page[] = EPILOGUE.map((m) => ({
+    register: m.register ?? 'corp',
+    eyebrow: m.sender,
+    color: hex(liveries.get(m.sender) ?? CORPS.outpost.color),
+    body: m.content.trim(),
+  }));
+
+  new BriefRun(pages, host, onDone, 0, 'CLOSE').show();
+}
+
 class BriefRun {
   private typing: Typing | null = null;
 
@@ -116,6 +137,8 @@ class BriefRun {
     private host: BriefHost,
     private onBegin: () => void,
     private at = 0,
+    /** What the final card's button says. A brief launches; the epilogue closes. */
+    private finalLabel = 'BEGIN DESCENT',
   ) {}
 
   show(): void {
@@ -161,7 +184,7 @@ class BriefRun {
       }
     }
 
-    const advance = el('button', 'primary', last ? 'BEGIN DESCENT' : 'NEXT');
+    const advance = el('button', 'primary', last ? this.finalLabel : 'NEXT');
     advance.addEventListener('click', () => this.next());
     card.append(advance);
 
@@ -230,7 +253,7 @@ class BriefRun {
     audio.playUiBeep(760, 'square', 0.03);
 
     if (this.at >= this.pages.length - 1) {
-      audio.playLaunch();
+      if (this.finalLabel === 'BEGIN DESCENT') audio.playLaunch();
       this.onBegin();
       return;
     }

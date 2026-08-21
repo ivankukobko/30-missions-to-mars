@@ -80,6 +80,15 @@ const IDENT_BITS = 5;
 const IDENT_BIT = 0.26;
 
 /**
+ * The ident the epilogue's beacon transmits: mission 1, `00001`.
+ *
+ * Named rather than inlined because the number is the meaning. One stroke is both the
+ * first delivery this campaign ever made and the first mission of whoever is flying now,
+ * and picking any other value would answer a question the ending exists to leave open.
+ */
+const DISTANT_IDENT = 1;
+
+/**
  * One bar per ident bit, so the word fills exactly one chord step: 2.1 seconds, about
  * 114 BPM in four.
  *
@@ -341,6 +350,61 @@ export class MusicComposer {
       gain.connect(this.destination);
       osc.start(at);
       osc.stop(at + 0.45);
+    }
+  }
+
+  /**
+   * A weak, detuned mission-1 ident, caught on the way down in the epilogue.
+   *
+   * The score has been transmitting the mission number as a five-bit word all campaign,
+   * and because the numbers grow, the figure has been thickening the whole way: mission 1
+   * is `00001` — four rests and one stroke, the sparsest thing this system can say — and
+   * mission 30 is `11110`. The player has heard the dense end of that for ten missions
+   * when this arrives.
+   *
+   * What is transmitting is deliberately undecidable, and it is undecidable *because the
+   * two candidates make the same sound*: the relay landed in mission 1, above the blast
+   * and still running because nothing told it to stop, or the carrier falling past you on
+   * its own first mission. No line of dialogue can collapse that, and none is offered —
+   * see `SOURCE UNRESOLVED` on the status line.
+   *
+   * Detuned rather than merely quiet. On pitch it joins the chord and becomes part of the
+   * score, which is the one thing it must not be: this is a machine transmitting into a
+   * canyon with nothing left in it, not a voice in the music. Twenty-odd cents flat is
+   * enough to sit outside the harmony without reading as a tuning fault.
+   */
+  public emitDistantIdent(repeats = 4): void {
+    if (!this.ctx || !this.destination || this.isMuted || !this.isPlaying) return;
+
+    const theme = THEMES[this.activeTrack] ?? THEMES.outpost;
+    const chord = theme.progression[this.currentChordIdx];
+    const start = this.ctx.currentTime + 0.3;
+    const word = IDENT_BITS * IDENT_BIT;
+
+    for (let r = 0; r < repeats; r++) {
+      for (let i = 0; i < IDENT_BITS; i++) {
+        // The ident of mission 1, not of the mission that was just flown.
+        if (((DISTANT_IDENT >> (IDENT_BITS - 1 - i)) & 1) === 0) continue;
+
+        const at = start + r * word + i * IDENT_BIT;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(step(theme.root, chord[i % 3] + 24), at);
+        osc.detune.setValueAtTime(-22, at);
+
+        // Fades across the repeats rather than holding level: the vehicle carrying the
+        // receiver is falling, and a beacon it is falling away from does not stay put.
+        const peak = 0.016 * (1 - r / (repeats + 1));
+        gain.gain.setValueAtTime(0, at);
+        gain.gain.linearRampToValueAtTime(peak, at + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0003, at + 0.55);
+
+        osc.connect(gain);
+        gain.connect(this.destination);
+        osc.start(at);
+        osc.stop(at + 0.6);
+      }
     }
   }
 

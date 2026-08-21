@@ -9,7 +9,10 @@ import { audio } from '../audio/AudioManager.ts';
 import type { HudData } from './HudData.ts';
 import { createInstrument, type InstrumentPanel, type Scheme } from './InstrumentPanel.ts';
 import { Reticle, type HullBounds, type ReticleState } from './Reticle.ts';
-import { buildBrief } from './Brief.ts';
+import { buildBrief, buildEpilogue } from './Brief.ts';
+
+/** The handshake's own status line, on every mission that has one to complete. */
+const UPLINK_DEFAULT = 'UPLINK ESTABLISHING';
 
 /** What the brief needs to know about the vehicle actually loaded for this run. */
 export interface BriefVehicle {
@@ -83,6 +86,7 @@ export class Interface {
   private warning: HTMLElement;
   private uplink: HTMLElement;
   private uplinkBar: HTMLElement;
+  private uplinkText: HTMLElement;
 
   private marker: HTMLElement;
   private panel: HTMLElement;
@@ -147,7 +151,8 @@ export class Interface {
     this.uplinkBar = el('div', 'uplink-fill');
     const uplinkTrack = el('div', 'uplink-track');
     uplinkTrack.append(this.uplinkBar);
-    this.uplink.append(el('div', 'uplink-text', 'UPLINK ESTABLISHING'), uplinkTrack);
+    this.uplinkText = el('div', 'uplink-text', UPLINK_DEFAULT);
+    this.uplink.append(this.uplinkText, uplinkTrack);
 
     this.hud.append(left, right, this.warning);
 
@@ -618,6 +623,17 @@ export class Interface {
     button.focus();
   }
 
+  /**
+   * What arrives after the thirtieth delivery, before the campaign screen.
+   *
+   * On the brief's own cards, because the ending is the same kind of event as everything
+   * that led to it — somebody sending you something — and a bespoke ending screen would
+   * be the one moment in the campaign that stepped outside the fiction to explain itself.
+   */
+  showEpilogue(onDone: () => void): void {
+    buildEpilogue({ showPanel: (content) => this.showPanel(content) }, onDone);
+  }
+
   showVictory(onRestart: () => void): void {
     const card = el('div', 'card');
     card.append(
@@ -626,7 +642,7 @@ export class Interface {
       el(
         'div',
         'card-body',
-        'Every structure between the west wall and the chasm floor was placed by something you carried down here. The canyon is theirs now.<br/><br/>A new canyon can be rolled at any time.',
+        'Every structure between the west wall and the chasm floor was placed by something you carried down here.<br/><br/>A new canyon can be rolled at any time.',
       ),
     );
     const button = el('button', 'primary', 'ROLL A NEW CANYON');
@@ -650,13 +666,19 @@ export class Interface {
    * boot sweep. A CSS animation would drift from the state that ends the sequence and
    * would not survive a retry identically.
    */
-  setUplink(progress: number | null): void {
+  setUplink(progress: number | null, label = UPLINK_DEFAULT): void {
     this.uplink.classList.toggle('hidden', progress === null);
-    if (progress !== null) this.uplinkBar.style.width = `${progress * 100}%`;
+    if (progress === null) return;
+    this.uplinkBar.style.width = `${progress * 100}%`;
+    // Assigned rather than compared-then-assigned: this runs once a frame and setting
+    // identical text is not a layout change in any engine that matters.
+    this.uplinkText.textContent = label;
   }
 
   setHudVisible(visible: boolean): void {
-    this.hud.classList.toggle('hidden', !visible);
+    // A vehicle with no console stays dark whatever the caller asks for. `Game.begin`
+    // turns the HUD on for every run, and the relay is the one that must not get one.
+    this.hud.classList.toggle('hidden', !visible || this.noConsole);
     this.marker.classList.toggle('hidden', !visible || !this.navOnline);
     this.reticle.setVisible(visible);
   }
@@ -682,6 +704,25 @@ export class Interface {
    * has to teach, and it is easier to teach with the numbers that would answer it for
    * them switched off.
    */
+  /**
+   * Whether this vehicle has a console at all.
+   *
+   * Distinct from `setInstruments`, which turns the ranging rows off while leaving the
+   * panel in place. This removes the panel: the relay has no console because the mast is
+   * not up and no charter can reach you, and a HUD frame with nothing in it would be a
+   * vehicle reporting that its instruments are broken rather than one that never had any.
+   */
+  setConsole(present: boolean): void {
+    this.noConsole = !present;
+    // The whole panel, not the instrument slot. Hiding only the slot left the vehicle
+    // name, the mass and the fuel bar on screen, which reads as a console with its gauges
+    // broken — the opposite of a vehicle that was never fitted with one.
+    this.hud.classList.toggle('hidden', !present);
+  }
+
+  /** Set while the loaded vehicle has no console, so `setHudVisible` cannot restore it. */
+  private noConsole = false;
+
   setInstruments(navOnline: boolean): void {
     this.navOnline = navOnline;
     this.altRow.classList.toggle('hidden', !navOnline);

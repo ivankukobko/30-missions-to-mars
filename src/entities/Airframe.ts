@@ -1,7 +1,7 @@
 /**
- * The two vehicles, as data.
+ * The vehicles, as data.
  *
- * The campaign flies two airframes with genuinely different flight models, and this is
+ * The campaign flies three airframes with genuinely different flight models, and this is
  * the single description both the physics and the geometry read. `LanderBody` branches
  * on `scheme` for how thrust is applied; `LanderView` iterates `engines` for where to
  * put a pod and a plume. Neither hard-codes a vehicle, so a third frame is a new entry
@@ -16,7 +16,7 @@
  * envelope has to be reachable from a test.
  */
 
-export type AirframeId = 'lander' | 'hauler' | 'helion';
+export type AirframeId = 'lander' | 'hauler' | 'helion' | 'relay';
 
 /** Where an engine sits and which way it points, in the vehicle's model space. */
 export interface Engine {
@@ -40,6 +40,18 @@ interface Common {
   /** Multiplier on the mission's authored fuel budget. */
   fuelScale: number;
   engines: Engine[];
+  /**
+   * Whether this vehicle has a console at all.
+   *
+   * Every charter's airframe does. The relay does not, and the distinction lives here
+   * rather than in `Interface.setAirframe` because it is a fact about the vehicle: the
+   * prologue flies before the navigation mast is planted and before any charter can
+   * reach you, so there is nothing for a panel to display and nobody to have fitted one.
+   *
+   * Not the same switch as `setInstruments`, which turns the *ranging* rows off on
+   * mission 1 while leaving the panel itself in place. This turns off the panel.
+   */
+  hasConsole: boolean;
 }
 
 export type Airframe =
@@ -103,6 +115,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
   lander: {
     id: 'lander',
     name: 'TD-4 LANDER',
+    hasConsole: true,
     scheme: 'attitude',
     thrust: 36,
     fuelScale: 1,
@@ -119,6 +132,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
   hauler: {
     id: 'hauler',
     name: 'KD-9 SHAFT HAULER',
+    hasConsole: true,
     scheme: 'differential',
     thrust: 36,
     fuelScale: 0.9,
@@ -139,6 +153,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
   helion: {
     id: 'helion',
     name: 'HD-7 SIDEWINDER',
+    hasConsole: true,
     scheme: 'translation',
     thrust: 36,
     sideThrust: 18,
@@ -152,6 +167,39 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     rcsBurn: 2.2,
     bankMax: 0.14,
     bankRate: 6,
+  },
+
+  /**
+   * The uplink relay: an antenna with legs, and the only vehicle in the game that is not
+   * carrying something for somebody.
+   *
+   * `attitude` with the rotation taken out, rather than a fourth scheme. Setting
+   * `rotationPower` and `rcsBurn` to zero *is* thrust-only — the attitude branch in
+   * `LanderBody` reads both, multiplies by them and leaves the vehicle exactly as it
+   * found it — so one control costs no new branch in the physics, no fourth case in
+   * `HudData`, and no fourth instrument panel to design for a vehicle that has no panel.
+   * A `scheme: 'ballistic'` would have demanded all three to express less.
+   *
+   * `angularDamp` is high regardless. Nothing can apply a torque, but a vehicle that
+   * inherited one would have no way to correct it, and a tumble the player cannot answer
+   * is the opposite of what a first landing should teach.
+   *
+   * Fuel is deliberately extravagant and deliberately ungauged — see `hasConsole`. An
+   * invisible resource the player can run out of is not a lesson, so the only way to fail
+   * the prologue is to land too hard, which is the only thing it is for.
+   */
+  relay: {
+    id: 'relay',
+    name: 'UL-5 RELAY',
+    hasConsole: false,
+    scheme: 'attitude',
+    thrust: 36,
+    fuelScale: 2.4,
+    engines: [{ x: 0, cant: 0 }],
+    rotationPower: 0,
+    angularDamp: 4,
+    mainBurn: 11,
+    rcsBurn: 0,
   },
 };
 

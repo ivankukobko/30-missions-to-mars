@@ -29,6 +29,24 @@ interface Saved {
    */
   mastX: number | null;
   mastY: number | null;
+  /**
+   * Where the uplink relay ended up: exactly where the player set down in the prologue.
+   *
+   * The same write-once mechanism as `mastX`/`mastY`, and for the same reason — it is a
+   * fixture of this canyon from mission 1 onward, and re-flying the prologue must not
+   * move a landmark that thirty missions have entered past.
+   *
+   * The two are deliberately not merged into one "player placements" structure. They are
+   * written at different times by different vehicles, and either can be null while the
+   * other is set: a save that predates the prologue has a mast and no relay, which is
+   * exactly the case `worldAt` has to render correctly.
+   *
+   * Null leaves the rim empty rather than guessing a position — the same discipline
+   * `mastY` keeps, where a save from before the height was tracked omits it rather than
+   * resampling terrain for a plausible-looking answer.
+   */
+  relayX: number | null;
+  relayY: number | null;
   highestUnlocked: number;
   ranks: Record<string, Rank>;
   /**
@@ -98,6 +116,8 @@ function fresh(): Saved {
     seed: (Math.random() * 0x7fffffff) | 0,
     mastX: null,
     mastY: null,
+    relayX: null,
+    relayY: null,
     highestUnlocked: 1,
     ranks: {},
     points: {},
@@ -143,6 +163,10 @@ export class Progress {
         // `buildRadar` keeps its old heightAt-based estimate for exactly that case —
         // there is no landing to recover after the fact, only a future one to record.
         mastY: typeof parsed.mastY === 'number' ? parsed.mastY : null,
+        // Absent in every save written before the prologue existed. The rim stays empty
+        // in that case; see the field comment on `Saved.relayX`.
+        relayX: typeof parsed.relayX === 'number' ? parsed.relayX : null,
+        relayY: typeof parsed.relayY === 'number' ? parsed.relayY : null,
         highestUnlocked: typeof parsed.highestUnlocked === 'number' ? parsed.highestUnlocked : 1,
         ranks: parsed.ranks ?? {},
         /**
@@ -204,6 +228,30 @@ export class Progress {
     if (this.data.mastX !== null) return;
     this.data.mastX = x;
     this.data.mastY = y;
+    this.save();
+  }
+
+  get relayX(): number | null {
+    return this.data.relayX;
+  }
+
+  get relayY(): number | null {
+    return this.data.relayY;
+  }
+
+  /**
+   * Plants the relay. Write-once, exactly like `setMastPosition`.
+   *
+   * No rank and no points are recorded for the prologue anywhere, and that is not an
+   * omission. There is no charter on the other end of this landing to pay for it — the
+   * link does not exist yet, which is the whole premise — and `planColonies` spends
+   * `progress.points` as a growth budget, so scoring the prologue would quietly make the
+   * colony bigger for a delivery nobody commissioned.
+   */
+  setRelayPosition(x: number, y: number): void {
+    if (this.data.relayX !== null) return;
+    this.data.relayX = x;
+    this.data.relayY = y;
     this.save();
   }
 

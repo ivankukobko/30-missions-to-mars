@@ -2,7 +2,9 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { KinematicWorld } from '../physics/Kinematics.ts';
-import { CORPS, type CorpId } from './CanyonSpec.ts';
+import { CORPS, STRUCTURE, type CorpId } from './CanyonSpec.ts';
+import { hash01 } from './Noise.ts';
+import { buildRubble, type RubbleSite } from './Rubble.ts';
 import type { CanyonGenerator } from './CanyonGenerator.ts';
 import { buildColonyCells, buildColonyGizmos } from './ColonyRender.ts';
 import { setLanderFocus } from './LanderFade.ts';
@@ -46,6 +48,24 @@ export type Prop =
    * back to resampling terrain at the mast's own z, the old approximation.
    */
   | { kind: 'radar'; corp: CorpId; x: number; y?: number }
+  /**
+   * An uplink relay: an antenna with legs, standing where it came down.
+   *
+   * **The only prop in the game with no `corp`, and that is the point.** Every other
+   * structure in this canyon belongs to a charter and is painted in their colour. This
+   * one is the player's own link, so it wears `--sys` — the register `Interface` already
+   * reserves for what is yours rather than a client's.
+   *
+   * Collider-exempt for the same reason `radar` is, plus one of its own: a half-buried
+   * mast that could eat a landing, or that the layout resolver could relocate into an
+   * approach corridor, would be a hazard nobody authored.
+   *
+   * `live` is the whole reveal mechanism. The player's relay blinks; the four dead ones
+   * seeded in the dust do not. Same silhouette, one lit and four not — which is how a
+   * player who spent the prologue flying that shape learns what a dark one means, with
+   * no text anywhere. See `buildRelay`.
+   */
+  | { kind: 'relay'; x: number; y?: number; live: boolean }
   /**
    * Landing pad. `id` is what a mission names as its delivery target.
    * Omit `y` to rest on whatever ground is beneath — canyon floor, or the floor of
@@ -191,6 +211,29 @@ const RADAR = {
   /** Across the flats of the lattice tower. Wide enough that it reads as a frame. */
   WIDTH: 1.8,
 } as const;
+
+/**
+ * The relay, which is a landed vehicle rather than a structure the colony poured.
+ *
+ * `Z` is the play plane, unlike `RADAR.Z`'s −35. The mast is set back because it is
+ * scenery the outpost erected; this is the thing the *player* set down, and putting it
+ * in the background would say it happened somewhere else.
+ *
+ * `HEIGHT` is short on purpose — it is one vehicle standing on its legs, not a tower.
+ * The silhouette does the work, not the scale.
+ */
+const RELAY = {
+  Z: 0,
+  HEIGHT: 13,
+  /** Seconds per blink. Slow, and a single flash: unlike the radar's double-tap. */
+  STROBE_PERIOD: 2.6,
+  BASE_SIZE: 3.4,
+  MIN_ANGULAR: 0.012,
+  /** `--sys` in `style.css`. Belongs to nobody, so it takes no charter's colour. */
+  COLOR: 0x4af04a,
+  /** Hull grey for a dead one: dust-loaded, and colder than any charter's metal. */
+  DEAD_HULL: 0x6b5a4e,
+};
 
 export const LATTICE = {
   /** Nominal bay height. Real bays are this divided evenly into the structure. */
@@ -450,6 +493,32 @@ function zSurface(depth: number): number {
   return -depth * 0.1;
 }
 
+/**
+ * Kills every emissive fitting and every point light under an object, in place.
+ *
+ * Shared by `darken` and `collapse` so that "this is not lit any more" has exactly one
+ * description. They mean different things — one is a site under order, the other is a site
+ * that is gone — but a charter's frontage going out has to look identical in both, or the
+ * epilogue reads as a legal problem.
+ */
+function unlight(root: THREE.Object3D): void {
+  root.traverse((node) => {
+    const light = node as THREE.PointLight;
+    if (light.isPointLight) light.intensity = 0;
+
+    const mesh = node as THREE.Mesh;
+    const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+    if (!mat) return;
+    for (const m of Array.isArray(mat) ? mat : [mat]) {
+      const std = m as THREE.MeshStandardMaterial;
+      if (!std.emissive) continue;
+      std.emissive.setHex(0x000000);
+      std.emissiveIntensity = 0;
+      std.needsUpdate = true;
+    }
+  });
+}
+
 export class Colony {
   private scene: THREE.Scene;
   private physics: PhysicsWorld;
@@ -481,6 +550,16 @@ export class Colony {
   readonly kinematics = new KinematicWorld();
   private rings: LandingRing[] = [];
   private radar: Radar | null = null;
+
+  /**
+   * Every live relay's beacon, for the strobe.
+   *
+   * A list rather than a single slot like `radar`, because a save that has flown the
+   * prologue has exactly one and a save that has not has none — and nothing about the
+   * rendering should have to know which. The dead ones are never in here: they have no
+   * beacon to pose, which is the entire difference between them.
+   */
+  private relays: { beacon: THREE.Sprite; world: THREE.Vector3 }[] = [];
   private lattices: LatticeEntry[] = [];
   /** Round-robin cursor, so the rebuild budget cannot starve the same structures. */
   private latticeCursor = 0;
@@ -501,8 +580,14 @@ export class Colony {
    * makes a pad read as *active* rather than as painted markings, and gives the eye
    * something to line up on during a final approach in a dark canyon.
    */
-  update(dt: number, camera?: THREE.Camera, lander?: { x: number; y: number }): void {
+  update(
+    dt: number,
+    camera?: THREE.Camera,
+    lander?: { x: number; y: number },
+    missionTime = 0,
+  ): void {
     this.updateRadar(dt, camera);
+    this.updateRelays(missionTime, camera);
     if (camera) this.updateLattices(camera);
     // Where the foreground layer thins out, so it never hides the vehicle. Left at its
     // default — far above the canyon, so the layer stays solid — when there is no lander,
@@ -604,6 +689,39 @@ export class Colony {
     radar.beacon.scale.setScalar(Math.max(RADAR.BASE_SIZE, dist * RADAR.MIN_ANGULAR));
   }
 
+  /**
+   * Blinks every live relay.
+   *
+   * **Posed from `missionTime`, not accumulated from `dt`** — the one place in this file
+   * that is true, and it is deliberate. `CLAUDE.md` requires anything that moves to be
+   * derived from the fixed 120 Hz step, and the radar's `phase += dt` above is a standing
+   * exception that survives only because nobody counts a dish's rotation. This is the
+   * object the player looks at on every entry for thirty missions, so a blink that
+   * drifted with frame rate would be visible in exactly the way the rule exists to
+   * prevent, and a retry would not replay it.
+   *
+   * One flash per cycle, and a long one. The radar double-taps and the pads ping outward;
+   * three things pulsing in a dark canyon have to be told apart at a glance, and this is
+   * the only one of the three that is neither a charter's nor somewhere to land.
+   */
+  private updateRelays(missionTime: number, camera?: THREE.Camera): void {
+    if (this.relays.length === 0) return;
+
+    const t = ((missionTime / RELAY.STROBE_PERIOD) % 1 + 1) % 1;
+    const opacity = t < 0.09 ? 1 : 0.13;
+
+    for (const relay of this.relays) {
+      (relay.beacon.material as THREE.SpriteMaterial).opacity = opacity;
+      if (!camera) continue;
+      // Held at a readable angular size however far off it is, exactly as the radar's is
+      // — the relay is on the rim, which on a measured seed is |x| ≈ 145, twice the width
+      // of the play area. Left to true perspective it would be a sub-pixel speck from the
+      // canyon floor.
+      const dist = camera.position.distanceTo(relay.world);
+      relay.beacon.scale.setScalar(Math.max(RELAY.BASE_SIZE, dist * RELAY.MIN_ANGULAR));
+    }
+  }
+
   build(props: Prop[], canyon: CanyonGenerator, debug?: ColonyDebug): void {
     this.dispose();
     this.pads = [];
@@ -625,6 +743,9 @@ export class Colony {
           break;
         case 'radar':
           this.buildRadar(prop, canyon);
+          break;
+        case 'relay':
+          this.buildRelay(prop, canyon);
           break;
         case 'colony':
           this.buildColonyStructure(prop);
@@ -741,6 +862,7 @@ export class Colony {
       return mesh;
     };
 
+
     const inner = flat(new THREE.RingGeometry(ringRadius * 0.82, ringRadius, 28), 0.4);
     const ping = flat(new THREE.RingGeometry(ringRadius * 0.9, ringRadius, 28), 0.5);
     this.rings.push({ padId: prop.id, inner, ping, radius: ringRadius, phase: Math.random() });
@@ -776,6 +898,96 @@ export class Colony {
    * is a function of height and of the beacon holding its apparent size, not of sitting
    * near the camera.
    */
+  /**
+   * One uplink relay, live or dead.
+   *
+   * Both cases are built here from the same geometry deliberately. The four dead ones
+   * only mean anything if they are unmistakably the same object the player flew in the
+   * prologue, and the surest way to guarantee that is for there to be one description of
+   * the shape. What separates them is the three things a machine loses when it stops:
+   * the light goes out, the mast goes over, and the dust comes up its legs.
+   *
+   * There is no text anywhere near any of this, and there must not be. The recognition
+   * is the whole mechanism — a player who never flew the prologue would read these as
+   * scenery, which is the correct outcome for a player who never flew the prologue.
+   */
+  private buildRelay(prop: Extract<Prop, { kind: 'relay' }>, canyon: CanyonGenerator): void {
+    const groundY = prop.y ?? canyon.floorAt(prop.x);
+
+    /**
+     * A dead relay stands in its own dust.
+     *
+     * Sunk by a fifth of its height and leaned over, both keyed off `x` so the same
+     * relay is wrecked the same way every time this canyon is rebuilt — these are
+     * authored positions, and a corpse that shifted between missions would read as a
+     * live thing that moved.
+     */
+    const sink = prop.live ? 0 : RELAY.HEIGHT * (0.16 + hash01(1, Math.round(prop.x), 0, 0x4e1d) * 0.14);
+    const lean = prop.live ? 0 : (hash01(1, Math.round(prop.x), 1, 0x4e1d) - 0.5) * 0.7;
+    const baseY = groundY - sink;
+
+    const hull = new THREE.MeshStandardMaterial({
+      color: prop.live ? 0x9aa4ab : RELAY.DEAD_HULL,
+      roughness: prop.live ? 0.55 : 0.92,
+      metalness: prop.live ? 0.3 : 0.05,
+      flatShading: true,
+    });
+
+    // One pivot for the lot, so the lean tips the whole machine about its feet rather
+    // than shearing the mast off the legs it is standing on.
+    const frame = new THREE.Group();
+    frame.position.set(prop.x, baseY, RELAY.Z);
+    frame.rotation.z = lean;
+    this.scene.add(frame);
+    this.objects.push(frame);
+
+    const part = (geo: THREE.BufferGeometry, x: number, y: number, z: number) => {
+      const mesh = new THREE.Mesh(geo, hull);
+      mesh.position.set(x, y, z);
+      mesh.castShadow = true;
+      frame.add(mesh);
+      return mesh;
+    };
+
+    // Three legs, splayed. Deliberately the same count and stance as a lander's, because
+    // "it came down here on its own legs" is the one thing this silhouette has to say.
+    for (let i = 0; i < 3; i++) {
+      const a = (i / 3) * Math.PI * 2 + Math.PI / 6;
+      const leg = part(new THREE.BoxGeometry(0.28, 3.6, 0.28), Math.cos(a) * 1.35, 1.5, Math.sin(a) * 1.35);
+      leg.rotation.z = -Math.cos(a) * 0.34;
+      leg.rotation.x = Math.sin(a) * 0.34;
+    }
+
+    // The mast: a straight taper, never swelling. See `HULL_PROFILES.relay` — this is
+    // the same read at world scale that the flown vehicle has at vehicle scale.
+    part(new THREE.CylinderGeometry(0.42, 0.78, RELAY.HEIGHT - 3, 6), 0, 3 + (RELAY.HEIGHT - 3) / 2, 0);
+    part(new THREE.BoxGeometry(2.4, 0.7, 2.4), 0, 2.6, 0);
+
+    // The antenna itself: a cross-arm near the top, pointing up. What it points *at* is
+    // never established anywhere, and `docs/lore.md` is explicit that it must not be.
+    part(new THREE.BoxGeometry(5.2, 0.22, 0.22), 0, RELAY.HEIGHT - 1.4, 0);
+    part(new THREE.BoxGeometry(0.22, 0.22, 4.2), 0, RELAY.HEIGHT - 2.4, 0);
+
+    if (!prop.live) return;
+
+    const beacon = new THREE.Sprite(
+      new THREE.SpriteMaterial({
+        color: RELAY.COLOR,
+        map: this.glowTexture(),
+        transparent: true,
+        depthWrite: false,
+        // Unfogged, like the radar's. This is the fixed point in a canyon that spends
+        // thirty missions changing, and fog is exactly what would erase it on entry.
+        fog: false,
+      }),
+    );
+    beacon.position.set(0, RELAY.HEIGHT + 1.1, 0);
+    beacon.scale.setScalar(RELAY.BASE_SIZE);
+    frame.add(beacon);
+
+    this.relays.push({ beacon, world: new THREE.Vector3(prop.x, baseY + RELAY.HEIGHT + 1.1, RELAY.Z) });
+  }
+
   private buildRadar(prop: Extract<Prop, { kind: 'radar' }>, canyon: CanyonGenerator): void {
     const corp = CORPS[prop.corp];
     /**
@@ -798,7 +1010,7 @@ export class Colony {
     const topY = baseY + RADAR.HEIGHT;
 
     const hull = new THREE.MeshStandardMaterial({
-      color: corp.hull,
+      color: STRUCTURE.steel,
       roughness: 0.6,
       metalness: 0.2,
       flatShading: true,
@@ -856,7 +1068,7 @@ export class Colony {
     const dish = new THREE.Mesh(
       new THREE.SphereGeometry(2, 12, 6, 0, Math.PI * 2, Math.PI * 0.56, Math.PI * 0.44),
       new THREE.MeshStandardMaterial({
-        color: corp.hull,
+        color: STRUCTURE.steel,
         roughness: 0.7,
         metalness: 0.1,
         flatShading: true,
@@ -907,9 +1119,11 @@ export class Colony {
    */
   private buildColonyStructure(prop: Extract<Prop, { kind: 'colony' }>): void {
     const z = zCentre(DEPTH.colony);
-    this.objects.push(
-      ...buildColonyCells(this.scene, prop.corp, prop.cells, prop.cellSize, z, DEPTH.colony),
-    );
+    const built = buildColonyCells(this.scene, prop.corp, prop.cells, prop.cellSize, z, DEPTH.colony);
+    // Stamped so `darken` can find one charter's frontage without re-deriving ownership
+    // from geometry. Only the grown structures carry it, which is all `darken` is for.
+    for (const obj of built) obj.userData.corp = prop.corp;
+    this.objects.push(...built);
 
     // One collider per cell, sized to the *full* cell rather than the leaner module or
     // open frame drawn inside it — the same "the frame is see-through, not fly-through"
@@ -1208,6 +1422,136 @@ export class Colony {
     }
   }
 
+  /**
+   * Puts one or more charters' frontage out, without touching anything else.
+   *
+   * What an injunction looks like from the air. The site is intact, the cargo you flew is
+   * lying on the deck, and nothing is lit — which is the only way a stopped site is
+   * legible from a vehicle, because the alternative reads as a site that simply did not
+   * happen to grow this mission.
+   *
+   * It replaced exactly that: `colonyFrozen` suspends a corp's growth, and measured
+   * against the real planner, Helion and Kessler sit pinned at 30 and 35 cells from
+   * mission 8 to mission 12 *whatever the player scores*, because `reachableGround` caps
+   * them long before their earned budget does. Freezing a number that was not moving is
+   * invisible. The freeze is still worth keeping — it is what makes the suspension cost
+   * something permanent — but it is not what the player sees. This is.
+   *
+   * Only grown structures respond. Pads, the radar and the relays keep their lights: a
+   * charter under order stops *working*, and its deck lighting is what the vehicle you
+   * are about to land there navigates by.
+   */
+  darken(corps: CorpId[]): void {
+    if (corps.length === 0) return;
+    const off = new Set(corps);
+    for (const obj of this.objects) {
+      if (off.has(obj.userData.corp as CorpId)) unlight(obj);
+    }
+  }
+
+  /**
+   * Brings the whole settlement down, in place, for the epilogue.
+   *
+   * The charge went off at the bottom of the shaft, so what the last carrier falls past
+   * cannot be a working colony with the lights switched off — it has to be wreckage. But
+   * it must be **this player's** wreckage. The canyon they are falling through is the one
+   * their own thirty deliveries grew, cell by cell, and replacing it with anonymous
+   * rubble would throw away the only thing that makes the shot land: you recognise the
+   * frontage a second before you notice it is lying on its side. So nothing is swapped
+   * for debris. The debris is the colony.
+   *
+   * Three things happen to every structure, all keyed off `hash01` on the campaign seed
+   * so a replayed ending is the identical ruin:
+   *
+   * - roughly a fifth of it is simply gone, which is what makes the rest read as what is
+   *   *left* rather than as a settlement that has been tilted;
+   * - the remainder leans, drops and slides — it has come down, not blown outward, which
+   *   is the right shape for a floor collapsing under a site rather than a bomb going off
+   *   on top of one;
+   * - every emissive fitting and every point light goes out. Nothing here has power.
+   *
+   * Rotation goes through a pivot at each object's own centre. Colony geometry is baked
+   * in world coordinates with the mesh sitting at the origin (see `buildColonyCells`), so
+   * setting `rotation` on it directly would swing the building around the middle of the
+   * canyon instead of around itself — a whole settlement orbiting x=0, which looks exactly
+   * like a physics bug and is one of the two ways this could have gone wrong invisibly.
+   *
+   * Colliders are deliberately left standing where the structures used to be, and that is
+   * load-bearing rather than lazy. The epilogue decides where to cut the picture from
+   * `groundBelow` (see `FALL_CUT_HEIGHT` in `Game.ts`), so those colliders are exactly what
+   * it measures against — measured at x 48 on one seed, a tower's collider sits at y≈158
+   * over a mouth at y≈8. Leaving them is the conservative direction: the ending cuts a
+   * clear margin above where a building *was*, so a vehicle can never be brought down
+   * through one that has since leaned or dropped. Clearing them to match the visuals would
+   * move every cut lower, toward geometry nobody has checked, to fix a discrepancy the
+   * player cannot see.
+   *
+   * `buried` is stone piled over the mouths of the bores — the one piece of the ending
+   * that is new geometry rather than existing geometry moved. It is what actually happened:
+   * the charge was seated at the bottom of the shaft, and the shaft is the thing that is
+   * no longer there. Everything else in this method is consequence; the filled hole is the
+   * event. Built here rather than by the caller because `Rubble`'s own contract is that
+   * whoever tracks the object disposes it, and `objects` is that ledger.
+   *
+   * A post-pass over the built scene rather than a flag threaded through construction.
+   * A colony is never built ruined — this happens to one, once, at the end of a campaign,
+   * and paying for it on every mission's build path would be the wrong trade. Materials
+   * and geometry are per-build and disposed on rebuild, and the pivots take their meshes
+   * with them into `objects`, so `dispose` still reaches everything.
+   */
+  collapse(seed: number, buried: RubbleSite[] = []): void {
+    const kept: THREE.Object3D[] = [];
+
+    for (let i = 0; i < this.objects.length; i++) {
+      const obj = this.objects[i];
+
+      // Struck from the record entirely. Geometry and materials are released here rather
+      // than left for `dispose`, which will no longer be able to see them.
+      if (hash01(seed, i, 0, 0x5ea1) < 0.21) {
+        this.scene.remove(obj);
+        obj.traverse((node) => {
+          const mesh = node as THREE.Mesh;
+          if (mesh.geometry) mesh.geometry.dispose();
+          const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else if (mat) mat.dispose();
+        });
+        continue;
+      }
+
+      unlight(obj);
+
+      const bounds = new THREE.Box3().setFromObject(obj);
+      if (bounds.isEmpty()) {
+        kept.push(obj);
+        continue;
+      }
+      const centre = bounds.getCenter(new THREE.Vector3());
+
+      const pivot = new THREE.Group();
+      this.scene.remove(obj);
+      obj.position.sub(centre);
+      pivot.add(obj);
+      // Down and sideways, never up: this came down.
+      pivot.position.set(
+        centre.x + (hash01(seed, i, 1, 0x5ea1) - 0.5) * 6,
+        centre.y - hash01(seed, i, 2, 0x5ea1) * 13,
+        centre.z,
+      );
+      pivot.rotation.z = (hash01(seed, i, 3, 0x5ea1) - 0.5) * 0.7;
+      this.scene.add(pivot);
+      kept.push(pivot);
+    }
+
+    const stone = buildRubble(this.scene, buried, seed);
+    if (stone) kept.push(stone);
+
+    this.objects = kept;
+    // The pads are gone with everything else, and a target marker chasing a deck that is
+    // now lying on its side would be the one piece of live UI in a dead canyon.
+    this.setTarget(null);
+  }
+
   dispose(): void {
     for (const obj of this.objects) {
       this.scene.remove(obj);
@@ -1230,6 +1574,7 @@ export class Colony {
     this.lattices = [];
     this.latticeCursor = 0;
     this.radar = null;
+    this.relays = [];
     // The colliders themselves belong to the physics world, which the caller clears.
     this.kinematics.clear();
   }

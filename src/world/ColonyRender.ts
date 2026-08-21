@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { CORPS, type CorpId } from './CanyonSpec.ts';
+import { CORPS, STRUCTURE, type CorpId } from './CanyonSpec.ts';
 import { LINK, TRAIT, type PlacedCell } from './ColonyOrganism.ts';
 import {
   COLONY_LAYER_GAP,
@@ -624,9 +624,10 @@ export function buildColonyCells(
     add(
       hulls,
       new THREE.MeshStandardMaterial({
-        color: theme.hull,
-        roughness: 0.55,
-        metalness: 0.18,
+        // Sintered regolith — see `STRUCTURE`. Barely metallic, because it is fired dirt.
+        color: STRUCTURE.regolith,
+        roughness: 0.75,
+        metalness: 0.04,
         flatShading: true,
         ...fade,
       }),
@@ -634,9 +635,11 @@ export function buildColonyCells(
     add(
       frames,
       new THREE.MeshStandardMaterial({
-        color: theme.hull,
-        roughness: 0.85,
-        metalness: 0.1,
+        // Structural steel — the material a charter had to fly up here, which is most of
+        // why an unclad frame reads as expensive and unfinished at the same time.
+        color: STRUCTURE.steel,
+        roughness: 0.5,
+        metalness: 0.55,
         flatShading: true,
         ...fade,
       }),
@@ -698,7 +701,7 @@ export function buildColonyCells(
     add(
       marks,
       new THREE.MeshStandardMaterial({
-        color: theme.hull,
+        color: STRUCTURE.steel,
         // Darker base *and* less lift than the beacons, which is one change rather than
         // two: ACES desaturates as it lifts, so every step down in brightness is a step up
         // in how much of the corp's hue survives. A mark is a badge — it wants to be read

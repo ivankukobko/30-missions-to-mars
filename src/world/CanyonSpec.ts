@@ -155,6 +155,27 @@ export const CORPS: Record<CorpId, Corp> = {
   },
 };
 
+/**
+ * What colony structures are *made of*, as opposed to who built them.
+ *
+ * These used to come from `Corp.hull`, so a Helion room was brown, a Kessler room blue-grey
+ * and an Ixion one grey-green — three charters reading as three different **materials**,
+ * which is not what a charter chooses. What they are made of is fixed by what is available
+ * on Mars: you sinter what you dig, and you fly in what you cannot make.
+ *
+ * Corp identity is carried entirely by the emissive fittings now — beacons, marks, walkways
+ * — which is the register that can afford it. A colour that means "whose" and a colour that
+ * means "what of" were competing for the same surface, and the material lost.
+ */
+export const STRUCTURE = {
+  /** Sintered regolith: pressure hulls, pressed from the same ground the shafts cut. Warmer
+   *  and lighter than the canyon so a settlement still separates from the rock behind it. */
+  regolith: 0x9a7a60,
+  /** Shipped structural steel: scaffolding, gantries, lamp housings, the radar mast. The
+   *  expensive material, and visibly the imported one. */
+  steel: 0x7d8a92,
+} as const;
+
 export const PALETTE = {
   dust: 0xb75a30,
   skyHigh: 0x6d3f2e,

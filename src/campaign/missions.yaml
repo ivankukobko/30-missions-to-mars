@@ -1,7 +1,37 @@
 # 30 Missions to Mars - Campaign Specification
 
 missions:
+  # ---------------------------------------------------------------------------- 1
+  #
+  # The flight that makes every other flight possible, and the only silent one.
+  #
+  # `messages` is empty and that is the design, not an omission: nobody can transmit to
+  # you before the link exists. No brief, no sender, no card, no music. The first voice in
+  # the campaign is Ixion's on mission 2, and it arrives as a *consequence of this
+  # landing*.
+  #
+  # One control. `AIRFRAMES.relay` locks rotation and carries no lateral thruster, so the
+  # only input is when to burn and the only thing it decides is how hard you arrive. The
+  # entry is straight down over the shelf `RIM_SITES` grades on the rim — an earlier
+  # version drifted sideways so that one control decided two things, and it is unlandable:
+  # `resolveContact` tests total speed, and a vehicle that cannot rotate can never null a
+  # sideways velocity. See `PROLOGUE`'s note in Missions.ts.
+  #
+  # `target: null` because there is no address, because there is nobody to have given you
+  # one. Any survivable touchdown completes it.
   - id: 1
+    client: outpost
+    payload:
+      name: UL-5 Relay
+      mass: 0
+    fuel: 300
+    start: { x: 150, y: 1020 }
+    target: null
+    failDepth: -60
+    airframe: relay
+    messages: []
+
+  - id: 2
     client: outpost
     payload:
       name: Navigation Radar
@@ -16,7 +46,7 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Welcome to Coprates Chasma. We are the only thing at the bottom of this canyon, and we intend to stay that way.
+          Your relay came up on the rim at 04:20 and we have had a channel ever since. This is the first voice on it.<br/><br/>Welcome to Coprates Chasma. We are the only thing at the bottom of this canyon, and we intend to stay that way.
       - sender: IXION OUTPOST
         content: >-
           You are carrying our navigation radar. Until it is standing on the floor of this chasm you have no altimeter, no ranging and no target bearing — so put it down somewhere, anywhere, in one piece.
@@ -24,7 +54,7 @@ missions:
         content: >-
           Where you set it down is where it stays, and everything we do afterwards is measured from it.<br/><br/><b>OBJECTIVE</b> Descend past the rim. Land intact on open ground.
 
-  - id: 2
+  - id: 3
     client: outpost
     payload:
       name: Core Samples
@@ -39,6 +69,12 @@ missions:
           Radar is up and slaved to your feed — altitude, range and target bearing, all of it off the mast you set down yesterday. Our pad is in as well, so from here on you are flying to an address.
       - sender: IXION OUTPOST
         content: >-
+          Assay is back on the first cut. Nine point four across two metres, and it does not thin with depth. Eleven years on this floor and we have never had the rig to prove it.
+      - sender: HELION EXTRACTION
+        content: >-
+          FILE 4471-C · NOTICE OF INTEREST · AUTO<br/><br/>ASSAY TELEMETRY OBSERVED ON AN UNENCRYPTED RELAY, COPRATES CHASMA.<br/>NO CLAIM OF RECORD.<br/>SURVEY DISPATCHED.
+      - sender: IXION OUTPOST
+        content: >-
           You placed it better than the specification asked for. We have started calling you the navigator. It is not a rank anyone here has the standing to award, but it has stuck.<br/><br/><b>OBJECTIVE</b> Deliver core samples to the outpost pad.
     adds:
       props:
@@ -50,7 +86,7 @@ missions:
           x: -14
           width: 16
 
-  - id: 3
+  - id: 4
     client: outpost
     payload:
       name: Water Reclaimer
@@ -62,9 +98,12 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Heavier load today, navigator, and the lag is worse than the mass number implies. We have never worked out why.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
+          Heavier load today, navigator, and the lag is worse than the mass number implies. We have never worked out why.
+      - sender: IXION OUTPOST
+        content: >-
+          It is sized for forty. There are eleven of us. We are ordering for the crew we expect to have by winter.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
 
-  - id: 4
+  - id: 5
     client: outpost
     payload:
       name: Claim Filings
@@ -76,12 +115,12 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Two extraction charters cleared orbit this morning. Helion to our west, Kessler to our east.
+          Two extraction charters cleared orbit this morning. Helion to our west, Kessler to our east. Neither of them surveyed anything on the way in. Neither of them had to.
       - sender: IXION OUTPOST
         content: >-
           We filed first. It will not matter, navigator, but it will be on the record — and the record is the only thing we have that they cannot dig up.<br/><br/><b>OBJECTIVE</b> Deliver the filings before the corporate survey lands.
 
-  - id: 5
+  - id: 6
     client: helion
     payload:
       name: Drill Head
@@ -101,10 +140,10 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 1 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7 SIDEWINDER<br/>FRAME NOTE: ATTITUDE LOCKED. NOTHING TO RECOVER.<br/>CONSIGNMENT: DRILL HEAD<br/>DESTINATION: HELION CREST — WEST APPROACH
+          CONTRACT 4471-C · REV 1 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>FRAME NOTE: ATTITUDE LOCKED. NOTHING TO RECOVER.<br/>CONSIGNMENT: DRILL HEAD<br/>DESTINATION: HELION CREST — WEST APPROACH<br/>PRIOR: NOTICE OF INTEREST<br/>ALLOWANCE REMAINING: 9.8 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
-          ROUTE NOTE: THE IXION SLAB IS NOT A HELION ADDRESS.<br/>DELIVERY TO IT DOES NOT DISCHARGE THIS CONTRACT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the drill head to HELION CREST.
+          ROUTE NOTE: THE IXION SLAB IS NOT A HELION ADDRESS.<br/>DELIVERY TO IT DOES NOT DISCHARGE THIS CONTRACT.<br/>CLEARANCE ON THIS CORRIDOR REDUCES WITH EVERY CONTRACT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the drill head to HELION CREST.
     adds:
       props:
         - kind: pad
@@ -116,7 +155,7 @@ missions:
           y: 73
           width: 14
 
-  - id: 6
+  - id: 7
     client: kessler
     payload:
       name: Seismic Array
@@ -132,7 +171,7 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Helion drills sideways. We drill down. East tower is up and the deck is waiting.
+          Helion read the outpost's assay and stopped at the depth it was taken. We read the same page. It gets richer further down, and that is the whole of our position. East tower is up.
       - sender: KESSLER DEEP
         content: >-
           You will be flying one of ours. Nothing that goes down a bore has any business turning, so it does not. Try not to bend it, tin can — the frame costs more than the contract does.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER CREST.
@@ -146,23 +185,6 @@ missions:
           x: 40
           y: 73
           width: 14
-
-  - id: 7
-    client: helion
-    payload:
-      name: Coolant Cells
-      mass: 1.1
-    fuel: 365
-    start: { x: 3, y: 1210 }
-    target: helion-crest
-    failDepth: -60
-    messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C · REV 2 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: COOLANT CELLS<br/>DESTINATION: HELION CREST
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          ROUTE NOTE: BOTH CHARTERS ARE BUILDING TOWARD THE CENTRE LINE.<br/>CORRIDOR CLEARANCE REDUCES ON EVERY SUBSEQUENT CONTRACT. IT IS NOT REPLANNED BETWEEN THEM.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver coolant to HELION CREST.
 
   - id: 8
     client: kessler
@@ -193,13 +215,16 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          They are building on our sightlines. This injunction will be ignored, but it will be <i>filed</i>.
+          They are building on our sightlines. The order came back signed on the last window and it is served as of this morning. Both workings stop where they stand.
       - sender: IXION OUTPOST
         content: >-
           You will have noticed the approach is tighter than it was. That is not your handling, navigator. That is the canyon closing, and it will keep closing.<br/><br/><b>OBJECTIVE</b> Return to the outpost pad.
 
   - id: 10
     client: helion
+    # Served this mission and the next. The cargo still arrives — Helion does not stop
+    # shipping because a tribunal said so — and nothing is built with it. See `colonyFrozen`.
+    colonyFrozen: [helion, kessler]
     payload:
       name: Pipeline Segment
       mass: 1.6
@@ -210,13 +235,14 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 3 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: PIPELINE SEGMENT<br/>DESTINATION: HELION CREST
+          CONTRACT 4471-C · REV 3 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: PIPELINE SEGMENT<br/>DESTINATION: HELION CREST<br/>SITE STATUS: WORK SUSPENDED — ORDER IXN-0071<br/>ALLOWANCE REMAINING: 8.2 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
-          ROUTE NOTE: TRANSIT CROSSES AIRSPACE CLAIMED BY KESSLER DEEP.<br/>NO DECONFLICTION AGREEMENT IS IN FORCE. NONE IS SOUGHT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the segment to HELION CREST.
+          ROUTE NOTE: TRANSIT CROSSES AIRSPACE CLAIMED BY KESSLER DEEP.<br/>NO DECONFLICTION AGREEMENT IS IN FORCE. NONE IS SOUGHT.<br/>SUSPENSION DOES NOT DISCHARGE CARRIAGE.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the segment to HELION CREST.
 
   - id: 11
     client: kessler
+    colonyFrozen: [helion, kessler]
     payload:
       name: Winch Assembly
       mass: 1.3
@@ -227,10 +253,10 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Our own span goes up today. Helion will call it provocation. It is a winch.
+          The winch goes up the day somebody lets me bolt it to anything. The outpost got an order served on both of us and my crew are sitting on their hands.
       - sender: KESSLER DEEP
         content: >-
-          Mind it on the way in, tin can. It went up this morning and it is not on the chart you flew last time.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER CREST.
+          Bring it down anyway, tin can. It can lie on the deck until a tribunal three months out of date decides I am allowed to pick it up.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER CREST.
 
   - id: 12
     client: outpost
@@ -244,7 +270,10 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Both charters now have structures inside a hundred metres of us. The sky above this pad is the only thing still open, navigator, and it is open because we filed for it.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.
+          Nine days, navigator. Nine days of no drill running anywhere in this canyon, and you could hear the wind again.
+      - sender: IXION OUTPOST
+        content: >-
+          Overturned this morning on appeal. Same tribunal, one window later. We have the only clean record in this canyon and it bought nine days.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home.
 
   - id: 13
     client: helion
@@ -258,7 +287,7 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 4 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: CUTTING CHARGES<br/>DESTINATION: HELION CREST<br/>PRIOR CONSIGNMENTS ON ROUTE: DRILL HEAD · COOLANT CELLS · PIPELINE SEGMENT
+          CONTRACT 4471-C · REV 4 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: CUTTING CHARGES<br/>DESTINATION: HELION CREST<br/>ORDER IXN-0071: VACATED<br/>PRIOR CONSIGNMENTS ON ROUTE: DRILL HEAD · PIPELINE SEGMENT<br/>ALLOWANCE REMAINING: 7.5 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
           ROUTE NOTE: OBSTRUCTION BY PRIOR CONSIGNMENTS IS NOT A HELION LIABILITY.<br/>FUEL ALLOWANCE: MINIMUM VIABLE<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CREST.
@@ -347,7 +376,7 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 5 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: LATERAL BORE RIG<br/>DESTINATION: HELION CREST<br/>EXCAVATION AUTHORISED: WEST WALL, HORIZONTAL. HELION DOES NOT SINK SHAFTS.
+          CONTRACT 4471-C · REV 5 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: LATERAL BORE RIG<br/>DESTINATION: HELION CREST<br/>EXCAVATION AUTHORISED: WEST WALL, HORIZONTAL. HELION DOES NOT SINK SHAFTS.<br/>ALLOWANCE REMAINING: 5.7 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
           ROUTE NOTE: HEAVIEST CONSIGNMENT CARRIED UNDER THIS CONTRACT TO DATE.<br/>INERTIA IS NOT A FAULT CONDITION.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the rig to HELION CREST.
@@ -370,7 +399,7 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 6 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ROOF BRACING<br/>DESTINATION: HELION CREST
+          CONTRACT 4471-C · REV 6 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ROOF BRACING<br/>DESTINATION: HELION CREST<br/>ALLOWANCE REMAINING: 4.5 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
           ROUTE NOTE: THE BRACING CLOSES THE WEST EXCAVATION OVERHEAD ON INSTALLATION.<br/>FROM THE NEXT CONTRACT THAT WORKING IS LATERAL APPROACH ONLY. NO VERTICAL DESCENT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver bracing to HELION CREST.
@@ -395,7 +424,7 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 7 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ORE PROCESSOR<br/>DESTINATION: HELION CAVERN — WEST WALL, INTERIOR<br/>HELION CREST: DECOMMISSIONED. DECK LIGHTING OFF.
+          CONTRACT 4471-C · REV 7 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ORE PROCESSOR<br/>DESTINATION: HELION CAVERN — WEST WALL, INTERIOR<br/>HELION CREST: DECOMMISSIONED. DECK LIGHTING OFF.<br/>ALLOWANCE REMAINING: 2.9 T
       - sender: IXION OUTPOST
         content: >-
           The Helion deck went dark this morning. They are in the wall now, and Kessler is in the floor.<br/><br/>Everything that stood on the surface of this canyon when you arrived is underground or is us, navigator.
@@ -494,7 +523,7 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 8 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: COUNTERCLAIM BEACON<br/>DESTINATION: HELION CAVERN
+          CONTRACT 4471-C · REV 8 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: COUNTERCLAIM BEACON<br/>DESTINATION: HELION CAVERN<br/>ALLOWANCE REMAINING: 2.1 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
           ROUTE NOTE: KESSLER DEEP HAS ESTABLISHED WORKINGS BELOW THE FLOOR LINE.<br/>THE SEAM IS CONTESTED.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Cross the canyon. Deliver to HELION CAVERN.
@@ -592,7 +621,7 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 9 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: SEAM CHARGES<br/>DESTINATION: HELION CAVERN<br/>ATTRITION: WITHIN TOLERANCE
+          CONTRACT 4471-C · REV 9 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: SEAM CHARGES<br/>DESTINATION: HELION CAVERN<br/>ATTRITION: WITHIN TOLERANCE<br/>ALLOWANCE REMAINING: 0.7 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
           ROUTE NOTE: FULL CANYON CROSSING, THEN LATERAL ENTRY BENEATH THE BRACING.<br/>EVERY SEGMENT OF THIS TRANSIT HAS BEEN FLOWN BEFORE. NO SINGLE CONTRACT HAS COMBINED THEM.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver charges to HELION CAVERN.
@@ -649,7 +678,7 @@ missions:
     messages:
       - sender: HELION EXTRACTION
         content: >-
-          CONTRACT 4471-C · REV 11 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ARBITRATION WRIT<br/>DESTINATION: HELION CAVERN<br/>ATTRITION: WITHIN TOLERANCE<br/>IXION OUTPOST: NO LONGER A PARTY. FILINGS OF RECORD RETAINED.
+          CONTRACT 4471-C · REV 11 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ARBITRATION WRIT<br/>DESTINATION: HELION CAVERN<br/>ATTRITION: WITHIN TOLERANCE<br/>IXION OUTPOST: NO LONGER A PARTY. FILINGS OF RECORD RETAINED.<br/>ALLOWANCE REMAINING: 0.4 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
           ROUTE NOTE: THIN MARGINS. NO CLEAN LINE REMAINS.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the writ to HELION CAVERN.
@@ -680,3 +709,30 @@ missions:
       - sender: KESSLER DEEP
         content: >-
           ...say again.<br/><br/>—of hole. Take it down, navigator.<br/><br/><b>OBJECTIVE</b> Deliver the charge to KESSLER DEEP.
+
+# ---------------------------------------------------------------------------- epilogue
+#
+# What arrives after the thirtieth delivery, before the campaign screen.
+#
+# The delivery is confirmed on the first card, deliberately and before anything else —
+# the player has to know they succeeded before the ground moves, or the whole sequence
+# reads as a crash.
+#
+# Kessler is cut off mid-sentence, which is the second time in two briefs. In mission 30
+# the carrier interrupts him and he resumes. Here nothing resumes.
+#
+# Nobody narrates. The console reports what it can no longer hear, and Helion files the
+# outcome because Helion is the only party with nobody to evacuate. `SUSTAINED` is the
+# legal word for a warning upheld, arriving from a system with no opinion about it, a
+# year after everyone who filed it left the planet.
+epilogue:
+  - sender: KESSLER DEEP
+    content: >-
+      Charge is seated. That is thirty, navigator, and I have not lost one with you yet.<br/><br/>Pulling the crew up. Give me twenty minutes and I will—
+  - sender: UPLINK
+    register: sys
+    content: >-
+      Vehicle telemetry: lost.<br/>Mast bearing: lost.<br/><br/>Nothing is responding on this channel.
+  - sender: HELION EXTRACTION
+    content: >-
+      CONTRACT 4471-C · REV 12 · AUTO<br/><br/>SITE STATUS: INACCESSIBLE<br/>HAZARD FILING IXN-0114: SUSTAINED<br/>ARBITRATION: MOOT<br/>CARRIER: CLASSIFICATION PENDING

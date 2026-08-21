@@ -136,6 +136,11 @@ export class AudioManager {
 
   /** No-op with music muted: a mission load must not restart a score the player turned
    *  off, and every mission load calls this. */
+  /** The epilogue's beacon. See `MusicComposer.emitDistantIdent`. */
+  public playDistantIdent(): void {
+    this.composer.emitDistantIdent();
+  }
+
   public startAmbient(): void {
     if (this.mutedMusic) return;
     this.init();

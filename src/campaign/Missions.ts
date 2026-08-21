@@ -96,6 +96,26 @@ export interface Mission {
   decommissions?: string[];
   /** Optional cell count override per corp for this mission (e.g. capping Mission 1 outpost to 3 blocks). */
   colonyBudget?: Partial<Record<CorpId, number>>;
+  /**
+   * Corps whose work is stopped this mission — the cargo still arrives, and nothing is
+   * built with it.
+   *
+   * A *different* lever from `colonyBudget`, which is an absolute override and therefore
+   * cuts the player out of the result: growth is normally `cellBudget(missionsFlown,
+   * pointsEarned)`, so pinning a number would pay a careless pilot the same as a careful
+   * one for those missions. This instead drops the mission from that corp's own count,
+   * which suspends the work without touching how the rest of the campaign is earned.
+   *
+   * It is permanent, and that is the point rather than an oversight. A contract suspended
+   * under injunction never built anything, so the colony is a mission smaller for the rest
+   * of the campaign — the legal fight leaves a dent in the canyon that is still visible at
+   * mission 30.
+   *
+   * The cargo is still flown. Helion is a machine and does not stop shipping because a
+   * tribunal said so; the pipeline arrives and lies on the deck, which is a more accurate
+   * picture of what an injunction does to a corporation than cancelling the run would be.
+   */
+  colonyFrozen?: CorpId[];
 }
 
 /**
@@ -128,6 +148,14 @@ export interface Mission {
 export interface BriefMessage {
   sender: string;
   content: string;
+  /**
+   * Whose chrome the card wears. Omitted means a charter is speaking.
+   *
+   * `sys` is the console's own register — not a voice, and not painted in anyone's
+   * livery. Only the epilogue uses it: the one card in the campaign that reports rather
+   * than transmits.
+   */
+  register?: 'corp' | 'sys';
 }
 
 /** One page of a brief. `body` is the authored markup, unescaped and ready to render. */
@@ -252,6 +280,7 @@ import rawMissionsYaml from './missions.yaml?raw';
 
 interface RawMissionSpec {
   missions: Mission[];
+  epilogue: BriefMessage[];
 }
 
 const parsed = parse(rawMissionsYaml) as RawMissionSpec;
@@ -269,6 +298,15 @@ export const MISSIONS: Mission[] = parsed.missions.map((m) => {
 });
 
 export const MISSION_COUNT = MISSIONS.length;
+
+/**
+ * What arrives after the thirtieth delivery.
+ *
+ * The same shape as a brief and shown on the same cards, because the campaign opens with
+ * a transmission and should close with one rather than with a results screen. It is not a
+ * mission: no client, no payload, nothing to fly.
+ */
+export const EPILOGUE: BriefMessage[] = parsed.epilogue;
 
 export function getMission(id: number): Mission | null {
   return MISSIONS.find((m) => m.id === id) ?? null;
@@ -321,6 +359,17 @@ export function worldAt(
   id: number,
   mastX: number | null = null,
   mastY: number | null = null,
+  /**
+   * Where the player's own uplink relay is standing, or null on a save that has not
+   * flown the prologue — in which case the rim stays empty rather than being guessed at.
+   *
+   * Grouped into one argument rather than added as a fourth and fifth positional. The
+   * mission-zero plan proposed converting this whole signature to an options object and
+   * flagged the churn as its main cost; roughly twenty call sites in `Missions.test.ts`
+   * pass `(id, mastX)` or `(id, mastX, mastY)` positionally, and none of them care about
+   * a relay. One optional trailing object buys the same grouping for none of the churn.
+   */
+  relay: { x: number; y: number | null } | null = null,
 ): { props: Prop[]; digs: DigEntry[] } {
   const props: Prop[] = [];
   const digs: DigEntry[] = [];
@@ -351,5 +400,88 @@ export function worldAt(
     });
   }
 
+  /**
+   * The relays go in after the resolver too, and for the same reason as the radar: they
+   * carry no collider and occupy nothing, so there is nothing to clear and nothing to be
+   * relocated for. See `hasCollider` in `Layout.ts`.
+   *
+   * The dead ones are unconditional. They predate every charter in this canyon — that is
+   * the entire claim they make — so they are in the world at mission 1 exactly as they
+   * are at mission 30, and a player who never flies the prologue simply reads them as
+   * scenery, which is the correct outcome.
+   *
+   * The live one appears from the moment it is planted, which is what `relay !== null`
+   * means. There is no `id >=` gate on it, unlike the radar's `id >= 2`: the mast is a
+   * thing mission 1 delivers and so cannot exist during mission 1, whereas the relay is
+   * standing on the rim before mission 1 begins.
+   */
+  for (const x of DEAD_RELAYS) resolved.push({ kind: 'relay', x, live: false });
+  if (relay !== null) {
+    resolved.push({
+      kind: 'relay',
+      x: relay.x,
+      ...(relay.y !== null ? { y: relay.y } : {}),
+      live: true,
+    });
+  }
+
   return { props: resolved, digs };
 }
+
+/**
+ * Four dead relays, on the floor and the lower slopes, half-buried.
+ *
+ * They are **Ixion's**. Kessler does not arrive until mission 6, and hardware that has
+ * been here long enough to be buried cannot be his — an earlier draft had him claiming
+ * four previous links, which welded his career to this canyon's history and put his
+ * equipment in a shaft he had not dug yet. Ixion got here first, keeps records nobody
+ * reads, and is broke enough to be flying equipment that was second-hand when it landed.
+ * Four dead relays is what a long-running underfunded outpost accumulates.
+ *
+ * `-34` is the guaranteed sighting: `outpost-main` sits at x −14, and the player lands on
+ * it eight times from mission 2. The other three are properly missable, which is what
+ * makes finding one feel found rather than placed.
+ *
+ * They are never mentioned in any brief. One line from Ixion at mission 23 comes near it
+ * and does not say *you will have seen them*.
+ */
+const DEAD_RELAYS = [-34, -68, 62, 96];
+
+/**
+ * Where the rim is graded flat, so the prologue has somewhere to land on every seed.
+ *
+ * This was very nearly a bug shipped as scenery. The rim is real generated terrain and
+ * its slope is a function of the seed: measured on 1696448283, the east rim's landable
+ * stretches were x 130–178, 184–194, 230–250, 256–264 and 290–314 — 110 units of flat
+ * ground scattered across 200 of rim, in positions that move with every roll. Bare rock
+ * only counts as a landing when the contact normal clears `MAX_GROUND_LANDING_SLOPE`, so
+ * an authored `start.x` tuned against one seed's flats would have been a coin toss on
+ * every other, and the failure mode is the worst kind: the prologue would simply be
+ * unlandable for some players, with nothing on screen to say why.
+ *
+ * These go into `canyon.build` alongside `campaignPadSites`, which is the mechanism the
+ * campaign already uses to guarantee ground under a pad that rests on it. Each site
+ * levels `halfWidth: 9` with a 10-unit shoulder, so three spaced 18 apart merge into one
+ * continuous shelf of about 54 units — wider than the natural flat this seed happened to
+ * provide, and there whatever the seed says.
+ *
+ * Deliberately not hidden. The shelf is visible from entry for the whole campaign, and a
+ * terrace on the rim is exactly what a landing site should look like from above.
+ */
+export const RIM_SITES = [132, 150, 168];
+
+/**
+ * The prologue, by name rather than by index.
+ *
+ * It **is** mission 1 and lives in `missions.yaml` with everything else — it is scored,
+ * it has a grid cell, and `MISSION_COUNT` is still 30. An earlier build kept it outside
+ * the table as `id: 0` on the argument that the numbered campaign is what a charter paid
+ * for; that is an author's rule the player has no way to perceive. What they perceive is
+ * that a vehicle went down, so it was a mission.
+ *
+ * Named here anyway, because several call sites need to say *which* mission plants the
+ * relay rather than testing `target === null` — which mission 2 also satisfies, and which
+ * would otherwise plant Ixion's navigation mast on the rim with the relay still on the
+ * deck. See `Game.succeed`.
+ */
+export const PROLOGUE: Mission = MISSIONS[0];

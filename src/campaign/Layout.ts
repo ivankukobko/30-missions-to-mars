@@ -100,6 +100,7 @@ function spanX(p: Prop, m: number = MARGIN): [number, number] {
      * caller reaching for the radar's extent gets an honest answer.
      */
     case 'radar':
+    case 'relay':
       return [p.x, p.x];
   }
 }
@@ -107,11 +108,17 @@ function spanX(p: Prop, m: number = MARGIN): [number, number] {
 /**
  * Whether this prop is something a lander can hit.
  *
- * Only the radar is not. It is a landmark rather than colony hardware — the one
- * structure the player sited themselves, deliberately built without a collider so it can
- * stand wherever they set down, including inside ground a later colony grows through. So
- * it can neither block an approach nor be blocked by one, and the layout rules have to
- * ignore it outright.
+ * The radar and the relay are not. Both are landmarks rather than colony hardware — the
+ * two structures the player sited themselves, deliberately built without colliders so
+ * they can stand wherever they set down, including inside ground a later colony grows
+ * through. So
+ * neither can block an approach nor be blocked by one, and the layout rules have to
+ * ignore both outright.
+ *
+ * The relay carries one reason of its own on top of that. Four of them are seeded
+ * half-buried in the canyon as scenery, and a resolver free to relocate a corpse would
+ * be moving a landmark whose whole meaning is that it has been lying there since before
+ * any charter arrived.
  *
  * This used to be left to `spanX` returning a zero-width span, which does not work:
  * `overlaps([7, 7], [5, 15])` is true, because a degenerate interval inside another
@@ -121,7 +128,7 @@ function spanX(p: Prop, m: number = MARGIN): [number, number] {
  * the only consumer was a `console.warn` behind the DEV flag.
  */
 function hasCollider(p: Prop): boolean {
-  return p.kind !== 'radar';
+  return p.kind !== 'radar' && p.kind !== 'relay';
 }
 
 /**
@@ -153,6 +160,7 @@ function spanY(p: Prop): [number, number] {
       return [(p.y ?? 0) - 0.9, p.y ?? 0];
     // Occupies no space in the layout system — see spanX.
     case 'radar':
+    case 'relay':
       return [FLOOR_BASE, FLOOR_BASE];
   }
 }
@@ -160,6 +168,8 @@ function spanY(p: Prop): [number, number] {
 function label(p: Prop): string {
   if (p.kind === 'pad') return `pad ${p.id}`;
   if (p.kind === 'colony') return `colony ${p.corp} x=${p.footprintX[0].toFixed(0)}..${p.footprintX[1].toFixed(0)}`;
+  // The relay is the one prop with no owner to name — see its variant in Colony.ts.
+  if (p.kind === 'relay') return `relay x=${p.x}`;
   return `${p.kind} ${p.corp} x=${p.x}`;
 }
 
