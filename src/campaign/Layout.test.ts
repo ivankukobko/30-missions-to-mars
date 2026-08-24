@@ -36,9 +36,9 @@ const colony = (x: number, cols = 1, rows = 1): Prop => {
     for (let r = 0; r < rows; r++) {
       // z=0 throughout: the play plane is the only layer `checkLayout` judges, so a
       // fixture built anywhere else would be invisible to every rule under test.
-      // `links`/`traits` are render-only — `checkLayout` judges footprints, so a fixture
-      // that leaves both empty is exercising every rule under test.
-      cells.push({ x: x + c * 12, y: r * 12, z: 0, links: 0, scaffold: false, traits: 0 });
+      // `links`/`traits`/`reach` are render-only — `checkLayout` judges footprints, so a
+      // fixture that leaves them at their simplest is exercising every rule under test.
+      cells.push({ x: x + c * 12, y: r * 12, z: 0, links: 0, scaffold: false, traits: 0, reach: 0 });
     }
   }
   return {
@@ -119,7 +119,7 @@ describe('checkLayout', () => {
   });
 
   it('allows pads stacked down one shaft', () => {
-    // kessler-shaft, -ledge and -deep are deliberately one above another.
+    // shaft-head, -ledge and -deep are deliberately one above another.
     const props = [pad('shaft', 10, 12), pad('ledge', 10, 11, -45), pad('deep', 10, 11, -141)];
 
     expect(checkLayout(props)).toEqual([]);
@@ -145,11 +145,11 @@ describe('checkLayout', () => {
    * counts a point strictly inside an interval as overlapping. Against a pad at y=0 the
    * rule missed it anyway, because the radar's modelled top (-6) is under the deck; it
    * only fired once the campaign put pads down a shaft. So the exact shape that broke is
-   * a radar position near a sunken pad's centreline, which is `kessler-ledge` from
+   * a radar position near a sunken pad's centreline, which is `shaft-ledge` from
    * mission 21 with the player's radar planted near x=10.
    */
   it('never blames the radar for a pad sunk down a shaft either', () => {
-    expect(checkLayout([pad('kessler-ledge', 10, 11, -45), radar(7)])).toEqual([]);
+    expect(checkLayout([pad('shaft-ledge', 10, 11, -45), radar(7)])).toEqual([]);
   });
 
   it('never blames the radar wherever the player planted it', () => {

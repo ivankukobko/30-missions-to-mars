@@ -408,11 +408,46 @@ export function missionWorlds(
   relay: { x: number; y: number | null } | null = null,
 ): (missionId: number) => MissionWorld {
   const cache = new Map<number, MissionWorld>();
+
+  /**
+   * Every deck a floor bore must not open underneath, across the whole campaign — see
+   * `mouthSpan` in `TerrainDigs.ts`.
+   *
+   * **Every deck outside the bore, not just the ones resting on the ground.** A ground deck
+   * seals a mouth with the bench graded under it; an elevated one seals it by being a solid
+   * platform in the only airspace the shaft can be entered through. Measured on all three
+   * test seeds, the mouth resolved to x 36 and `kessler-crest` — authored at 40, snapped to
+   * 36, standing at y 73 — sat squarely across it for the whole campaign.
+   *
+   * Decks that name a dig are excluded, and have to be: those are the destinations *inside*
+   * the bore, and keeping the mouth clear of them would be keeping it clear of itself.
+   *
+   * Read from the *authored* ledger rather than from resolved worlds, which looks like a
+   * shortcut and is the only thing that works — resolution consumes this list, so deriving
+   * it from resolved output would be circular. It is exact anyway: the decks this collects
+   * are precisely the ones resolution never moves.
+   *
+   * Computed once per `missionWorlds` rather than per lookup: it walks all thirty missions,
+   * and the resolver it feeds is called on every one of them.
+   */
+  const decksOutsideBores = (() => {
+    const seen = new Map<string, { x: number; halfWidth: number; onGround: boolean }>();
+    for (let m = 1; m <= MISSIONS.length; m++) {
+      for (const p of worldAt(m, mastX, mastY, relay).props) {
+        if (p.kind !== 'pad' || p.attachToDig !== undefined) continue;
+        // A deck with no `y` rests on the ground and is graded a bench; one with a `y`
+        // stands on a tower and denies only the air it occupies.
+        seen.set(p.id, { x: p.x, halfWidth: p.width / 2, onGround: p.y === undefined });
+      }
+    }
+    return [...seen.values()];
+  })();
+
   return (missionId) => {
     const hit = cache.get(missionId);
     if (hit) return hit;
     const world = worldAt(missionId, mastX, mastY, relay);
-    const resolved = resolveTerrainAnchoredDigs(world.digs, terrain);
+    const resolved = resolveTerrainAnchoredDigs(world.digs, terrain, decksOutsideBores);
     const out: MissionWorld = {
       props: applyDigAttachments(world.props, resolved.endpoints),
       digs: resolved.digs,
@@ -741,6 +776,7 @@ export function planColonies(
       y: lattice.worldY(row),
       z: lattice.worldZ(layer),
       links: cell.links,
+      reach: cell.reach,
       /**
        * Bare frame where the colony is *reaching*, hull where it is standing.
        *

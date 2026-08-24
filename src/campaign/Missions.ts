@@ -4,6 +4,7 @@ import type { AirframeId } from '../entities/Airframe.ts';
 import type { MusicTrack } from '../audio/MusicComposer.ts';
 import { resolveLayout } from './Layout.ts';
 import { snapToColumn } from '../world/ColonyLattice.ts';
+import { parseCells } from '../world/ShaftGrid.ts';
 import type { DigEntry } from './TerrainDigs.ts';
 
 /** What the cargo physically looks like strapped under the lander. */
@@ -32,6 +33,27 @@ export function cargoShape(payload: Payload): CargoShape {
 
 export interface Mission {
   id: number;
+  /**
+   * The sol this delivery lands on, counting from the prologue.
+   *
+   * Thirty deliveries across 628 sols — just under a Mars year, comfortably inside a single
+   * Earth–Mars transfer gap of ~759. That is the fact the whole campaign hangs on: the
+   * charters clear orbit together because a window is the only time anyone can, they bring
+   * a year of equipment down a piece at a time, and mission 30 lands about a hundred sols
+   * before the next one opens — so something is already on its way and the game never says
+   * what.
+   *
+   * **Uneven on purpose.** A flat cadence would be a number that changes; the gaps are the
+   * story. Three deliveries fall inside nine sols while the injunction holds, because two
+   * charters forbidden to build are stockpiling as fast as they can fly it down, and the
+   * gaps stretch to thirty-two once the arbitration starts eating windows.
+   *
+   * **Never stated as a total.** Ixion carries sol counts in their briefs and nobody ever
+   * subtracts them out loud — a player who does gets the length of the campaign, which is
+   * the only place that number exists. Kessler counts work instead, Helion carries a
+   * machine date stamp nobody reads: three registers, as with everything else here.
+   */
+  sol: number;
   client: CorpId;
   payload: Payload;
   fuel: number;
@@ -247,6 +269,7 @@ export function pad(
   y?: number,
   attachToDig?: string,
   xFromDig?: string,
+  atCell?: { col: number; row: number },
 ): Prop {
   return {
     kind: 'pad',
@@ -262,6 +285,11 @@ export function pad(
     ...(y === undefined ? {} : { y }),
     ...(attachToDig === undefined ? {} : { attachToDig }),
     ...(xFromDig === undefined ? {} : { xFromDig }),
+    // Carried explicitly, like everything else here. This factory rebuilds a pad field by
+    // field rather than spreading it, so anything it does not name is silently discarded
+    // between the YAML and the canyon — which is how `atCell` first shipped doing nothing
+    // at all while every test passed.
+    ...(atCell === undefined ? {} : { atCell }),
   };
 }
 
@@ -286,10 +314,27 @@ interface RawMissionSpec {
 const parsed = parse(rawMissionsYaml) as RawMissionSpec;
 
 export const MISSIONS: Mission[] = parsed.missions.map((m) => {
+  /**
+   * A drawn excavation arrives from YAML as a block of text and has to become cells before
+   * anything downstream sees it — `Excavation.cells` is typed as the parsed form, so this
+   * is the only place the two representations meet.
+   *
+   * `halfWidth` and `depth` stay authored rather than being derived from the drawing, and
+   * that is deliberate. They are the *bounding* description — `TerrainDigs` positions a
+   * pad at `mouthY + direction * depth`, `Layout` checks the corridor against the same
+   * endpoint — so deriving them would round every dig to a whole number of cells and move
+   * pads that are currently where somebody put them. The drawing is the shape; these two
+   * are the box around it, and `Missions.test.ts` asserts they agree.
+   */
+  for (const dig of m.adds?.digs ?? []) {
+    const drawn = dig as { cells?: unknown };
+    if (typeof drawn.cells === 'string') drawn.cells = parseCells(drawn.cells);
+  }
+
   if (m.adds?.props) {
     m.adds.props = m.adds.props.map((p) => {
       if (p.kind === 'pad') {
-        return pad(p.corp, p.id, p.x, p.width, p.y, p.attachToDig, p.xFromDig);
+        return pad(p.corp, p.id, p.x, p.width, p.y, p.attachToDig, p.xFromDig, p.atCell);
       }
       return p;
     });
@@ -298,6 +343,10 @@ export const MISSIONS: Mission[] = parsed.missions.map((m) => {
 });
 
 export const MISSION_COUNT = MISSIONS.length;
+
+/** The sol the campaign ends on — the denominator for anything that varies across it,
+ *  so the season and the light are read off the calendar rather than off mission ids. */
+export const LAST_SOL = MISSIONS[MISSIONS.length - 1].sol;
 
 /**
  * What arrives after the thirtieth delivery.

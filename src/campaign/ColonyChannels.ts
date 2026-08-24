@@ -3,6 +3,8 @@ import type { Excavation } from '../world/CanyonGenerator.ts';
 import type { Lattice } from '../world/ColonyLattice.ts';
 import type { SubstrateField } from '../world/ColonySubstrate.ts';
 import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
+import { shaftGrid, anchorCells } from '../world/ShaftGrid.ts';
+import { snapToColumn } from '../world/ColonyLattice.ts';
 
 /**
  * The flight-route network, and the one hard guarantee the colony is built around:
@@ -217,6 +219,30 @@ function mouthOf(dig: Excavation, terrain: ChannelTerrain): { x: number; y: numb
 function containingDig(pad: Pad, deckY: number, digs: Excavation[], terrain: ChannelTerrain): Excavation | null {
   let best: { dig: Excavation; along: number } | null = null;
   for (const dig of digs) {
+    /**
+     * A drawn excavation answers this exactly, and the tube arithmetic below cannot.
+     *
+     * `across > halfWidth + pad.width/2` asks whether the deck is within a bore-width of
+     * the axis, which is the right question for a tube and the wrong one for a complex:
+     * Helion's gallery runs five columns west of the mouth, so its deck measured sixty
+     * units across against a tolerance of eighteen and was reported as inside *no* dig at
+     * all. The consequence was quiet rather than visible — the route to it never passed
+     * through the mouth, so the mouth column was never reserved on its behalf, and the
+     * approach worked only because a deeper deck's route happened to reserve the same
+     * column. Strike that deck and the shaft seals.
+     *
+     * Cell membership has no tolerance to get wrong. Either the deck is standing in a cell
+     * this excavation took out of the rock or it is not.
+     */
+    if (dig.cells) {
+      const grid = shaftGrid(terrain.heightAt(dig.x, 0, false));
+      const anchored = anchorCells(dig.cells, grid.colAt(snapToColumn(dig.x)));
+      const here = anchored.some(
+        (c) => c.col === grid.colAt(pad.x) && c.row === grid.rowAt(deckY),
+      );
+      if (here) return dig;
+      continue;
+    }
     const { dir, perp } = boreDirection(dig);
     const mouth = mouthOf(dig, terrain);
     const dx = pad.x - mouth.x;
@@ -315,6 +341,28 @@ function routeFor(
     }
   }
 
+  /**
+   * A route out of a floor bore climbs straight and joins nothing.
+   *
+   * Every other route may merge into a neighbour the moment one is available — two roads
+   * up one canyon are two corridors of keep-out doing one corridor's job. A shaft mouth
+   * cannot afford that. The merge happens at the *first row above the lip*, so the column
+   * directly over the hole is left unreserved for the whole climb, and the colony builds
+   * into it: measured on seed 12345, a module at y 146 spanning x 30…42 — squarely across
+   * a mouth spanning 18…42, twelve rows up, with the descent sealed and nothing in
+   * `checkLayout` reporting a thing.
+   *
+   * A wall bore can merge freely; you fly to its mouth along the canyon and the approach is
+   * lateral. A floor bore is entered from directly above, out of orbit, so the column over
+   * it has to be clear all the way to the rim — there is no other way in, and no height at
+   * which an obstruction stops mattering.
+   *
+   * It costs one column of buildable ground for the campaign. That is the price of a shaft
+   * you can fly into, and mission 21 already promises it in words: *get it wrong above the
+   * lip, not below* is only true if there is room above the lip to get it right in.
+   */
+  const straightUp = dig !== null && isFloorMounted(boreDirection(dig).dir);
+
   const start = points[points.length - 1];
   const trunk = trunkColumn(lattice, terrain);
   const startRow = Math.max(0, lattice.rowAt(start.y) + 1);
@@ -340,9 +388,14 @@ function routeFor(
      * the east wall, and Ixion rooted on Kessler's face instead. Joining costs nothing by
      * comparison: the column is already reserved by whoever got there first.
      */
-    const ways = joins.filter((j) => j.row === row);
+    const ways = straightUp ? [] : joins.filter((j) => j.row === row);
     let target: number | null = null;
-    if (ways.length > 0) {
+    if (straightUp) {
+      // Neither joining nor converging: this column is the way in. The openness fallback
+      // below still applies, so a mouth in genuinely impossible ground can still bend —
+      // it just cannot be talked out of the straight line by a road going the same way.
+      target = null;
+    } else if (ways.length > 0) {
       let nearest = Infinity;
       for (const way of ways) {
         const d = Math.abs(way.col - col);

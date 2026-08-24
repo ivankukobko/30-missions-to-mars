@@ -31,7 +31,7 @@ approach nor be blocked by one.
 
 That exemption used to be expressed by giving the radar a zero-width span, which does not
 work: a degenerate interval strictly inside another still overlaps it. From mission 21,
-where `kessler-ledge` sits 45 units below the floor, a radar planted near the shaft was
+where `shaft-ledge` sits 45 units below the floor, a radar planted near the shaft was
 reported as blocking its approach corridor. Nothing acted on the report, because the only
 consumer was a `console.warn` — which is the whole argument for the campaign layout check
 being a test rather than a log line.

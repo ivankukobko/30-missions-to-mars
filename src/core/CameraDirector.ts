@@ -146,7 +146,7 @@ export class CameraDirector {
        * be steady and the pad should not slide around the frame.
        *
        * This is the cave framing as well, which is not obvious from the name. A Helion
-       * cavern sits only a few units under the rim — `helion-cavern` is at y ≈ −8, well
+       * cavern sits only a few units under the rim — `shaft-gallery` is at y ≈ −8, well
        * above the floor−20 line — so it never reaches `shaft` and runs on this instead.
        * Both are the same problem anyway: a tight space where what matters is the metre
        * either side of the hull, not where the canyon goes next.

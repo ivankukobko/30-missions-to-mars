@@ -134,8 +134,11 @@ export function buildRubble(
 
   const parts: THREE.BufferGeometry[] = [];
   const colors: number[] = [];
-  const rockLow = new THREE.Color(PALETTE.rockLow);
-  const rockMid = new THREE.Color(PALETTE.rockMid);
+  // Same two entries `AntFarm` cuts the bore from, not the exterior gradient — this is
+  // spoil out of the hole, so it has to be the hole's own stone (`rockCut`/`rockCutLow`)
+  // or the comment below stops being true the moment the two diverge.
+  const rockLow = new THREE.Color(PALETTE.rockCutLow);
+  const rockMid = new THREE.Color(PALETTE.rockCut);
 
   sites.forEach((site, index) => {
     // A wide size spread is most of what makes a scatter read as broken rock rather than

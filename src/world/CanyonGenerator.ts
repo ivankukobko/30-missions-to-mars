@@ -3,6 +3,7 @@ import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { Noise, clamp01, lerp, smoothstep } from './Noise.ts';
 import { CANYON, FACET_CELL, PALETTE } from './CanyonSpec.ts';
 import { boreDirection, isFloorMounted, type Vec2 } from './Shaft.ts';
+import type { Carved } from './ShaftGrid.ts';
 import { AntFarm, BACK_Z, FRONT_Z } from './AntFarm.ts';
 import { carveFromDig, type ShaftCarve } from './ShaftGrid.ts';
 import { fadeNearLander } from './LanderFade.ts';
@@ -58,6 +59,22 @@ export interface Excavation {
    * to straight down. Needn't be pre-normalised; `boreDirection` normalises it once.
    */
   direction?: { x: number; y: number };
+  /**
+   * The excavation's real shape, when the campaign drew one — see `parseCells`.
+   *
+   * Present, this is what gets carved and `halfWidth`/`depth` become a bounding
+   * description derived from it (`Missions.ts` does the deriving, so the two can never
+   * disagree). Absent, the bore is rasterised from those fields as before.
+   *
+   * Coordinates are the drawing's own, with column 0 at its left edge. `carveFromDig`
+   * anchors them onto the mouth; nothing else should ever read them directly.
+   *
+   * **Floor-mounted excavations only, for now.** A drawing anchors on the run of carved
+   * cells across its top row, which is a mouth you fall through. A bore into a wall face
+   * opens through a vertical plane instead and has no such row, so those stay on the
+   * rasteriser until the campaign stops having any.
+   */
+  cells?: Carved[];
 }
 
 /**
@@ -91,6 +108,20 @@ export function mergeDigs(digs: Excavation[]): Excavation[] {
     // disagree on which way it points, so the earlier one wins rather than averaging
     // two vectors into a direction nobody authored.
     shared.direction = shared.direction ?? dig.direction;
+    /**
+     * The **last** drawing wins, which is the opposite of every other field here.
+     *
+     * Campaign drawings are cumulative: each stage draws the whole complex as it stands at
+     * that mission, so a later record already contains everything an earlier one said. The
+     * earlier-wins rule the fields above use would have kept Kessler's five-row opening cut
+     * and applied it at depth 303 — a shaft carved to a fifth of its length with every pad
+     * below the fifth row sealed in solid rock, and nothing on screen to say so. That is
+     * the same failure this function was written to fix, arriving by a different door.
+     *
+     * Deliberately not a union. A union cannot express a stage that fills something in,
+     * and backfilling is exactly what Kessler's own contract at mission 30 is for.
+     */
+    shared.cells = dig.cells ?? shared.cells;
   }
   return out;
 }
@@ -659,7 +690,29 @@ export class CanyonGenerator {
     // were cut for. The hole and the thing filling it are the same span by construction now.
     if (z < BACK_Z || z > FRONT_Z) return false;
     for (const carve of this.carves) {
-      if (carve.has(carve.grid.colAt(x), carve.grid.rowAt(y))) return true;
+      const col = carve.grid.colAt(x);
+      const row = carve.grid.rowAt(y);
+      if (row >= 0) {
+        if (carve.has(col, row)) return true;
+        continue;
+      }
+      /**
+       * **Above the carve's datum, a mouth column is still open.**
+       *
+       * A carve has one `topY` — `heightAt(dig.x, 0)`, the ground at the bore's own axis —
+       * and the terrain has a height per column. So `rowAt` of a column whose ground stands
+       * higher than that axis returns a *negative* row, which is in no cell, and the quad
+       * was kept: no hole in the mesh, no gap in the collider, solid ground across the
+       * entrance. It only ever worked where the floor happened to be level across the mouth.
+       *
+       * `AntFarm` never had this problem — its face samples the terrain per column, at its
+       * own z, so it starts exactly at the ground. This is the same rule arriving on the
+       * other side of the join: a column in the mouth run is open at whatever height its
+       * own ground turns out to be, and a shaft collar follows the surface rather than a
+       * datum. Everything below row 0 stays level, which is what a gallery needs and what
+       * a real working does.
+       */
+      if (carve.has(col, 0)) return true;
     }
     return false;
   }
@@ -812,7 +865,7 @@ export class CanyonGenerator {
      * pads inside a shaft rest on `floorAt` — which is `heightAt`, and that includes
      * `floorYAt` and any shelf, neither of which `floorRelief` knows about. Guessing the
      * mouth from `floorRelief` put the bore 4.5 units too high, so its floor slab became
-     * a lid *above* `kessler-shaft` and the pad was sealed under its own shaft.
+     * a lid *above* `shaft-head` and the pad was sealed under its own shaft.
      *
      * That is the floor-mounted case. A wall-mounted mouth has no pit to walk back up
      * from — `heightAt` at its x is already the natural, un-carved wall surface, which
@@ -1027,28 +1080,17 @@ export class CanyonGenerator {
     return tmpColor;
   }
 
-  /** A dust-gradient dome so the sky is not a flat fill. */
   /**
-   * The sky dome.
-   *
-   * The gradient is baked as a *multiplier* rather than as colour. Vertex colours
-   * multiply the material colour in three.js, so a vertex of (1,1,1) at the horizon
-   * renders exactly the material colour — and the material colour is driven from the
-   * fog every frame by `tintSky`. That makes the horizon match the fog by construction
-   * instead of by coincidence.
-   *
-   * It did not match before: the dome baked PALETTE.dust with `fog: false`, while the
-   * fog colour is animated at runtime and darkens toward near-black as you descend. So
-   * fogged terrain met an unfogged dome at a hard line across the horizon. The zenith
-   * tint is the skyHigh/dust ratio, so at the default fog colour this reproduces the
-   * old gradient exactly and then follows the fog wherever it goes.
-   */
-  /**
-   * Sky gradient dome disabled so the background renders as a uniform solid color
-   * matching the fog color, ensuring the horizon dissolves smoothly with zero seam.
+   * A gradient dome used to stand here, tinting the zenith against a `skyHigh`/`dust`
+   * ratio while the horizon matched the fog by construction. It is gone rather than
+   * fixed: a flat clear colour dissolves into fogged terrain with zero seam by
+   * construction too, for free, and `PALETTE.haze` is now the single colour that has to
+   * be right for the open sky rather than two that had to agree. `skyHigh` went with it
+   * — see `COLOR_SCHEMES`'s own comment for why a colour grading tool is the wrong place
+   * to leave a field that had stopped doing anything.
    */
   private buildSky(): void {
-    // Sky dome mesh removed so WebGL background clearColor renders solid fog color
+    // Sky dome mesh removed so WebGL background clearColor renders solid fog colour.
   }
 
   /** Pins the background horizon to the current fog colour. */

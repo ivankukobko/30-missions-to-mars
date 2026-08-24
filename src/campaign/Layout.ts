@@ -123,7 +123,7 @@ function spanX(p: Prop, m: number = MARGIN): [number, number] {
  * This used to be left to `spanX` returning a zero-width span, which does not work:
  * `overlaps([7, 7], [5, 15])` is true, because a degenerate interval inside another
  * still satisfies both halves of the test. The consequence was live but invisible — from
- * mission 21, where `kessler-ledge` sits at y=-45, a radar planted anywhere near x=10
+ * mission 21, where `shaft-ledge` sits at y=-45, a radar planted anywhere near x=10
  * was reported as blocking the shaft's approach corridor. Nothing acted on it, because
  * the only consumer was a `console.warn` behind the DEV flag.
  */
@@ -503,7 +503,7 @@ export function checkLayout(
 
       // Rule 2 — the corridor over the pad's core stays clear up to any cave roof.
       //
-      // Another pad overhead is the shaft's own level design — kessler-shaft, -ledge
+      // Another pad overhead is the shaft's own level design — shaft-head, -ledge
       // and -deep are stacked down one hole on purpose, and each necessarily sits
       // under the one above it.
       if (p.kind === 'pad') continue;

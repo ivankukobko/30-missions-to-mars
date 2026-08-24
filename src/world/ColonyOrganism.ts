@@ -85,6 +85,23 @@ export interface OrganismCell {
   /** 0-based position in this corp's own build order — see the doc comment above. */
   order: number;
   links: number;
+  /**
+   * How many steps of cantilever this cell was built on — `reachOf`'s own answer, frozen
+   * at the moment the cell was claimed. `0` is rock, ground, or the corp's own roof
+   * directly under it; `MAX_CANTILEVER` is as far from anything load-bearing as growth is
+   * ever allowed to reach.
+   *
+   * Kept rather than only used to decide legality, because it is the one fact the
+   * simulation already has that answers "how far is this from the ground or the wall" —
+   * which is a question about the *cell*, permanently, not about this mission's frontier.
+   * The scratch `reach` map in `growColony` answers a different question (is this cell
+   * legal footing for something new *this mission*) and forces every carried-forward cell
+   * to 0 for that purpose; a mast built two missions ago must not read as a tank the
+   * moment it stops being the growing edge, so its own history has to survive the mission
+   * boundary on the cell object rather than in that map. See `growColony`'s `existing`
+   * branch, which carries it forward by spreading the old cell rather than recomputing it.
+   */
+  reach: number;
 }
 
 /**
@@ -119,6 +136,10 @@ export interface PlacedCell {
   scaffold: boolean;
   /** `TRAIT` bitmask — what this cell's surroundings are. */
   traits: number;
+  /** Cantilever steps from rock, ground or this corp's own roof — `0` is standing on one
+   *  of them directly. See `OrganismCell.reach`, which this is copied from unchanged; the
+   *  renderer reads it to decide how far a structure has reached from what holds it up. */
+  reach: number;
 }
 
 export interface Spore {
@@ -530,7 +551,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
 
   function claim(corp: CorpId, col: number, row: number, layer: number, cellReach: number): void {
     const order = built.get(corp) ?? 0;
-    cells.set(lattice.key(col, row, layer), { corp, order, links: 0 });
+    cells.set(lattice.key(col, row, layer), { corp, order, links: 0, reach: cellReach });
     reach.set(lattice.key(col, row, layer), cellReach);
     built.set(corp, order + 1);
   }
@@ -711,10 +732,17 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       if (!lattice.inBounds(col, row)) continue;
       if (substrate.isSolid(col, row)) continue; // buried
       if (layer === 0 && forbidden(col, row)) continue; // demolished by a route
+      // `{ ...cell }` carries `cell.reach` forward untouched — the cantilever it was
+      // actually built on, which the renderer reads to decide its shape and must not
+      // change just because a mission has passed.
       cells.set(key, { ...cell });
-      // Carried-forward cells are load-bearing by the fact that they are standing: their
-      // own reach was checked the mission they were built, and nothing has been removed
-      // from under them (growth is strictly additive — see `ColonyPlan`).
+      // The *scratch* reach below is a different question: whether this cell is legal
+      // footing for something new this mission. Carried-forward cells are load-bearing by
+      // the fact that they are standing — their own reach was checked the mission they
+      // were built, and nothing has been removed from under them (growth is strictly
+      // additive — see `ColonyPlan`) — so this is unconditionally 0 regardless of what
+      // `cell.reach` says, and must stay that way or a colony resuming from a genuinely
+      // cantilevered edge would refuse to grow from it a second time.
       reach.set(key, 0);
       built.set(cell.corp, Math.max(built.get(cell.corp) ?? 0, cell.order + 1));
     }

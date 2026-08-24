@@ -87,6 +87,81 @@ export function carveOf(grid: ShaftGrid, cells: Carved[]): ShaftCarve {
 }
 
 /**
+ * An excavation drawn as characters: `0` is rock taken out, `x` is rock left in.
+ *
+ * The campaign authors the shape of a dig rather than a generator producing one, and that
+ * is a deliberate trade. A generator has to *prove* that three landing pads end up
+ * reachable, with clearance, on every seed the game can roll — a property you can only
+ * ever sample. Authored cells make the same question a set of assertions over data, which
+ * is why the invariants in `Missions.test.ts` can be exhaustive instead of representative.
+ *
+ * Whitespace is stripped rather than significant. A leading space would silently shift
+ * every cell on its row one column east, and YAML block scalars are exactly the place that
+ * kind of edit happens by accident — so rock is spelled, never implied.
+ *
+ * Column 0 here is the left edge of the drawing, not a world column. Nothing downstream
+ * ever sees these coordinates: `anchorCells` moves the whole shape onto the mouth before
+ * it becomes a carve. That is what lets you add three characters of rock to the left of a
+ * drawing without moving the excavation an inch.
+ */
+export function parseCells(art: string): Carved[] {
+  const cells: Carved[] = [];
+  const lines = art.split('\n').map((l) => l.replace(/\s+/g, ''));
+  // A trailing newline is what a YAML block scalar always ends with, and an empty row is
+  // not a row of rock — dropping it here keeps `rowHi` honest.
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+
+  for (let row = 0; row < lines.length; row++) {
+    for (let col = 0; col < lines[row].length; col++) {
+      const c = lines[row][col];
+      if (c === '0') cells.push({ col, row });
+      else if (c !== 'x') {
+        throw new Error(`excavation art: unexpected "${c}" at row ${row}, column ${col}`);
+      }
+    }
+  }
+  return cells;
+}
+
+/**
+ * The contiguous run of carved cells on row 0 — the mouth the excavation opens through.
+ *
+ * The drawing anchors on its own entrance rather than on an authored origin column, so
+ * placement stays where placement already lives (`anchorToWall`, `snapToColumn`) and the
+ * art is purely a shape. The alternative was an explicit `col0`, which is one number that
+ * can silently disagree with the picture beside it.
+ *
+ * **Exactly one run, and it must be on row 0.** Two runs would be two mouths with no way
+ * to say which one anchors, and a drawing whose top row is solid has no entrance at all.
+ * Both are rejected here rather than resolved by a rule nobody would remember.
+ */
+export function mouthRun(cells: Carved[]): { lo: number; hi: number } {
+  const top = cells.filter((c) => c.row === 0).map((c) => c.col).sort((a, b) => a - b);
+  if (top.length === 0) throw new Error('excavation art: row 0 is solid, so there is no mouth');
+  for (let i = 1; i < top.length; i++) {
+    if (top[i] !== top[i - 1] + 1) {
+      throw new Error(`excavation art: row 0 has two mouths, at ${top[i - 1]} and ${top[i]}`);
+    }
+  }
+  return { lo: top[0], hi: top[top.length - 1] };
+}
+
+/**
+ * Moves a drawing onto the grid so its mouth straddles `mouthCol`.
+ *
+ * An even-width mouth cannot be centred on a column, so it is placed the same way
+ * `carveFromDig` places an even bore: the run starts half its width to the west, which
+ * puts `mouthCol` on the eastern of the two centre cells. Consistency with the rasteriser
+ * is what lets an authored drawing replace a tube without the shaft moving six units.
+ */
+export function anchorCells(cells: Carved[], mouthCol: number): Carved[] {
+  const { lo, hi } = mouthRun(cells);
+  const width = hi - lo + 1;
+  const shift = mouthCol - lo - Math.floor(width / 2);
+  return cells.map((c) => ({ col: c.col + shift, row: c.row }));
+}
+
+/**
  * The carve an existing `Excavation` describes, rasterised onto the grid.
  *
  * A shim, and deliberately a thin one. The ledger still authors digs as tubes — an `x`, a
@@ -100,6 +175,13 @@ export function carveOf(grid: ShaftGrid, cells: Carved[]): ShaftCarve {
  */
 export function carveFromDig(dig: Excavation, mouthY: number): ShaftCarve {
   const grid = shaftGrid(mouthY);
+
+  // A drawn excavation is used as drawn, anchored on the mouth the ledger resolved. The
+  // rasteriser below is only for digs the campaign still describes as tubes.
+  if (dig.cells) {
+    return carveOf(grid, anchorCells(dig.cells, grid.colAt(snapToColumn(dig.x))));
+  }
+
   const { dir } = boreDirection(dig);
   const vertical = isFloorMounted(dir);
   const cells: Carved[] = [];

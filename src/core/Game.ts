@@ -8,7 +8,7 @@ import { CanyonGenerator, type Excavation } from '../world/CanyonGenerator.ts';
 import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
 import { Colony, type PadInfo } from '../world/Colony.ts';
 import { forgetFadedMaterials } from '../world/LanderFade.ts';
-import { CANYON, CORPS, PALETTE } from '../world/CanyonSpec.ts';
+import { CANYON, CORPS, PALETTE, applyColorScheme, currentColorScheme } from '../world/CanyonSpec.ts';
 import { Lander, LANDER } from '../entities/Lander.ts';
 import { Effects } from '../entities/Effects.ts';
 import { Interface, type GameSettings } from '../ui/Interface.ts';
@@ -18,6 +18,7 @@ import {
   getMission,
   airframeFor,
   PROLOGUE,
+  LAST_SOL,
   RIM_SITES,
   musicTrackFor,
   MISSION_COUNT,
@@ -186,6 +187,8 @@ export class Game {
   private fog: THREE.FogExp2;
   private volumetricFog: VolumetricFog;
   private sun: THREE.DirectionalLight;
+  private fill = new THREE.AmbientLight(0xa8908a, 0.52);
+  private sky = new THREE.HemisphereLight(0xffcaa0, 0x2a1208, 0.7);
   /** Display resolution divisor — see applyResolution(). 1 renders at full size. */
   private renderScale = 1;
 
@@ -234,7 +237,9 @@ export class Game {
     this.renderer.toneMappingExposure = 1.05;
     this.container.appendChild(this.renderer.domElement);
 
-    this.fog = new THREE.FogExp2(PALETTE.dust, 0.0016);
+    // The atmosphere, not the ground — see `PALETTE.haze`'s own doc comment for why this
+    // used to be `PALETTE.dust` and read as a canyon full of the same rust as its floor.
+    this.fog = new THREE.FogExp2(PALETTE.haze, 0.0016);
     this.scene.fog = this.fog;
     this.volumetricFog = new VolumetricFog(this.scene);
 
@@ -255,15 +260,16 @@ export class Game {
     window.addEventListener('pointerdown', initAudioOnUserGesture);
     window.addEventListener('keydown', initAudioOnUserGesture);
 
-    // Dim, cool fill. The canyon is meant to be a dark place lit by its tenants.
-    this.scene.add(new THREE.AmbientLight(0xa8908a, 0.52));
-    this.scene.add(new THREE.HemisphereLight(0xffcaa0, 0x2a1208, 0.7));
+    // Dim, cool fill. The canyon is meant to be a dark place lit by its tenants. Held
+    // rather than dropped into the scene, because the season tints both — see `applySky`.
+    this.scene.add(this.fill);
+    this.scene.add(this.sky);
 
     // Sun on the horizon, far down the canyon and barely above it: ~9 degrees. It
     // rakes the rim and the upland and never reaches the floor, so below the rim the
     // only real light is the colony's.
     this.sun = new THREE.DirectionalLight(PALETTE.sun, 3.1);
-    this.sun.position.set(-620, 150, -900);
+    this.sun.position.copy(this.sunOffset);
     // No shadow map: with the sun on the horizon and the canyon shadow baked into
     // vertex colour, cast shadows were invisible and cost ~30% of the frame.
     this.scene.add(this.sun);
@@ -414,9 +420,6 @@ export class Game {
       ? allProps.filter((p) => p.kind === 'colony' || p.kind === 'pad')
       : allProps;
     this.colony.build(shown, this.canyon, plan);
-    // A charter under injunction keeps its structures and loses its lights. See
-    // `Colony.darken` for why this rather than the growth freeze the field also drives.
-    this.colony.darken(mission.colonyFrozen ?? []);
 
     // A structure fast enough to cross the hull inside one substep can be passed clean
     // through, and the symptom is nothing happening — which looks exactly like nothing
@@ -462,6 +465,7 @@ export class Game {
 
     this.director.snapTo(mission.start.x, mission.start.y);
     this.sun.target.position.set(mission.start.x, CANYON.FLOOR_Y, 0);
+    this.applySky(mission);
 
     this.ui.setHudVisible(false);
     // Ranging comes off the radar, which is mission 2's payload and is still in the hold
@@ -517,6 +521,66 @@ export class Game {
     this.ui.hidePanel();
     this.ui.setHudVisible(false);
     this.ui.setUplink(0);
+  }
+
+  /**
+   * Where the sun stands for the mission being flown, relative to the vehicle.
+   *
+   * Held rather than recomputed because the per-frame update only slides it along x to
+   * follow the descent — the bearing and the elevation are a property of the sol, not of
+   * where the vehicle happens to be.
+   */
+  private sunOffset = new THREE.Vector3(-620, 150, -900);
+
+  /**
+   * The sky, as a function of the calendar.
+   *
+   * Thirty deliveries across 628 sols is just under a Mars year, so the campaign walks
+   * through one seasonal cycle exactly once — and the light is the only place the player
+   * can feel that. Two independent movements:
+   *
+   * **Elevation declines across the campaign**, from high sun on the first deliveries to a
+   * low rake by the thirtieth. Deliberately monotonic rather than a full seasonal cycle,
+   * and worth being straight about why: 628 sols is 0.94 of a Mars year, so a real cycle
+   * returns almost exactly to where it started — mission 2 and mission 30 come out lit
+   * identically, and the first delivery inherits the gloom that should belong only to the
+   * last. This is dramatic, not simulated. A campaign that darkens is the arc; a campaign
+   * that darkens and brightens again is weather.
+   *
+   * Floored well above the horizon regardless, because a canyon nobody can see is not
+   * atmosphere, it is an unplayable mission — below the rim the only real light is already
+   * the colony's own.
+   *
+   * **Bearing walks with the sol.** Deliveries are insertions from whatever is parked
+   * above, so the local time of a landing drifts rather than repeating; consecutive
+   * missions are lit from close to the same angle and the campaign swings the shadows
+   * across the canyon about twice. Deliberately a drift, not a per-mission scatter: a
+   * light that jumps somewhere new every mission reads as a bug, and one that never moves
+   * reads as thirty errands on the same afternoon.
+   *
+   * Exposure and the fill lights are *derived from the elevation* rather than being a
+   * third knob. A low sun is warmer and dimmer, a high one cooler and brighter, which is
+   * the whole colour drift and costs nothing to justify. The range is deliberately narrow:
+   * the charters' neon is the one thing the player navigates by, and ACES clips a
+   * saturated emissive to white well before exposure 2 — see `Colony.buildRadar`.
+   */
+  private applySky(mission: Mission): void {
+    const throughCampaign = mission.sol / LAST_SOL;
+
+    // 1 on the first delivery, 0 on the last, and smooth throughout — a half cosine, so
+    // the light changes least where the missions are closest together.
+    const season = (1 + Math.cos(throughCampaign * Math.PI)) / 2;
+    const elevation = 190 + season * 580;
+
+    const bearing = throughCampaign * Math.PI * 4;
+    const reach = 1100;
+    this.sunOffset.set(-620 * Math.cos(bearing), elevation, -reach * Math.abs(Math.sin(bearing)) - 220);
+
+    // Warm and dim at the ends of the year, cooler and brighter across the middle.
+    this.renderer.toneMappingExposure = 0.94 + season * 0.22;
+    this.sun.color.copy(new THREE.Color(PALETTE.sun).lerp(new THREE.Color(0xfff1e0), season * 0.5));
+    this.fill.color.copy(new THREE.Color(0x8f6f62).lerp(new THREE.Color(0xbda898), season));
+    this.sky.color.copy(new THREE.Color(0xffb98a).lerp(new THREE.Color(0xffd8b4), season));
   }
 
   /** Whether the epilogue's beacon has already been picked up on this fall. */
@@ -1219,10 +1283,10 @@ export class Game {
     const targetDensity = lerp(lerp(0.0011, 0.0052, belowRim), 0.014, inShaft);
     this.fog.density = damp(this.fog.density, targetDensity, 2.2, dt);
 
-    const dust = new THREE.Color(PALETTE.dust);
-    dust.lerp(new THREE.Color(0x2e1409), belowRim * 0.82);
-    dust.lerp(new THREE.Color(0x090503), inShaft * 0.92);
-    this.fog.color.lerp(dust, 1 - Math.exp(-2.2 * dt));
+    const air = new THREE.Color(PALETTE.haze);
+    air.lerp(new THREE.Color(0x2e1409), belowRim * 0.82);
+    air.lerp(new THREE.Color(0x090503), inShaft * 0.92);
+    this.fog.color.lerp(air, 1 - Math.exp(-2.2 * dt));
     // Clear colour, fog and sky dome all read from the same value, so distant terrain
     // fades into a horizon that is the same colour it is fading towards.
     this.renderer.setClearColor(this.fog.color);
@@ -1230,7 +1294,13 @@ export class Game {
     this.volumetricFog.update(dt, this.fog.color);
 
     if (this.lander) {
-      this.sun.position.set(this.lander.x - 620, 150, -900);
+      // Follows the vehicle down the canyon, at whatever bearing and elevation this
+      // mission's sol put it — see `applySky`.
+      this.sun.position.set(
+        this.lander.x + this.sunOffset.x,
+        this.sunOffset.y,
+        this.sunOffset.z,
+      );
       this.sun.target.position.set(this.lander.x, CANYON.RIM_Y, 0);
       this.sun.target.updateMatrixWorld();
     }
@@ -1573,6 +1643,22 @@ export class Game {
       // route that could drift from it.
       setGizmos: (on) => {
         this.colony.gizmos = on;
+        this.loadMission(this.mission?.id ?? 1);
+      },
+      colorScheme: () => currentColorScheme,
+      /**
+       * Same shape as `setGizmos`, for the same reason: `applyColorScheme` only writes
+       * new values into the live `PALETTE`/`STRUCTURE` objects, it does not touch a
+       * single vertex already on screen. Terrain colour, dig walls and colony materials
+       * are all computed at build time (`CanyonGenerator.build`, `AntFarm`, `Colony.build`)
+       * from whatever the palette holds *then* — so reloading the current mission is what
+       * actually repaints anything, not the write itself. `loadMission` rather than
+       * `useSeed`: the terrain's own shape is noise-seeded and unrelated to its colour,
+       * and re-rolling it on every scheme change would make two gradings of the same
+       * canyon impossible to compare directly.
+       */
+      setColorScheme: (name) => {
+        applyColorScheme(name);
         this.loadMission(this.mission?.id ?? 1);
       },
       setInspecting: (on) => {

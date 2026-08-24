@@ -113,7 +113,7 @@ Three things the names do not say:
   legible. It also triggers within 20 units of any ground, so a pad touchdown and a cavern
   floor get it too.
 - **Caves arrive as `landing`.** A Helion cavern sits a few units under the rim —
-  `helion-cavern` is at y ≈ −8, above the floor−20 line — so it never qualifies on altitude
+  `shaft-gallery` is at y ≈ −8, above the floor−20 line — so it never qualifies on altitude
   and only picks up `shaft` in the last twenty units.
 - **`flight` covers two different jobs.** Low `pace` is threading the colony grid, where
   what matters is the structure a hull's length either side; high `pace` is the long fall,
@@ -184,7 +184,9 @@ Two other things came out of that profiling:
 | `src/world/CanyonSpec.ts` | Every dimension in the world. Nothing downstream invents a number. |
 | `src/world/Noise.ts` | Centred fbm, ridged noise, frame-rate-independent damping |
 | `src/world/CanyonGenerator.ts` | Terrain height, floor profile, per-slice sampling |
-| `src/world/Shaft.ts` | Mined bores, built as geometry rather than carved |
+| `src/world/ShaftGrid.ts` | An excavation as cells on the colony's own grid, drawn in the campaign |
+| `src/world/AntFarm.ts` | Those cells as one indexed mesh on a shared vertex lattice |
+| `src/world/Shaft.ts` | Bore direction and mount, all that is left of the tube model |
 | `src/world/Colony.ts` | Authored props, their colliders and the backdrop settlement |
 | `src/physics/PhysicsWorld.ts` | Bucketed static world plus a scanned moving tier, swept-circle queries |
 | `src/physics/Kinematics.ts` | Structures that move, posed from the mission clock |

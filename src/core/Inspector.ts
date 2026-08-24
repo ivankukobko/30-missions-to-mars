@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { CANYON } from '../world/CanyonSpec.ts';
+import { CANYON, COLOR_SCHEMES } from '../world/CanyonSpec.ts';
 import type { PadInfo } from '../world/Colony.ts';
 import type { CanyonGenerator } from '../world/CanyonGenerator.ts';
 import { MISSION_COUNT } from '../campaign/Missions.ts';
@@ -42,6 +42,11 @@ export interface InspectorHost {
   gizmos(): boolean;
   /** Turns them on or off. Rebuilds the world, since they are built with it. */
   setGizmos(on: boolean): void;
+  /** Name of the `COLOR_SCHEMES` entry the live palette currently holds. */
+  colorScheme(): string;
+  /** Writes a named scheme into the live palette and rebuilds the world, since terrain
+   *  and colony colour are computed at build time — see `Game.setColorScheme`. */
+  setColorScheme(name: string): void;
   /** True while the inspector owns the camera and the simulation is held. */
   setInspecting(on: boolean): void;
 }
@@ -151,6 +156,11 @@ export class Inspector {
           ${VIEWS.map((v, i) => `<option value="${i}">${v.label}</option>`).join('')}
         </select>
         <button id="dbg-jump">Jump</button>
+        <select id="dbg-scheme" title="colour grading">
+          ${Object.keys(COLOR_SCHEMES)
+            .map((name) => `<option value="${name}">${name}</option>`)
+            .join('')}
+        </select>
       </div>
       <div class="debug-row debug-foot">
         <div id="dbg-stats" class="debug-stats"></div>
@@ -233,6 +243,14 @@ export class Inspector {
       if (!this.active) this.toggle();
       this.place();
     });
+
+    // A grading is judged by flying it, not by reading its hex — this is the whole
+    // reason `COLOR_SCHEMES` exists as a switchable set rather than as a single retuned
+    // palette in source. `change` rather than a button: two entries today, and a select
+    // that already shows the current one needs nothing else to commit a pick.
+    const schemeField = this.panel.querySelector('#dbg-scheme') as HTMLSelectElement;
+    schemeField.value = this.host.colorScheme();
+    schemeField.addEventListener('change', () => this.host.setColorScheme(schemeField.value));
   }
 
   private wireCamera(): void {
@@ -360,6 +378,7 @@ export class Inspector {
     const id = this.host.missionId();
     this.input('dbg-mission').value = String(id);
     this.input('dbg-seed').value = String(this.host.seed());
+    (this.panel.querySelector('#dbg-scheme') as HTMLSelectElement).value = this.host.colorScheme();
 
     // Same arguments the game builds with. Called without `mastY` this quietly falls
     // back to the pre-fix terrain estimate, and a readout whose whole claim is that it

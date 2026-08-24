@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
-import { Noise } from './Noise.ts';
+import { hash01 } from './Noise.ts';
 import { CANYON, PALETTE } from './CanyonSpec.ts';
 import { fadeNearLander } from './LanderFade.ts';
 import { SHAFT_CELL, type ShaftCarve } from './ShaftGrid.ts';
@@ -55,13 +55,28 @@ export const BACK_Z = FRONT_Z - CORRIDOR_DEPTH;
  * as the rock around it, which is also why the two read as the same material.
  */
 const FACET_PITCH = CANYON.CELL;
-const FACETS = Math.max(2, Math.round(SHAFT_CELL / FACET_PITCH));
+/** Facets across one cell, and down the corridor's depth. Both whole by construction —
+ *  `CANYON.CELL` divides `SHAFT_CELL / 2`, which is the same relationship that puts a
+ *  mouth's boundary on a terrain vertex. See `CanyonSpec`. */
+const PER_CELL = Math.round(SHAFT_CELL / FACET_PITCH);
+const DEPTH_STEPS = Math.round(CORRIDOR_DEPTH / FACET_PITCH);
 
-/** Relief, cut *into* the rock and never out of it — the one-sided rule `Shaft.wallOffset`
- *  learned the hard way, when a signed noise pushed walls into the bore and pinched it shut
- *  for six missions. Depth away from the viewer can never occlude what a collider says is
- *  clear. */
-const RELIEF = 2.6;
+/**
+ * How far a lattice point is moved off its grid position, per axis.
+ *
+ * This is what makes the rock rock, and it replaces `relief` and the two `emboss` passes
+ * that displaced each surface separately. **A vertex is jittered once and every polygon
+ * touching it uses that one position**, so the face, the back and the corridor walls
+ * cannot come apart — which they did, repeatedly, for as long as each surface carried its
+ * own displacement and they agreed only by arithmetic that had to keep being re-earned.
+ *
+ * Depth gets the larger share because it is free: z is the axis the camera looks down, so
+ * jitter there is pure surface relief and costs the corridor nothing. Across and down are
+ * held to 1.2 on a twelve-unit bore, which leaves 9.6 clear against a vehicle 1.62 across
+ * — well inside the one-sided rule the old `RELIEF` constant recorded the cost of breaking.
+ */
+const JITTER_DEPTH = 2.5;
+const JITTER_PLANE = 1.2;
 
 /** How far past the carve the face is drawn, in cells. Without a margin the wall ends flush
  *  with the outermost corridor and the excavation reads as floating in a void rather than as
@@ -79,17 +94,18 @@ export interface FaceTerrain {
 
 export class AntFarm {
   private scene: THREE.Scene;
-  private noise: Noise;
   private objects: THREE.Object3D[] = [];
   readonly carve: ShaftCarve;
   private terrain: FaceTerrain;
   private ground = new Map<number, number>();
+  /** Salted per excavation, so two shafts on one canyon are not the same rock twice. */
+  private seed: number;
 
   constructor(scene: THREE.Scene, carve: ShaftCarve, terrain: FaceTerrain, seed: number) {
     this.scene = scene;
     this.carve = carve;
     this.terrain = terrain;
-    this.noise = new Noise(seed + Math.round(carve.grid.topY * 3.1) + carve.colLo * 17);
+    this.seed = seed + Math.round(carve.grid.topY * 3.1) + carve.colLo * 17;
   }
 
   /**
@@ -145,33 +161,62 @@ export class AntFarm {
     };
   }
 
+  /**
+   * The excavation as one indexed mesh, built on a lattice the whole thing shares.
+   *
+   * What this replaced: every surface was an independent `PlaneGeometry`, positioned and
+   * then displaced by a field, and the three of them met only because that field was a pure
+   * function of world position. That agreement was a coincidence the code had to keep
+   * re-earning, and it broke every time one surface needed a displacement the others did
+   * not have — a wall with no visible relief, then a wall with relief and gaps down both
+   * sides, then a taper to close them. Three rounds of the same fault.
+   *
+   * Here a vertex is created once, at one position, and every polygon that touches that
+   * corner indexes the same number. Gaps are not avoided; they are unrepresentable. It also
+   * costs less: one buffer with three groups rather than several hundred plates merged.
+   */
   build(physics: PhysicsWorld): void {
-    const face: THREE.BufferGeometry[] = [];
-    const back: THREE.BufferGeometry[] = [];
-    const returns: THREE.BufferGeometry[] = [];
     const g = this.carve.grid;
+    const face: number[] = [];
+    const back: number[] = [];
+    const walls: number[] = [];
 
     for (let row = this.carve.rowLo; row <= this.carve.rowHi + FACE_MARGIN; row++) {
       for (let col = this.carve.colLo - FACE_MARGIN; col <= this.carve.colHi + FACE_MARGIN; col++) {
-        const cx = g.worldX(col);
-        const cy = g.worldY(row);
-        // Natural ground at this column, on the face's own plane. Sampling at `FRONT_Z`
-        // rather than at 0 is the whole seam fix: the face and the terrain are then the same
-        // function of the same x at the same depth, so they meet rather than nearly meet.
-        // Cells the ground has not reached yet are open sky, not rock.
-        if (cy + SHAFT_CELL / 2 > this.groundAt(col)) continue;
+        // Natural ground at this column, on the face's own plane — cells the ground has not
+        // reached are open sky, not rock. Unchanged from the plate build, and still the
+        // whole reason the excavation meets the terrain rather than nearly meeting it.
+        if (g.worldY(row) + SHAFT_CELL / 2 > this.groundAt(col)) continue;
 
-        if (this.carve.has(col, row)) {
-          back.push(this.plate(cx, cy, BACK_Z));
-          continue;
+        const carved = this.carve.has(col, row);
+        const into = carved ? back : face;
+        const k = carved ? DEPTH_STEPS : 0;
+        const i0 = col * PER_CELL - PER_CELL / 2;
+        const j0 = row * PER_CELL;
+
+        for (let di = 0; di < PER_CELL; di++) {
+          for (let dj = 0; dj < PER_CELL; dj++) {
+            this.quad(
+              into,
+              this.vertex(i0 + di, j0 + dj, k),
+              this.vertex(i0 + di + 1, j0 + dj, k),
+              this.vertex(i0 + di + 1, j0 + dj + 1, k),
+              this.vertex(i0 + di, j0 + dj + 1, k),
+            );
+          }
         }
-        face.push(this.plate(cx, cy, FRONT_Z));
       }
     }
 
-    // The corridor walls: one return per boundary between a carved cell and solid rock.
-    // Walking the carved set rather than the whole box means a boundary is found once, from
-    // the open side, so no return is ever emitted twice or left facing into rock.
+    /**
+     * The corridor walls: one strip per boundary between a carved cell and solid rock.
+     *
+     * Walking the carved set rather than the whole box means a boundary is found once, from
+     * the open side, so no wall is emitted twice or left facing into rock. Both orientations
+     * come out of the same loop now — a wall is the edge between two cells extruded through
+     * the corridor's depth, and whether that edge runs vertically or horizontally only
+     * changes which lattice axis is held fixed.
+     */
     for (const cell of this.carve.cells) {
       for (const [dc, dr] of [
         [1, 0],
@@ -180,97 +225,92 @@ export class AntFarm {
         [0, -1],
       ] as const) {
         if (!this.isRock(cell.col + dc, cell.row + dr)) continue;
-        returns.push(this.returnWall(cell.col, cell.row, dc, dr));
+
+        const i0 = cell.col * PER_CELL - PER_CELL / 2;
+        const j0 = cell.row * PER_CELL;
+        // The edge they share, as lattice indices: one axis pinned to the boundary, the
+        // other running the width of the cell.
+        const pinI = dc === 1 ? i0 + PER_CELL : dc === -1 ? i0 : null;
+        const pinJ = dr === 1 ? j0 + PER_CELL : dr === -1 ? j0 : null;
+
+        for (let step = 0; step < PER_CELL; step++) {
+          const aI = pinI ?? i0 + step;
+          const aJ = pinJ ?? j0 + step;
+          const bI = pinI ?? i0 + step + 1;
+          const bJ = pinJ ?? j0 + step + 1;
+
+          for (let k = 0; k < DEPTH_STEPS; k++) {
+            this.quad(
+              walls,
+              this.vertex(aI, aJ, k),
+              this.vertex(bI, bJ, k),
+              this.vertex(bI, bJ, k + 1),
+              this.vertex(aI, aJ, k + 1),
+            );
+          }
+        }
       }
     }
 
-    this.addMesh(face, PALETTE.rockMid);
-    this.addMesh(back, PALETTE.rockLow);
-    this.addMesh(returns, PALETTE.rockMid);
+    /**
+     * `rockCut`, not `rockMid` — an excavation is cut open the mission it is dug, so
+     * nothing has settled on it yet. `PALETTE.rockCut`/`rockCutLow` are that: the one
+     * surface in this canyon allowed to be *fresh* rock rather than the weathered,
+     * dust-worked rock the exterior wall and floor are shaded from. See `ColorScheme`'s
+     * own doc comment for where the colour comes from.
+     */
+    this.addMesh([
+      { indices: face, colour: PALETTE.rockCut },
+      { indices: back, colour: PALETTE.rockCutLow },
+      { indices: walls, colour: PALETTE.rockCut },
+    ]);
     this.addColliders(physics);
     this.buildLights();
   }
 
+  /** Shared vertex buffer, and the cache that makes it shared. */
+  private points: number[] = [];
+  private seen = new Map<number, number>();
+
   /**
-   * One cell of wall, broken into facets and pushed *away* from the viewer by noise.
+   * The index of the lattice point at `(i, j, k)`, creating it on first request.
    *
-   * Quantised to `FACET_CELL` so neighbouring plates agree along their shared edge — the
-   * displacement is a function of world position, not of which plate is asking, so a run of
-   * cells reads as one rock face with relief rather than as tiles that each wobble alone.
+   * The cache is the whole mechanism. Two polygons asking for the same corner get the same
+   * index, so they are joined by construction rather than by both being displaced the same
+   * way — which is the property every previous version of this file lacked.
+   *
+   * Keyed on a packed integer rather than a string: this is called several times per facet
+   * across a twenty-five row shaft, and the key is the hot path.
    */
-  /**
-   * How far the rock is pushed back at a point — **one field, shared by every surface.**
-   *
-   * This is the whole answer to the side walls detaching from the face. They were separate
-   * surfaces with separate treatment: the face plates were embossed back by up to a couple
-   * of units while the returns sat flat at `FRONT_Z`, so their shared edge was in two
-   * different places and the gap between them varied along its length. No amount of
-   * matching facet *counts* fixes that, because the two were not evaluating the same
-   * function.
-   *
-   * Displacing everything by `relief(x, y)` in z makes the excavation one embossed field
-   * rather than three surfaces that have to be reconciled. A corridor keeps its exact depth
-   * — front and back move together — and an edge shared by two surfaces is the same points
-   * on both, by construction rather than by tolerance.
-   *
-   * Quantised to the terrain's own facet pitch, and always negative: relief cuts back into
-   * the rock, never forward into space a collider has already called clear. `Math.abs`
-   * because `ridge` is signed — the precise slip that once pinched a bore shut.
-   */
-  private relief(x: number, y: number): number {
-    const qx = Math.floor(x / FACET_PITCH) * FACET_PITCH;
-    const qy = Math.floor(y / FACET_PITCH) * FACET_PITCH;
-    return -Math.abs(this.noise.ridge(qx * 0.11 + 3, qy * 0.11 + 11)) * RELIEF;
-  }
+  private vertex(i: number, j: number, k: number): number {
+    const key = ((i + 4096) << 20) | ((j + 512) << 8) | k;
+    const hit = this.seen.get(key);
+    if (hit !== undefined) return hit;
 
-  /** Embosses a positioned geometry with `relief`. Every surface goes through this, which
-   *  is what guarantees they meet. */
-  private emboss(geo: THREE.BufferGeometry): THREE.BufferGeometry {
-    const pos = geo.attributes.position;
-    for (let i = 0; i < pos.count; i++) {
-      pos.setZ(i, pos.getZ(i) + this.relief(pos.getX(i), pos.getY(i)));
-    }
-    return geo;
-  }
-
-  /** One cell of wall, broken into facets. */
-  private plate(cx: number, cy: number, z: number): THREE.BufferGeometry {
-    const geo = new THREE.PlaneGeometry(SHAFT_CELL, SHAFT_CELL, FACETS, FACETS);
-    geo.translate(cx, cy, z);
-    return this.emboss(geo);
-  }
-
-  /** The wall between a carved cell and the solid one beside it, spanning front to back. */
-  private returnWall(col: number, row: number, dc: number, dr: number): THREE.BufferGeometry {
     const g = this.carve.grid;
-    const half = SHAFT_CELL / 2;
-    const geo = new THREE.PlaneGeometry(SHAFT_CELL, CORRIDOR_DEPTH, FACETS, FACETS);
-    // A vertical boundary (a neighbour east or west) is a plane facing along x; a horizontal
-    // one faces along y. Both are the same plate turned, which is why this is a rotation
-    // rather than two builders.
-    if (dc !== 0) geo.rotateY(Math.PI / 2);
-    else geo.rotateX(Math.PI / 2);
-    // **Minus `dr`.** Rows count *downward* from the mouth (`ShaftGrid.worldY`), so the
-    // neighbour at `row + 1` sits at a *lower* y and the boundary they share is below this
-    // cell's centre, not above it. Written as `+ dr` this drew every floor as a ceiling and
-    // every ceiling as a floor — which capped the shaft one cell early and, since a lid
-    // looks exactly like the rock beside it, was invisible except by trying to fly through.
-    geo.translate(g.worldX(col) + dc * half, g.worldY(row) - dr * half, (FRONT_Z + BACK_Z) / 2);
-    // Embossed by the same field as the face and the back, so its front edge lands exactly
-    // where the face's does and its back edge exactly where the back's does. This is the
-    // only reason the three meet at all.
-    return this.emboss(geo);
+    const at = this.points.length / 3;
+    this.points.push(
+      i * FACET_PITCH + this.jitter(i, j, k, 1) * JITTER_PLANE,
+      g.topY - j * FACET_PITCH + this.jitter(i, j, k, 2) * JITTER_PLANE,
+      FRONT_Z - k * FACET_PITCH + this.jitter(i, j, k, 3) * JITTER_DEPTH,
+    );
+    this.seen.set(key, at);
+    return at;
   }
 
-  /**
-   * The corridor boundary as physics — the same set the returns are drawn from, so what
-   * stops the vehicle is exactly what it can see.
-   *
-   * Segments in x/y at the play plane, which is all a 2D collision world needs and is what
-   * the tube already did with its two polylines. The difference is that a maze has no two
-   * sides to walk: the boundary is wherever carved meets solid, and enumerating it per cell
-   * is both simpler than tracing loops and immune to a loop being traced the wrong way.
-   */
+  /** Signed, in −1…1, and a pure function of the lattice index and the campaign seed — so a
+   *  rebuilt canyon is the identical rock, and neighbouring facets agree because they are
+   *  asking about the same point rather than about their own corner of it. */
+  private jitter(i: number, j: number, k: number, salt: number): number {
+    return hash01(this.seed, i, j * 64 + k, salt) * 2 - 1;
+  }
+
+  /** Two triangles, wound consistently. The materials are `DoubleSide`, so this decides
+   *  the normals `computeVertexNormals` produces and nothing else. */
+  private quad(into: number[], a: number, b: number, c: number, d: number): void {
+    into.push(a, b, c, a, c, d);
+  }
+
   private addColliders(physics: PhysicsWorld): void {
     const g = this.carve.grid;
     const half = SHAFT_CELL / 2;
@@ -360,35 +400,54 @@ export class AntFarm {
     this.objects.push(mesh);
   }
 
-  private addMesh(parts: THREE.BufferGeometry[], base: number): void {
-    if (parts.length === 0) return;
-    const merged = mergeGeometries(parts, false);
-    for (const p of parts) p.dispose();
-    if (!merged) return;
-    merged.computeVertexNormals();
-    /**
-     * Lifted, deliberately — the same correction `Shaft.rockAt` carried.
-     *
-     * Keyed straight off the palette these walls rendered around 15% brightness: every facet
-     * and every unit of relief was in the geometry and none of it was legible, so the
-     * excavation read as a pushed-in surface rather than a cut one. Depth is carried by the
-     * lamps and by the back wall being a darker stone than the face; the albedo's only job
-     * is to let the plates catch what light there is.
-     */
-    const colour = new THREE.Color(base).multiplyScalar(1.35);
-    const material = new THREE.MeshStandardMaterial({
-      color: colour,
-      roughness: 1,
-      metalness: 0,
-      flatShading: true,
-      side: THREE.DoubleSide,
-      transparent: true,
-    });
-    // Rock in front of the play plane thins over the vehicle, as the bore's own walls and
-    // the canyon face already do — see `LanderFade`. The gate means the back wall, which
-    // sits behind the plane, stays solid and the excavation still reads as a hole.
-    fadeNearLander(material, 0);
-    const mesh = new THREE.Mesh(merged, material);
+  /**
+   * One geometry, one shared vertex buffer, three material groups.
+   *
+   * The three surfaces are different stone — the back is darker than the face, which is
+   * most of what makes an excavation read as a hole rather than a dent — but they are one
+   * *mesh*, because they share corners and splitting them into separate geometries would
+   * mean three copies of those corners and three chances to drift apart. Groups give
+   * different materials over one buffer, which is exactly the shape of the problem.
+   */
+  private addMesh(groups: Array<{ indices: number[]; colour: number }>): void {
+    const indices: number[] = [];
+    const geometry = new THREE.BufferGeometry();
+    const materials: THREE.Material[] = [];
+
+    for (const group of groups) {
+      if (group.indices.length === 0) continue;
+      geometry.addGroup(indices.length, group.indices.length, materials.length);
+      indices.push(...group.indices);
+      /**
+       * Lifted, deliberately — the same correction `Shaft.rockAt` carried.
+       *
+       * Keyed straight off the palette these walls rendered around 15% brightness: every
+       * facet was in the geometry and none of it was legible, so the excavation read as a
+       * pushed-in surface rather than a cut one. Depth is carried by the lamps and by the
+       * back wall being a darker stone than the face; the albedo's only job is to let the
+       * facets catch what light there is.
+       */
+      const material = new THREE.MeshStandardMaterial({
+        color: new THREE.Color(group.colour).multiplyScalar(1.35),
+        roughness: 1,
+        metalness: 0,
+        flatShading: true,
+        side: THREE.DoubleSide,
+        transparent: true,
+      });
+      // Rock in front of the play plane thins over the vehicle, as the canyon face already
+      // does — see `LanderFade`. The gate means the back wall, which sits behind the plane,
+      // stays solid and the excavation still reads as a hole.
+      fadeNearLander(material, 0);
+      materials.push(material);
+    }
+    if (indices.length === 0) return;
+
+    geometry.setAttribute('position', new THREE.Float32BufferAttribute(this.points, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+
+    const mesh = new THREE.Mesh(geometry, materials);
     mesh.castShadow = false;
     this.scene.add(mesh);
     this.objects.push(mesh);
@@ -399,8 +458,13 @@ export class AntFarm {
       this.scene.remove(obj);
       const mesh = obj as THREE.Mesh;
       mesh.geometry?.dispose();
-      (mesh.material as THREE.Material | undefined)?.dispose();
+      // An array now: the excavation is one mesh carrying a material per surface group.
+      const mat = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else mat?.dispose();
     }
     this.objects = [];
+    this.points = [];
+    this.seen.clear();
   }
 }

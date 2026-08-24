@@ -14,6 +14,8 @@ function cell(col: number, row: number, links: number, over: Partial<PlacedCell>
     links,
     scaffold: false,
     traits: TRAIT.grounded,
+    // Standing on rock, as the doc comment above says every fixture here does.
+    reach: 0,
     ...over,
   };
 }

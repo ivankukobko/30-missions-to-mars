@@ -1,6 +1,7 @@
 import type { Excavation } from '../world/CanyonGenerator.ts';
 import type { Prop } from '../world/Colony.ts';
 import { snapToColumn } from '../world/ColonyLattice.ts';
+import { SHAFT_CELL, anchorCells, shaftGrid, type Carved } from '../world/ShaftGrid.ts';
 
 /**
  * A dig anchored to the real canyon wall rather than an authored `x`.
@@ -38,6 +39,10 @@ export interface WallAnchoredDig {
   halfWidth: number;
   depth: number;
   lengthZ?: number;
+  /** The excavation's drawn shape, when the campaign authored one — see
+   *  `Excavation.cells`. Carried through resolution unchanged: resolving decides where a
+   *  dig opens, and a drawing is what it opens into. */
+  cells?: Carved[];
   /** Looked up by `resolveDigEndpoint` so a prop authored as "the destination inside
    *  this shaft" (a pad, a cave roof) can find where the shaft's own bore actually
    *  ends, once that end is no longer directly below the mouth. */
@@ -73,6 +78,55 @@ const WALL_INSET = 6;
  *  dig automatically keeps its far edge clear too, not just its centre. */
 const FLOOR_CLEARANCE = 20;
 
+/**
+ * How much ground a deck resting on the terrain denies a mouth.
+ *
+ * `CanyonGenerator.build` grades a shelf under every ground-resting deck: level to
+ * `halfWidth` 9, then eased back to natural contour over a `shoulder` of 10. Nine is the
+ * part that is flatly wrong to open a shaft through; the shoulder only lifts the ground
+ * part-way, and charging the full nineteen leaves no legal column at all — measured on
+ * seed 12345, a usable band of 66 units and two decks excluding every unit of it.
+ *
+ * So: the flat core, plus half the shoulder, which is where the shelf has given back most
+ * of its lift.
+ *
+ * This class of fault is what the number is for. A mouth inside a shelf renders as a
+ * shaft, colliders and all, under solid ground with somebody's landing pad on it — seed
+ * 1158123495 before any of this, mouth spanning x −18…+6 and Ixion's deck at −12.
+ */
+export const DECK_BENCH_REACH = 14;
+
+/**
+ * How much a deck standing *above* the ground denies a mouth: its own footprint and a
+ * hull either side, and nothing more.
+ *
+ * An elevated deck grades nothing — it is a platform on a tower — so the only thing it
+ * takes from a shaft is the air it physically occupies. A flat constant was tried first
+ * and is too blunt: `kessler-crest` spans x 31…41, so at a fixed reach of 8 it excluded
+ * mouths as far away as 22 that its own footprint never touches, and on a narrow seed that
+ * was the difference between one legal column and none.
+ *
+ * Zero, and the footprint alone, because there is nothing left to spend. This canyon is
+ * often only a hundred units of floor wide and already carries three decks; measured, a
+ * margin of two was the whole difference between a legal mouth and none on three seeds in
+ * ten. A deck's edge and a mouth's edge meeting exactly is fine — the deck is twelve units
+ * up and the descent passes beside it, not through it.
+ */
+const DECK_AIR_MARGIN = 0;
+
+/**
+ * The ground a mouth opens through, as a span, given the bore's resolved x.
+ *
+ * **Asymmetric, and that is the whole reason this is a function rather than a radius.**
+ * A bore's mouth occupies the two columns `colAt(x) - 1` and `colAt(x)` — the same pair
+ * `anchorCells` and the rasteriser both land on — so it reaches a cell and a half west of
+ * its own x and only half a cell east. A symmetric clearance built from `x` looks right,
+ * passes, and leaves the west half of the opening under the bench by a unit or two.
+ */
+export function mouthSpan(x: number): [number, number] {
+  return [x - SHAFT_CELL * 1.5, x + SHAFT_CELL * 0.5];
+}
+
 /** How far a pad bolted to a dig's far end stands proud of it — see `applyDigAttachments`.
  *  Above the 1.3 a ground pad uses, and for a reason that is about reading rather than
  *  physics: a bore's floor and its pad are the same colour in the same dark, so the deck
@@ -99,6 +153,20 @@ export interface DigEndpoint {
   x: number;
   y: number;
   halfWidth: number;
+  /**
+   * Where one cell of this dig's drawing sits in the world, for digs that have one.
+   *
+   * The fields above describe a tube: a pad attached to this dig lands at
+   * `mouthY + direction * depth`, adjusted for the tube's floor and end cap. That is
+   * exact for a straight bore and **meaningless the moment a drawing bends** — a complex
+   * with a gallery running off it has no single far end, so "the endpoint" stops naming
+   * anywhere a deck could go.
+   *
+   * So a pad in a drawn excavation names a cell instead (`atCell`), and this resolves it
+   * through the same anchoring the carve uses. Returns the cell's **floor** rather than
+   * its centre, because that is what a deck rests on.
+   */
+  cell?: (col: number, row: number) => { x: number; y: number };
   /**
    * The bore's unit direction, carried through rather than the two scalars that used to be
    * derived from it here.
@@ -131,7 +199,18 @@ export interface ResolvedDigs {
  * comment for why calling it before *this* mission's own `canyon.build()` is still
  * sound. Ordinary `Excavation` entries pass through untouched.
  */
-export function resolveTerrainAnchoredDigs(digs: DigEntry[], terrain: WallTerrain): ResolvedDigs {
+export function resolveTerrainAnchoredDigs(
+  digs: DigEntry[],
+  terrain: WallTerrain,
+  /**
+   * Ground-pad x positions the mouth must not open on top of — see `PAD_MOUTH_CLEARANCE`.
+   *
+   * Passed in rather than derived here: resolution sees digs and terrain and never props.
+   * The caller that has both is `missionWorlds`, which already collects the campaign's pad
+   * sites for the terrain grader and can hand the same list to this.
+   */
+  keepClearOf: Array<{ x: number; halfWidth: number; onGround: boolean }> = [],
+): ResolvedDigs {
   const endpoints = new Map<string, DigEndpoint>();
   const resolved = digs.map((d): Excavation => {
     if (!isWallAnchored(d)) return d;
@@ -155,7 +234,58 @@ export function resolveTerrainAnchoredDigs(digs: DigEntry[], terrain: WallTerrai
      * would put the opening somewhere the rock is not.
      */
     const raw = onFloor ? wallX - side * (d.halfWidth + FLOOR_CLEARANCE) : wallX + side * WALL_INSET;
-    const x = onFloor ? snapToColumn(raw) : raw;
+    /**
+     * Then stepped clear of any deck standing on the ground, a column at a time.
+     *
+     * Compared as spans, not distances — see `mouthSpan` for why a radius is wrong here.
+     *
+     * Toward the wall, never toward centre: the far side is open floor the colony is free
+     * to grow across, while the wall side is ground this dig has already been given
+     * `FLOOR_CLEARANCE` of. Capped at four columns so a pathological seed gives up rather
+     * than walking the mouth into the wall blend — and if it ever does give up, the layout
+     * check is what reports it, in the same DEV pass everything else here is caught by.
+     */
+    let placed = onFloor ? snapToColumn(raw) : raw;
+    if (onFloor) {
+      /**
+       * Searched outward from the natural position, nearest column first, both ways.
+       *
+       * This stepped only toward the wall to begin with, on the reasoning that the far side
+       * is open floor the colony wants. That is true and it is not worth a mouth that never
+       * finds a clear column: three decks stand on this canyon and a narrow seed can put the
+       * wall within a couple of columns, so a one-directional walk can run out of room while
+       * clear ground sits just the other way. Nearest-first keeps the original preference —
+       * ties break toward the wall — without making it the only option.
+       */
+      const blocked = (at: number): boolean => {
+        const [west, east] = mouthSpan(at);
+        return keepClearOf.some((deck) => {
+          const reach = deck.onGround
+            ? DECK_BENCH_REACH
+            : deck.halfWidth + DECK_AIR_MARGIN;
+          return deck.x + reach > west && deck.x - reach < east;
+        });
+      };
+      /**
+       * Bounded by the floor it has to open through.
+       *
+       * Without this the search walks until it finds clear ground and does not care where
+       * that is: measured across four seeds it put the mouth at x 72 with the east floor
+       * edge at 44 — a shaft opening inside the wall, which is worse than the deck it was
+       * avoiding. A mouth outside the floor is not a candidate at any distance.
+       */
+      const west = terrain.floorEdgeAt(0, -1) + d.halfWidth + FLOOR_CLEARANCE;
+      const east = terrain.floorEdgeAt(0, 1) - d.halfWidth - FLOOR_CLEARANCE;
+      const usable = (at: number): boolean => at >= west && at <= east && !blocked(at);
+
+      for (let step = 1; step <= 8 && blocked(placed); step++) {
+        const toward = snapToColumn(raw + side * SHAFT_CELL * step);
+        const away = snapToColumn(raw - side * SHAFT_CELL * step);
+        if (usable(toward)) placed = toward;
+        else if (usable(away)) placed = away;
+      }
+    }
+    const x = placed;
     /**
      * Straight down, or straight in — **never a diagonal.**
      *
@@ -182,14 +312,40 @@ export function resolveTerrainAnchoredDigs(digs: DigEntry[], terrain: WallTerrai
     // since this dig's own bore doesn't exist yet to be included either way.
     const mouthY = terrain.heightAt(x, 0, false);
     if (d.id) {
+      /**
+       * A cell resolver for drawn digs, built here because this is the only place that
+       * knows both halves: the mouth `x` this resolution just chose, and the natural
+       * surface height at it. `carveFromDig` anchors the drawing exactly this way, so a
+       * pad placed through this lands in the cell the author drew it in rather than near
+       * it.
+       */
+      const grid = shaftGrid(mouthY);
+      const anchored = d.cells ? anchorCells(d.cells, grid.colAt(snapToColumn(x))) : null;
+      const offset = anchored && d.cells ? anchored[0].col - d.cells[0].col : 0;
+
       endpoints.set(d.id, {
         x: x + direction.x * d.depth,
         y: mouthY + direction.y * d.depth,
         halfWidth: d.halfWidth,
         direction,
+        ...(anchored === null
+          ? {}
+          : {
+              cell: (col: number, row: number) => ({
+                x: grid.worldX(col + offset),
+                // The cell's floor, not its centre: `worldY` returns the middle of a cell
+                // and a deck rests on the bottom face.
+                y: grid.worldY(row) - SHAFT_CELL / 2,
+              }),
+            }),
       });
     }
-    return { x, halfWidth: d.halfWidth, depth: d.depth, lengthZ: d.lengthZ, direction };
+    // `cells` rides through untouched. Resolution decides *where* a dig opens; a drawing
+    // is *what* it opens into, anchored on the mouth at carve time — so rebuilding the
+    // record without it silently drops every authored excavation back to a rasterised
+    // tube, which is what happened here and which no unit test caught: they carve the
+    // authored dig, and only the resolved one ever reaches the canyon.
+    return { x, halfWidth: d.halfWidth, depth: d.depth, lengthZ: d.lengthZ, direction, cells: d.cells };
   });
   return { digs: resolved, endpoints };
 }
@@ -222,6 +378,25 @@ export function applyDigAttachments(props: Prop[], endpoints: Map<string, DigEnd
     if (p.kind !== 'pad') {
       // A roof hangs from the far end, it does not rest on it — the axis is where it goes.
       return { ...p, x: end.x, y: end.y };
+    }
+    /**
+     * A deck in a drawn excavation sits in the cell it was drawn in, and none of the tube
+     * arithmetic below applies to it.
+     *
+     * That arithmetic exists to fit a rectangle inside a *circular section* — dropping the
+     * deck to where its corners meet the wall, holding it back off the end cap. A drawn
+     * excavation has neither: cells are square, the floor is a flat face at a known height,
+     * and there is no cap to sit in front of. `cell` already returns that floor, so the
+     * only thing left is the same lift clear of it that every ground pad takes, for the
+     * same reason — a deck coplanar with rock loses its shadow and stops reading as a
+     * structure at the bottom of a dark bore.
+     */
+    if (p.atCell && end.cell) {
+      const at = end.cell(p.atCell.col, p.atCell.row);
+      return { ...p, x: at.x, y: at.y + DIG_PAD_LIFT };
+    }
+    if (p.atCell) {
+      console.warn(`Pad "${p.id}" names a cell in "${p.attachToDig}", which has no drawing`);
     }
     /**
      * **A pad goes on the bore's floor, not on its axis.**

@@ -76,7 +76,7 @@ export type Prop =
    *
    * `xFromDig` — a narrower cousin of `attachToDig`, for a pad that sits at its own
    * fixed, authored depth *inside* a straight vertical bore rather than at the bore's
-   * own endpoint (Kessler's `kessler-ledge`/`kessler-deep`, partway down a shaft whose
+   * own endpoint (Kessler's `shaft-ledge`/`shaft-deep`, partway down a shaft whose
    * mouth is `attachToDig`'s own consumer). Only `x` is replaced, with the named dig's
    * resolved position — the same one for every depth along a vertical bore, since its
    * `direction` never carries any x — `y` stays exactly as authored. Mutually exclusive
@@ -92,6 +92,18 @@ export type Prop =
       y?: number;
       attachToDig?: string;
       xFromDig?: string;
+      /**
+       * Which cell of `attachToDig`'s drawing this deck rests in, in the drawing's own
+       * coordinates — see `parseCells`.
+       *
+       * `attachToDig` alone puts a pad at the bore's far end, which is exact for a tube
+       * and undefined for a complex: once a drawing has a gallery running off it there is
+       * no single end, and the tube arithmetic quietly returns somewhere in the rock. So a
+       * deck inside a drawn excavation names the cell it sits in and `TerrainDigs` resolves
+       * it through the same anchoring the carve uses — the deck ends up in the cell it was
+       * drawn in, on any seed, whatever the mouth resolved to.
+       */
+      atCell?: { col: number; row: number };
     }
   /**
    * A grown colony — see docs/plans/mycelial_colony_growth.md. The cells arrive
@@ -1423,31 +1435,22 @@ export class Colony {
   }
 
   /**
-   * Puts one or more charters' frontage out, without touching anything else.
+   * `darken` lived here and is gone deliberately.
    *
-   * What an injunction looks like from the air. The site is intact, the cargo you flew is
-   * lying on the deck, and nothing is lit — which is the only way a stopped site is
-   * legible from a vehicle, because the alternative reads as a site that simply did not
-   * happen to grow this mission.
+   * It put a charter's frontage out for the two missions its work was suspended under
+   * injunction, and it was reaching for a visible signal rather than a true one: an
+   * injunction stops drilling, and site lighting is exactly what a stopped site keeps on.
+   * It was written because the growth freeze that *is* correct turned out to be invisible
+   * — Helion and Kessler are capped by `reachableGround` at 30 and 35 cells from mission 8
+   * to 12 whatever the player scores, so freezing a number that was not moving shows
+   * nothing — and designing backwards from "what can I make visible" produced a lie.
    *
-   * It replaced exactly that: `colonyFrozen` suspends a corp's growth, and measured
-   * against the real planner, Helion and Kessler sit pinned at 30 and 35 cells from
-   * mission 8 to mission 12 *whatever the player scores*, because `reachableGround` caps
-   * them long before their earned budget does. Freezing a number that was not moving is
-   * invisible. The freeze is still worth keeping — it is what makes the suspension cost
-   * something permanent — but it is not what the player sees. This is.
+   * `colonyFrozen` stays. It is not the beat, but it is true: a contract suspended under
+   * order never built anything, so the colony carries the dent for the rest of the
+   * campaign. What the player sees during those two missions is what the briefs say.
    *
-   * Only grown structures respond. Pads, the radar and the relays keep their lights: a
-   * charter under order stops *working*, and its deck lighting is what the vehicle you
-   * are about to land there navigates by.
+   * `unlight` survives because `collapse` still needs it.
    */
-  darken(corps: CorpId[]): void {
-    if (corps.length === 0) return;
-    const off = new Set(corps);
-    for (const obj of this.objects) {
-      if (off.has(obj.userData.corp as CorpId)) unlight(obj);
-    }
-  }
 
   /**
    * Brings the whole settlement down, in place, for the epilogue.

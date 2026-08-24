@@ -82,6 +82,55 @@ function moduleDepth(size: number, limit: number): number {
   return Math.min(size, COLONY_LAYER_SPACING - COLONY_LAYER_GAP, limit);
 }
 
+/**
+ * The massing vocabulary: what a run is built as, read off how far it has reached from
+ * something that actually holds it up.
+ *
+ * A refinery does not build one module everywhere it can reach — it stands tanks where the
+ * ground or the wall behind it is doing the work of holding the structure up, and it thins
+ * to pipe and lattice the further a run gets from either. That taper was missing here:
+ * every cell built the identical pressure vessel whether it was bolted straight to rock or
+ * hung two cells out over open air, so a mature colony read as one module repeated rather
+ * than as a settlement with a foundation and a reach.
+ *
+ * An earlier version of this read absolute height above the canyon floor instead, on the
+ * reasoning that a colony climbing toward the rim is a colony reaching skyward. Measured
+ * against what the simulation actually knows, that was the wrong axis: a cell can stand
+ * high on the canyon wall and still be planted straight into rock — grounded, not
+ * reaching — and the height proxy drew it as a mast anyway, thinning exactly the structure
+ * that should have read as most secure. `PlacedCell.reach` is the fact worth reading
+ * instead: `reachOf`'s own count of cantilever steps from rock, ground, or the corp's own
+ * roof, frozen onto the cell the mission it was built. `0` means bolted to something solid
+ * regardless of how far up the wall that something is; `MAX_CANTILEVER` means as far from
+ * support as growth is ever allowed to leave it. That is literally "how far from the
+ * ground or the wall", in the simulation's own units, not a height read off the world and
+ * hoped to correlate.
+ */
+type MassClass = 'tank' | 'vessel' | 'mast';
+
+/**
+ * `reachOf` only ever returns 0, 1 or `MAX_CANTILEVER` (2) for a claimed cell — anything
+ * past that is rejected outright, never merely penalised. Three legal values map onto the
+ * vocabulary with nothing left to threshold: standing on something is a tank, one step of
+ * bracing off a supported neighbour is still a vessel, and the maximum the simulation
+ * allows is a mast — the furthest a charter is ever let hang a module from what holds it.
+ */
+function massClassOf(reach: number): MassClass {
+  if (reach <= 0) return 'tank';
+  if (reach >= 2) return 'mast';
+  return 'vessel';
+}
+
+/**
+ * Hull radius by class, as a fraction of `COLONY_VESSEL_RADIUS` — never above 1. That
+ * ceiling is not a style choice: `COLONY_LAYER_SPACING` is derived from the vessel radius
+ * specifically so a layer's structures can never reach into the next layer's, so widening a
+ * tank beyond today's baseline would reopen a collision the spacing was built to close.
+ * Everything the taper needs comes from going thinner, never fatter — a mast three-fifths
+ * as thin as a standard vessel reads as pipe and steelwork without touching that guarantee.
+ */
+const RADIUS_SCALE: Record<MassClass, number> = { tank: 1, vessel: 1, mast: 0.42 };
+
 function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
   const geo = new THREE.BoxGeometry(w, h, d);
   geo.translate(x, y, z);
@@ -418,18 +467,36 @@ export function buildColonyCells(
          * The section is `cellSize` long rather than inset, so consecutive sections meet.
          * Poking a little into rock where a pipe meets the canyon wall is fine and reads as
          * a vessel set into the cliff, which is what a real habitat would do for shielding.
+         *
+         * The radius itself now varies by `massClassOf` — see that function's own comment
+         * for why cantilever, not ownership, decides it, and why the scale only ever goes
+         * thinner than this baseline rather than fatter.
          */
-        const radius = cellSize * COLONY_VESSEL_RADIUS;
+        const length = span * cellSize;
+        const cx = (first.x + last.x) / 2;
+        const cy = (first.y + last.y) / 2;
+        // The run's *worst*-supported cell, not its average — a merged run is only as
+        // grounded as the member furthest from what holds it up, the same way a chain is
+        // only as strong as its weakest link. `colonyRuns` never merges more than
+        // `MAX_RUN` cells, so this is at most three comparisons.
+        const reach = Math.max(...run.map((c) => c.reach));
+        const massClass = massClassOf(reach);
+        const radius = cellSize * COLONY_VESSEL_RADIUS * RADIUS_SCALE[massClass];
         const deep = moduleDepth(radius * 2, depth);
         const faceZ = deep / 2;
         const face = radius * 2;
-        const length = span * cellSize;
         // The building's own extent across the flank the lane lamps hang on: its diameter
         // when it stands, its full length when it lies.
         const width = vertical ? face : length;
-        const cx = (first.x + last.x) / 2;
-        const cy = (first.y + last.y) / 2;
         const bare = span === 1 && first.scaffold;
+        /**
+         * Mast bodies are fabricated steelwork rather than a cast pressure hull, and the
+         * material says so: the same `frames` group a bare scaffold already renders in,
+         * rather than the regolith `hulls` every tank and vessel uses. One extra branch,
+         * no extra draw call — a mast's pipe and flanges land in whichever array its class
+         * already points at.
+         */
+        const shell = massClass === 'mast' ? frames : hulls;
         if (bare) {
           frames.push(...frameMembers(first, cellSize, at));
           /**
@@ -451,7 +518,7 @@ export function buildColonyCells(
             }
           }
         } else {
-          hulls.push(pipe(radius, length, deep, building.axis, cx, cy, at));
+          shell.push(pipe(radius, length, deep, building.axis, cx, cy, at));
           /**
            * A flange at each end of the run rather than a collar on its roof.
            *
@@ -464,7 +531,46 @@ export function buildColonyCells(
           for (const end of [-1, 1]) {
             const ex = vertical ? cx : cx + (end * length) / 2;
             const ey = vertical ? cy + (end * length) / 2 : cy;
-            hulls.push(pipe(radius * 1.14, ring, deep * 1.14, building.axis, ex, ey, at));
+            shell.push(pipe(radius * 1.14, ring, deep * 1.14, building.axis, ex, ey, at));
+          }
+
+          /**
+           * A flared footing under the lowest ring of a standing tank.
+           *
+           * Only vertical, and only the bottom end — a lying run at grade has no "under" to
+           * flare, and flaring both ends of a standing one would just be a fatter pipe. What
+           * a tank actually needs is a base wider than its own wall, the way a real vessel's
+           * skirt spreads load into whatever it is bolted to, and that widening is the one
+           * shape a uniform-radius pipe can never produce on its own — it is a second class
+           * of geometry, not a bigger version of the first.
+           */
+          if (vertical && massClass === 'tank') {
+            const footY = cy - length / 2;
+            shell.push(pipe(radius * 1.55, ring * 1.8, deep * 1.55, 'y', cx, footY, at));
+          }
+
+          /**
+           * An antenna on the topmost ring of a mast.
+           *
+           * The one piece of geometry in this vocabulary that is not a pipe at any scale — a
+           * thin rod above the run's own top, a crossarm, and a lit tip in the scaffold
+           * corners' own badge material (`marks`). Faceted rather than a sphere for the tip,
+           * matching the file's rule throughout: nothing in this canyon is round because a
+           * pressure vessel had a reason to be, and an antenna does not.
+           *
+           * Vertical masts only — a mast lying on its side is still reaching *along* the
+           * canyon rather than *up* it, and topping a horizontal run with a vertical rod
+           * would read as a mistake rather than as a fitting.
+           */
+          if (vertical && massClass === 'mast') {
+            const tipY = cy + length / 2;
+            const rod = cellSize * 0.5;
+            frames.push(pipe(radius * 0.4, rod, radius * 0.8, 'y', cx, tipY + rod / 2, at));
+            const bar = cellSize * 0.28;
+            const t = cellSize * MEMBER;
+            frames.push(box(bar, t, t, cx, tipY + rod * 0.62, at));
+            const tip = cellSize * 0.1;
+            marks.push(box(tip, tip, tip, cx, tipY + rod, at));
           }
         }
 
