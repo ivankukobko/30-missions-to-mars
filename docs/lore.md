@@ -53,39 +53,36 @@ A rotating set of insults was considered and rejected: a nickname that never rep
 thesaurus, not a relationship. But the repetition is not a relationship either — it is
 ten runs of a category noun, which is what gives the single deviation its weight.
 
-**There is exactly one deviation.** At mission 29 Kessler calls you *navigator*, the only
-proper noun he ever uses, two missions after the only client who thought you were a someone
-stopped transmitting. He stops addressing a type and addresses the one in front of him. It
-is never explained and the player is never told to notice. `Missions.test.ts` asserts all of
-it, because prose drifts.
+**There is exactly one deviation, and it is motivated.** At mission 29 Kessler calls you
+*navigator*, the only proper noun he ever uses. On the card before it he breaks the
+reticence he kept at mission 26 and says plainly what the quiet on the outpost channel
+meant — that the crew went silent one voice at a time and *nobody pulls out of here*.
+Speaking of them as people, once, is what costs him the category noun; the name lands on
+that card, mid-break, not as a sign-off. This is a deliberate trade against an earlier cut
+where the name arrived uncaused: the price of the payoff is the *did they leave or did they
+die* ambiguity. The parked voice tests in `Missions.test.ts` pin the shape, to be
+un-skipped once the text settles.
 
 ### The Carrier
 
 Mission 29 is the only brief in the game that somebody interrupts.
 
-Kessler is mid-sentence — measuring how long he has been at this mouth, the outpost dark a
-couple of months back — when a card arrives headed **IXION OUTPOST**, carrying one sentence
-and nothing else: *"We are the
-only thing at the bottom of this canyon, and we intend to stay that way."* It is the second
-sentence of mission 1, the same string, and the first thing the player ever read. Kessler's
-next card opens `...say again.`, gets nothing, picks up the exact word he was cut off on,
-and finishes the job.
+Kessler is mid-sentence — telling the carrier the outpost did not pull out, that he heard
+their channel go quiet one voice at a time until nobody was left keying it — when a card
+arrives headed **IXION OUTPOST**, carrying one sentence and nothing else: *"We are the only
+thing at the bottom of this canyon, and we intend to stay that way."* It is the second
+sentence of mission 1, the same string, and the first thing the player ever read. Kessler
+does not react to it at all. He carries the sentence he was cut off on straight across the
+interruption — *"—of hole. Take it down"* — and finishes the job.
 
-Three things hold it up, and all three are asserted:
+Two things hold it up:
 
 - **Verbatim, or it is a reference rather than a recurrence.** A paraphrase reads as the
   writer pointing at mission 1. The identical string reads as the channel doing something.
-- **The line carries no name.** Mission 1 addresses you as nothing, so there is no
-  *navigator* in it for Kessler to have picked up off the air. His use of it three cards
-  later stays his own, uncaused.
-- **He never investigates.** No speculation, then or ever. The last human voice on the
-  canyon hears the first one, asks it to repeat, and detonates the charge anyway. *Say
-  again* rather than *repeat* — on an industrial channel *repeat* means do it again, which
-  is an unfortunate thing to say while holding a Final Charge.
-
-Whether the mast is looping a stored ident or something is still down there is never
-raised. Ixion left the radar powered at mission 27 and said so; that is the whole of the
-mechanism the game offers.
+- **He never engages with it.** No *say again*, no speculation, then or ever. Whether the
+  mast is looping a stored ident or something is still down there is never raised. Ixion
+  left the radar powered at mission 27 and said so; that is the whole of the mechanism the
+  game offers.
 
 There is a second reading, and it is left standing: the mast is broadcasting a territorial
 claim on a channel nobody is left to hear, from equipment deliberately left powered by the
@@ -132,16 +129,23 @@ leftover.
 | | Arrived | Depth | Why there |
 | --- | --- | --- | --- |
 | **Ixion** | First | ~0, just under the floor | Dug where they could reach, not where the ore was |
-| **Helion** | Mission 5 | −12, lateral | Surveyed properly and stopped where the return stopped |
+| **Helion** | Mission 5 | −12, along the gallery | Took the west end of Ixion's working by *prior working* |
 | **Kessler** | Mission 6 | −58 → −169 → −300 | The optimum was already taken |
+
+There is **one hole** — Ixion's crooked mouth, anchored to the east wall, opening onto the
+floor. Off it, two directions: a horizontal drift running west along the gallery (Helion)
+and a single column driven straight down (Kessler). `Missions.test.ts` asserts the campaign
+digs exactly one excavation.
 
 **Ixion started digging and was outrun.** They saw what the seam was worth first and were
 the least equipped to take it, so they took the affordable seam — shallow, close, and not
 the good one. Then Helion arrived with proper survey equipment, found the actual optimum,
-and drove laterally into the west wall. Kessler arrived one contract later to find it
-claimed, and went down because down was what was left.
+and took the **west end of the gallery Ixion had already cut**, claiming it by *prior
+working* rather than opening a hole of its own. Kessler arrived one contract later, found
+the gallery claimed and the shallow seam worked out, and drove the same mouth **downward**
+because down was what was left.
 
-So *"Helion drills sideways, we drill down"* is not two styles. It is a consequence: one of
+So *"Helion works it along, we work it down"* is not two styles. It is a consequence: one of
 them had a choice. Kessler is not reckless by temperament, he is reckless by **position**,
 and he goes deeper every contract because stopping means Helion won.
 
@@ -153,25 +157,43 @@ they are **decks**, and the briefs already call them that half the time.
 
 ### The pillar
 
-Two workings converging on one seam thin the rock between them.
+There is no pillar in the geometry — the excavation is one connected complex and nothing is
+rendered thinning. The pillar is **Ixion's reading**: their instruments have logged a rising
+seismic count since before either charter landed (*"four hundred last week, forty this time
+last year"*), and Ixion calls that the rock between the two workings giving way. Kessler,
+alone at the bottom, hears the same tremors and calls it the hole. The game never
+adjudicates, and no brief states the pillar as fact — mission 23 is Ixion's claim, not the
+campaign's: *"the pillar between them thins every shift. Our instruments have watched it
+since before either of them landed."*
 
-Ixion's abandoned working sits at the junction — they got there first — so their
-instruments have been sitting in the middle of the convergence since before either charter
-landed. They know what is happening to the pillar. They file it. The arbitration is about
-who *owns* the seam, not whether it will hold, so nobody reads it.
+The arbitration is about who *owns* the seam, not whether it will hold, so the filing is
+never acted on. Whether the epilogue's collapse is the pillar failing or the Final Charge
+firing is the same undecided question — dug instead of filed.
 
-Mission 23 is already this, unexplained: *"Both charters have hit the same seam from
-opposite sides. We have recommended evacuation. Nobody has acknowledged it."*
+### How Ixion ends
 
-### Why Ixion leaves
+Ixion does not leave. *"Shutting down"* (mission 27) and *"went dark"* (mission 29) are
+literal, and Kessler confirms it at 29: *"the outpost did not pull out. Nobody pulls out of
+here."* No brief shows a ship, a window rendezvous, or a departure — the campaign withholds
+the mechanism the same way it withholds what a carrier is.
 
-Two reasons at different scopes, and neither is dramatic:
+The chain is in the briefs:
 
-- **The window** explains the timing. You do not evacuate Mars when you feel like it. Miss
-  the transfer and you are here another 759 sols, and they cannot fund that.
-- **The pillar** explains the recommendation — why they told everyone *else* to go.
+- **Funding.** A survey expedition on a modest grant — eleven people and a barely-working
+  rig — for most of eleven years. It ended when the charters landed: lapsed on term, or
+  pulled once the canyon became a corporate fight; mission 22 leaves it ambiguous.
+- **The drain.** No income, and a claim that only holds while it is worked, so everything
+  after went on litigation and on the minimum fieldwork to keep the sites live. *"It bought
+  us nine days"* (mission 11).
+- **The mechanism.** The water reclaimer from mission 4 fails in mission 22 with nothing to
+  replace it. For eleven people that is a slow end, not an inconvenience.
+- **The count.** Mission 27: *"eleven of us in the early days; fewer now."* The living
+  number only ever decreases — the permanence rule applied to people.
 
-Together they are why the outpost that said *we intend to stay that way* is on a ship.
+The **window** still explains the timing pressure on the evacuation Ixion recommends for
+everyone *else* (mission 23); it is no longer why Ixion itself goes. The outpost that said
+*we intend to stay that way* stayed, permanently — and at mission 29 the dead channel says
+the line again, and it is true.
 
 ### The timeline — **Proposed**
 
@@ -205,14 +227,19 @@ piece at a time — roughly one drop every 22 sols. Which is why there are twent
 missions, and why the colony visibly grows *between* them: a month passes, and other
 carriers fly the loads you do not.
 
-**Frames are recovered; carriers are not.** Kessler cares about the airframe from his first
-contract — *"the frame costs more than the contract does"* — because it goes back up and
-flies again. That keeps the canyon floor clear, which the four dark relays depend on:
-twenty-nine spent landers lying about would drown them.
+**Nothing that comes down leaves — the frame least of all.** A stated ground rule (mission
+8: *"Nothing that comes down this canyon goes back up. Cargo, fuel, the frames themselves —
+it all stays"*). No mission has a return leg and no fuel budget has an ascent stage; the
+numbers are sized to brake entry velocity and land, full stop. The frame is stripped to
+the last screw and built into the outpost, tanks siphoned (mission 4); Kessler calls it
+*"scrap"* the moment it is on the deck (mission 7). The four dark relays on the floor are
+not the exception — they are the frames too far out to be worth stripping.
 
-It also leaves Helion's `RETURN EXPECTED: NO` pointing at something that is not the frame.
-Read as shipping it is as routine as the payload mass; read as anything else it is the
-coldest line in the game. Both stand, which is the point.
+The rule reaches the carrier too, obliquely and without ever saying what a carrier *is*:
+Kessler, mission 26 — *"everything that came down this canyon and never flew out is in [the
+walls] now"*; Helion, mission 28 — `CARRIER DISPOSITION: DEVOLVES TO SITE`. So Helion's
+`RETURN EXPECTED: NO`, once the frame is a known write-off, reads as pointing at the only
+thing left. Routine-shipping and coldest-line-in-the-game both still stand.
 
 ### What counts as cargo
 
@@ -235,6 +262,25 @@ operation while two funded charters close in. Not a clerk posting letters — an
 scrambling to stay operational. The record is still their weapon; it is assays and filings,
 *transmitted*, and the cargo is the fieldwork that generates them.
 
+### Three rules the canyon runs on
+
+Stated plainly, once each, by Ixion — the voice that explains the place — then relied on
+everywhere:
+
+- **Ownership is working, not marking** (mission 5): *"You hold ore by digging it, not by
+  marking it. Stop working a claim and it lapses."* Why Helion can take Ixion's gallery by
+  *prior working*, why Ixion's fieldwork missions exist at all, and why the filings never
+  save them — a public record is leverage only because it cannot be kept proprietary.
+- **Permanence** (mission 8): *"Nothing that comes down this canyon goes back up."* Cargo,
+  fuel, frames — and, obliquely, carriers and people. Everything sent here becomes the
+  canyon. See *Everything arrives from orbit*.
+- **Isolation** (mission 5): the three parties never address each other. They monitor a
+  shared open channel and are bound by the same legal process, but there is no private line
+  between any two — charter rules forbid sharing survey, method or position. The carrier is
+  the only entity all three transmit *to*. Which is why Ixion's evacuation recommendation
+  goes unanswered (mission 23): nobody is required to answer the outpost, and there may be
+  nobody at Helion to.
+
 ### What the colony is made of
 
 If only the unmakeable is shipped, everything bulk is local. **Mass is regolith; mechanism is
@@ -249,8 +295,12 @@ imported.**
 entirely in the light**: at distance the player sees three colours of lamp on identical rock.
 The charters are indistinguishable as matter and tell apart only by what they switched on.
 
-Which hands over the shutdown for free — at mission 27 Ixion's lamps go out and their
-structures stay exactly where they are. Same rock, no light. No new assets.
+This *would* hand over the shutdown for free — Ixion's lamps going out at mission 27 while
+the structures stay put, same rock, no light, no new assets. **Not built:** `Colony.darken`
+was removed and nothing dims a colony per-mission; the only darkening in the game is the
+campaign-wide sky decline and the epilogue collapse. The briefs no longer lean on it
+(mission 18 says *"off the surface"*, not *"lights off"*). Worth doing — see
+`docs/plans/campaign_narrative_enhancements.md`.
 
 The drift to correct is `hull`: Ixion `0x7d8a92` and Kessler `0x6d8299` are cool greys that
 read as shipped metal, and only Helion's `0x8a6248` is anywhere near the canyon.
@@ -311,11 +361,19 @@ anything, and it never once stops you flying.
 - **Identity**: a commercial extraction charter that surveyed properly and stopped where
   the return stopped. It has no ambition because ambition is a human error and there is
   nobody there to make it.
-- **Vehicle**: HD-7 Sidewinder — attitude locked, translation decoupled. A wall cavern is
-  entered level and sideways, with no attitude to recover.
+- **Vehicle**: HD-7 Sidewinder — attitude locked, translation decoupled. The gallery is
+  entered level and sideways along the west wall, with no attitude to recover.
 - **Voice**: nobody. Auto-generated contract text with the fields filled in — not cold out
   of cruelty, cold because no human was ever involved. All ten briefs are one form under
   one contract number, 4471-C, amended.
+
+Both of the other parties say the quiet part out loud, each in register: Kessler — *"if
+Helion's got anyone to do the reading"* (mission 13); Ixion — *"we have never been sure
+Helion has a crew at all… not one word from a person over there"* (mission 23). Neither can
+ask (the parties don't address each other) and the form never answers a question, so
+*whether Helion is manned* joins the Never Answered pile. The epilogue only tips it: Helion
+files the last revision after everyone else is gone, because Helion is the only party with
+nobody to evacuate.
 
 Three rules keep it a machine rather than a terse employee, and `Missions.test.ts` holds
 all three:
@@ -372,8 +430,13 @@ His shipped lines are an arc nobody planted:
   on his first descent brief.
 - **24** (303m): *"Trust the altimeter, not the optical feed. Down there the two will
   disagree."*
-- **26**: *"I would not hand this run to anyone else."* — trust. Also: there is nobody else left.
-- **29**: *"...say again."*
+- **26**: *"I would not hand this run to anyone else"* — trust; also, there is nobody else
+  left. On the same brief, flat: *"Outpost's channel has been quiet a long while… not
+  something I have the time to chase."* He clocks the last living thing in the canyon fading
+  and files it like weather.
+- **29**: he breaks. *"The outpost did not pull out, navigator. Nobody pulls out of here. I
+  heard their channel go quiet — one at a time."* The one time he speaks of people as
+  people, and it is what the run ends on — his and the canyon's.
 
 He talks to equipment. By 26 the hole is the only thing left to talk to. That is not a
 departure from his character, it is his character followed to the end.
@@ -384,10 +447,20 @@ working. Ixion reads it as geology. Kessler, alone at 300 metres, reads it as th
 game never adjudicates.
 
 **He stays functional.** Never misses a delivery, never raves, never says anything a foreman
-could not say on an open channel. The player should finish unsure whether anything was wrong
-with him at all.
+could not say on an open channel — the flatness is almost why he lasts, where a more feeling
+person would not. The player should finish unsure whether anything was wrong with him at all.
 
-**Before mission 29 he notices things about the job. Only at 29 does he notice you.**
+**Before mission 29 he notices things about the job. Only at 29 does he notice you.** The
+outpost's silence at 26 is still the canyon, not the carrier; the name at 29 is the carrier.
+
+**The Final Charge reads as possible suicide, and stays unconfirmed.** He understates a
+1.8-tonne charge as *"six hundred kilos… you have flown this one before"* to the only
+witness, and nothing reconciles the manifest — who oversized it (Ixion, Kessler, or
+Helion's `AUTO`) is left open. He is the last one, into a seam beside a wall he has listened
+to for a year. Against it: he has a crew (*"pulling my crew up… give me twenty minutes"*,
+epilogue), so it is not a clean self-ending — a man who set a charge bigger than the job,
+meant to lift his people first, and ran out of time, with the hand on the timing never
+shown. Same discipline as pillar-versus-charge: hold intent-versus-accident open.
 
 ---
 
@@ -399,14 +472,16 @@ anything: **you build the addresses — pads, the shaft, the cavern, the ledge �
 canyon builds the obstacles**, out of a growth budget that scales with how well you fly.
 
 1. **The Descent (1–4)** — site the radar, early outpost cargo, the charters clear orbit.
-2. **The Corporations (5–8)** — Helion takes the west wall and the optimum; Kessler takes
-   the east and what is under it.
+2. **The Corporations (5–8)** — Helion takes the west end of Ixion's gallery by *prior
+   working*; Kessler takes the east and drives it down.
 3. **The Corridor (9–13)** — both charters build toward the centre line. The airspace closes.
-4. **The Digging (14–20)** — Kessler opens the floor, Helion carves and roofs a room and
-   abandons the surface. Ixion is off the air as a client and cuts in twice as a voice.
-5. **The Seam (21–26)** — the workings converge, the arbitration runs, the abyss deepens.
-6. **The Gauntlet (27–29)** — Ixion shuts down at 27 and leaves the radar powered. Two runs
-   later, the Final Charge.
+4. **The Digging (14–20)** — Kessler drives Ixion's working downward into a proper shaft,
+   Helion roofs the gallery and abandons the surface. Ixion is off the air as a client and
+   cuts in twice as a voice.
+5. **The Seam (21–26)** — the workings press in, the arbitration runs, the abyss deepens.
+6. **The Gauntlet (27–29)** — Ixion goes dark at 27 (the crew does not leave — mission 29
+   confirms it) and leaves the radar powered. Two runs later, the Final Charge, then the
+   epilogue collapse.
 
 ---
 
@@ -414,8 +489,15 @@ canyon builds the obstacles**, out of a growth budget that scales with how well 
 
 Protected by every rule above, and the reason most of them exist:
 
-- **What you are.** Not hinted, not implied, not resolved.
+- **What you are.** Not hinted, not implied, not resolved — *devolves to site* and *in the
+  walls* say where you end up, never what ended up there.
 - **What happened to the four before you.** That two of them failed is available. How is not.
 - **Whether Ixion meant it.** Both readings stand; nothing adjudicates.
+- **Whether anyone got out of the outpost.** The briefs lean hard toward no, and Kessler
+  says there was none — but no body, no cause, no scene.
+- **Whether Helion is manned.** Kessler and Ixion both doubt it aloud; the form never
+  answers; the epilogue only implies.
+- **What ended it** — the failing pillar, the Final Charge, or both, and whose hand set the
+  charge's size and timing.
 - **Whether there is a sixth.** Helion's file stays open. The next transfer window is a
   hundred sols out. The game ends.

@@ -85,13 +85,13 @@ reproducibility rests on, and there is a test asserting a fully banked hauler st
 
 Assignment comes from the client, not a menu, and it is one frame per charter with no
 exceptions: **Ixion flies the lander, Kessler the hauler, Helion the sidewinder.** Each
-charter's hardware follows the work it does. Kessler dug every shaft in this canyon, and a
-shaft is where locked rotation is unambiguously the better tool: it puts the vehicle
-sideways on demand without ever having to recover an attitude, which is what threading a
-24-wide bore with rock on both sides actually asks for. Helion drills sideways into walls
-and approaches through a mouth in a rock face, which wants lateral placement without
-attitude — decoupled translation, not rotation. Ixion lands on open pads and flies the
-frame every tolerance in the game was tuned against.
+charter's hardware follows the work it does. Kessler drove the canyon's one shaft straight
+down, and a shaft is where locked rotation is unambiguously the better tool: it puts the
+vehicle sideways on demand without ever having to recover an attitude, which is what
+threading a 24-wide bore with rock on both sides actually asks for. Helion works the west
+end of that same hole — a gallery entered level and sideways along the wall — which wants
+lateral placement without attitude, decoupled translation, not rotation. Ixion lands on
+open pads and flies the frame every tolerance in the game was tuned against.
 
 The rule is total because the HUD is diegetic. You are an AI connecting to the vehicle's
 own instruments, so the panel in front of the player is the client's panel; a charter

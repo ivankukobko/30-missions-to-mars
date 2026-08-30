@@ -1,4 +1,6 @@
-# 30 Missions to Mars
+# The Only Thing at the Bottom
+
+*a story about 30 missions to Mars*
 
 A 2.5D physics lander built with **TypeScript** and **Three.js**.
 
@@ -95,7 +97,7 @@ only by arithmetic that had to keep being re-earned.
 
 Detailed documentation is organized in the [`docs/`](docs/) directory:
 
-- **[Lore & Factions](docs/lore.md)**: The campaign's design record — what each client calls you and why none of the three names mean the same kind of thing, depth as the faction axis with arrival order as its cause, the pillar between the two workings, and the rules about what the game must never answer. Shipped material and proposed material are tagged separately.
+- **[Lore & Factions](docs/lore.md)**: The campaign's design record — what each client calls you and why none of the three names mean the same kind of thing, depth as the faction axis with arrival order as its cause, the pillar as Ixion's reading of the seismic data, the ground rules the canyon runs on, and what the game must never answer. Shipped material and proposed material are tagged separately.
 - **[Gameplay](docs/gameplay.md)**: Entry velocity mechanics, desktop & touch controls, payload mass & landing scoring, and seed persistence.
 - **[Environment](docs/environment.md)**: Canyon geometry & orientation, uniform lattice sampling, terracing, level shelves, and terrain noise generation.
 - **[Architecture](docs/architecture.md)**: 120 Hz fixed-timestep physics engine, fragment-bound rendering pipeline, codebase module layout, and automated tests.

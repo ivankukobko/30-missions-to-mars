@@ -78,11 +78,18 @@ two objects in the canyon whose position the player chose.
 
 ## Decisions
 
-### The prologue is not in the mission table
+### The prologue is not in the mission table — *superseded*
 
-`MISSION_COUNT` is 30, `Missions.test.ts` asserts the ids are exactly 1…30, and
-`getMission(0)` returning null is itself an assertion — it is the guard that triggers
-victory. The game is called *30 Missions to Mars*.
+This was the plan: `export const PROLOGUE: Mission` with `id: 0`, outside the table, on the
+argument that the numbered campaign is what a charter paid for. **What shipped is the
+reverse.** The prologue is mission 1: it lives in `missions.yaml` with the rest, it is
+scored, it has a grid cell, and `MISSION_COUNT` is 29. The player has no way to perceive
+"which of these did a company pay for"; what they perceive is that a vehicle went down, so
+it was a mission. `PROLOGUE` is still exported by name — several call sites need to say
+*which* mission plants the relay — but it points at `MISSIONS[0]`. (The game is now *The
+Only Thing at the Bottom*.)
+
+The plan text below is kept as the record; the differences are the useful part.
 
 So: `export const PROLOGUE: Mission` with `id: 0`, of the same shape as the table's
 entries but not in it. `Game.loadMission` takes a `Mission` and does not care where it

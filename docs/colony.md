@@ -86,12 +86,13 @@ above it or sink into it.
 
 Two kinds, doing different jobs:
 
-- **Recovered probes.** Ixion keeps a memorial yard beside the outpost pad: wreckage
-  hauled in from across Mars, because a chronically underfunded science station is
-  precisely the organisation that would spend scarce mass on that and the charters are
-  precisely the ones who would not. It sits next to the pad you land on in missions 1, 2,
-  3, 4, 9, 12, 24 and 28, which makes it the most-seen object in the game. When the
-  outpost shuts down, it is also the first thing cleared for the claim.
+- **Recovered probes — *proposed, not built*.** Ixion keeps a memorial yard beside the
+  outpost pad: wreckage hauled in from across Mars, because a chronically underfunded
+  science station is precisely the organisation that would spend scarce mass on that and
+  the charters are precisely the ones who would not. It would sit next to the pad you land
+  on for most Ixion missions, making it the most-seen object in the game. `docs/lore.md`
+  flags that no such yard exists in the code yet; the four half-buried dark relays on the
+  floor (`DEAD_RELAYS`, shipped) currently carry this weight instead.
 - **Your own wrecks.** Where you died, in the trim of whoever you were flying for that
   day, half-buried and never remarked on. This is the only thing in the canyon not
   derived from the mission index, which is why it stays strictly cosmetic: it may be

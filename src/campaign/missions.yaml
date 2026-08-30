@@ -123,7 +123,10 @@ missions:
           Heavier load today, navigator, and it handles worse than the mass number says it should. We have never worked out why.
       - sender: IXION OUTPOST
         content: >-
-          The reclaimer is rated for forty people. There are eleven of us. We keep ordering for the crew we keep saying we will have by winter.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
+          The reclaimer is rated for forty people. There are eleven of us. We keep ordering for the crew we keep saying we will have by winter.
+      - sender: IXION OUTPOST
+        content: >-
+          The frame stays down here — stripped to the last screw and built into the outpost, tanks siphoned and all. Land it heavy, navigator: the crew has plans for tomorrow night.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
 
   - id: 5
     sol: 48
@@ -139,6 +142,9 @@ missions:
       - sender: IXION OUTPOST
         content: >-
           Two extraction charters made orbit this morning. Helion to our west, Kessler to our east. Neither surveyed on the way in. They read our assay off the open channel and came straight down.
+      - sender: IXION OUTPOST
+        content: >-
+          They will not talk to each other, or to us. Charter rules — no shared survey, no shared method, nothing over the line. We kept our channel open. That is how they found the seam.
       - sender: IXION OUTPOST
         content: >-
           Here is how ground works on this planet, navigator. You hold ore by digging it, not by marking it. Stop working a claim and it lapses. Mark rock you are not working and it counts for nothing.
@@ -205,7 +211,10 @@ missions:
           The array you are carrying listens to the rock. It counts the small quakes the seam throws as it settles. We will want those numbers.
       - sender: KESSLER DEEP
         content: >-
-          You fly one of ours now. Nothing that goes down a bore has any business turning, so it does not. Do not bend it, tin can — the frame costs more than the contract.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER DECK.
+          You fly one of ours now. Nothing that goes down a bore has any business turning, so it does not.
+      - sender: KESSLER DEEP
+        content: >-
+          The frame does not go back up — nothing that comes down here does. It is the costliest thing you are carrying until it is on the deck; after that, scrap. Do not make it scrap early, tin can.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER DECK.
     adds:
       props:
         - kind: pad
@@ -236,7 +245,7 @@ missions:
           You will have noticed the run in is tighter. That is not your flying.
       - sender: IXION OUTPOST
         content: >-
-          Every load anyone brings down stays in the canyon, and the gap you descend closes a little more each mission. It will keep closing.<br/><br/><b>OBJECTIVE</b> Bring the injunction to the outpost pad.
+          Nothing that comes down this canyon goes back up. Cargo, fuel, the frames themselves — it all stays, and the gap you fly closes a little more each mission. It will keep closing.<br/><br/><b>OBJECTIVE</b> Bring the injunction to the outpost pad.
 
   - id: 9
     sol: 109
@@ -327,7 +336,7 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          The array has been reading the seam for a season. Same story every night — richer rock further down, and more of those small quakes as it settles. Helion read that and stopped. We act on it.
+          The array has been reading the seam for a season. Same story every night — richer rock further down, and more small quakes each time. Helion read the same and stopped, if Helion's got anyone to do the reading. We act on it.
       - sender: KESSLER DEEP
         content: >-
           This liner is the last thing you bring me on the surface. From tomorrow we take Ixion's old working down — a proper shaft, straight down the hole they started.
@@ -645,6 +654,9 @@ missions:
           The water reclaimer you brought us in the early days has failed, navigator. It outlasted its rating by years, and we cannot afford another one.
       - sender: IXION OUTPOST
         content: >-
+          We were funded for most of those years — a grant that covered eleven people and a rig that mostly worked. It ended when the charters landed. Since then it has all gone on lawyers, and on ground we were always going to lose.
+      - sender: IXION OUTPOST
+        content: >-
           So: parts. The lightest load we have ever sent you for. That is not us being kind — it is the size of what is left in the account.<br/><br/><b>OBJECTIVE</b> Bring the parts to the outpost pad.
 
   - id: 23
@@ -661,6 +673,9 @@ missions:
       - sender: IXION OUTPOST
         content: >-
           Both charters are cutting into the same wall of rock from opposite sides now. The pillar between them thins every shift. Our instruments have watched it since before either of them landed.
+      - sender: IXION OUTPOST
+        content: >-
+          We have never been sure Helion has a crew at all. Ten years of contracts, every one auto-filed, and not one word from a person over there.
       - sender: IXION OUTPOST
         content: >-
           We filed a recommendation to evacuate. Nobody has answered it. You fly for them too, navigator — it has never been held against you. You go where the contract sends you. So do we.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.
@@ -787,7 +802,10 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Heaviest single object anyone has flown in this canyon. West wall down to the bottom of the shaft, through everything both charters have built.
+          Heaviest single object anyone has flown here. West wall to the bottom of the shaft, through everything both charters built — and mind the walls. Everything that came down this canyon and never flew out is in them now.
+      - sender: KESSLER DEEP
+        content: >-
+          Outpost's channel has been quiet a long while. Used to be traffic on it every shift. Not something I have the time to chase.
       - sender: KESSLER DEEP
         content: >-
           It is a containment shell. It caps the deep seam so a charge can go in without bringing the roof down. Do this one right — I would not hand it to anyone else.<br/><br/><b>OBJECTIVE</b> Deliver the shell to SHAFT DEEP.
@@ -805,7 +823,7 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Sol 7905. We are shutting the outpost down, navigator. Everything we ever learned about this canyon is on that archive — every sounding, every core, the mast calibration.
+          Sol 7905. We are shutting the outpost down, navigator. Eleven of us in the early days; fewer now. Everything we learned about this canyon is on that archive — every sounding, every core, the mast calibration.
       - sender: IXION OUTPOST
         content: >-
           Fly it home one last time, navigator.
@@ -829,7 +847,7 @@ missions:
           CONTRACT 4471-C/596 · REV 11 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ARBITRATION WRIT<br/>DESTINATION: SHAFT GALLERY<br/>ATTRITION: WITHIN TOLERANCE<br/>IXION OUTPOST: NO LONGER A PARTY. FILINGS RETAINED.<br/>ALLOWANCE: 0.4 / 11.0 T
       - sender: CONDITIONS OF CARRIAGE
         content: >-
-          THIN MARGINS. NO CLEAN LINE REMAINS.<br/>NO FURTHER CONSIGNMENT CAN BE SCHEDULED UNDER THIS CONTRACT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the writ to SHAFT GALLERY.
+          THIN MARGINS. NO CLEAN LINE REMAINS.<br/>NO FURTHER CONSIGNMENT CAN BE SCHEDULED UNDER THIS CONTRACT.<br/>RETURN EXPECTED: NO<br/>CARRIER DISPOSITION: DEVOLVES TO SITE<br/><br/><b>OBJECTIVE</b> Deliver the writ to SHAFT GALLERY.
       - sender: ANNEX A — ARBITRATION
         content: >-
           PROCEEDINGS CONTINUE. THE SEAM IS HELION'S BY PRIOR WORKING. KESSLER DEEP DISPUTES BY PRIOR DEPTH.<br/>THE CARRIER HAS NO STANDING AND IS NOT ENTITLED TO NOTICE OF THE OUTCOME.
@@ -859,6 +877,14 @@ missions:
     # see `sol`'s own comment in Missions.ts — and the same reason nothing here states the
     # campaign's own length: that number belongs to the player counting sols, not to a
     # charter who has no way to know the story is about to end.
+    #
+    # **"navigator" is caused here, and that is a deliberate trade.** An earlier cut had the
+    # name arrive uncaused — the one deviation in eleven runs, never explained. It is
+    # motivated now: Kessler breaks the charter reticence he kept at mission 26 ("not
+    # something I have the time to chase") and says plainly what the quiet on the outpost
+    # channel meant. Speaking of the crew as people — once — is what costs him the category
+    # noun. The name lands on that card, mid-break, not as a sign-off; the final card is
+    # bare. The price paid for it is the "did they leave or did they die" ambiguity.
     musicTrack: outpost
     payload:
       name: Final Charge
@@ -873,13 +899,16 @@ missions:
           Going on a year down this mouth and it still is not done with us. Down the hole the outpost started, and every metre under that first stretch you put there yourself.
       - sender: KESSLER DEEP
         content: >-
-          Six hundred kilos, same as the cutting charges — you have flown this one before.<br/><br/>Nobody else is on the canyon now. The outpost went dark a couple of months back. So it is you, me, and three hundred metres of—
+          Six hundred kilos, same as the cutting charges — you have flown this one before. Nobody else is on the canyon now.
+      - sender: KESSLER DEEP
+        content: >-
+          The outpost did not pull out, navigator. Nobody pulls out of here. I heard their channel go quiet — one at a time, until there was nobody left keying it. So it is you, me, and three hundred metres of—
       - sender: IXION OUTPOST
         content: >-
           We are the only thing at the bottom of this canyon, and we intend to stay that way.
       - sender: KESSLER DEEP
         content: >-
-          —of hole. Take it down, navigator.<br/><br/><b>OBJECTIVE</b> Deliver the charge to SHAFT DEEP.
+          —of hole. Take it down.<br/><br/><b>OBJECTIVE</b> Deliver the charge to SHAFT DEEP.
 
 # ---------------------------------------------------------------------------- epilogue
 #

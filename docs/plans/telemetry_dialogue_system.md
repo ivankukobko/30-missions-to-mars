@@ -37,8 +37,8 @@ sending you something.** A sender, and what they said.
 ## The card count is authoring, not formatting
 
 Not "normalised 2–3 cards". A mission spends the pages it needs, and where the breaks
-fall is a decision about beats: **24 missions run to two cards, six to three** — 66 cards
-across the campaign.
+fall is a decision about beats: most missions run to two or three cards, a few to four or
+five where a beat wants its own page.
 
 A page turn is a beat, and a card holding four sentences has spent that beat on nothing.
 The Helion contract form is the worked example: authored as a single card first, it read
@@ -47,14 +47,13 @@ exact shape the sequence exists to break up.
 
 Everything else split at the paragraph boundaries the briefs already had, with the
 objective riding the last card rather than taking one. The breaks are chosen, not
-mechanical: mission 1 gives *"where you set it down is where it stays"* a page to itself
-because missions 2 and 30 are built on it, and mission 28 isolates *"fly it home one last
-time, navigator"* on a 37-character card, the shortest in the game.
+mechanical: mission 2 gives the verbatim *"we are the only thing at the bottom of this
+canyon"* line a page to itself because mission 29 is built on it, and mission 27 isolates
+*"fly it home one last time, navigator"* on a 37-character card, the shortest in the game.
 
-The longest card is now **228 visible characters, ≈2.5s of teletype**, down from a
-568-character brief at 6.3s. No Helion card exceeds 240 and a test holds it; the Helion
-count also carries that faction's arc — two cards, three once the arbitration annex
-exists. See `docs/lore.md`.
+The longest card sits just under **240 visible characters** (≈2.6s of teletype); a test
+holds every card below 240, prose and Helion form alike. The Helion count also carries that
+faction's arc — two cards, three once the arbitration annex exists. See `docs/lore.md`.
 
 ### Who a card is from
 
@@ -137,6 +136,9 @@ Longest card in the campaign is 228 visible characters, ≈2.5s.
   console's own voice is built and nothing can currently speak in it.
 - **No skip-all.** The plan wanted `Esc` to jump to the last card for retry flow; it was
   not built. Paging a three-card Helion contract on a retry is three keystrokes.
-Cut-ins are live: the outpost interrupts a charter's contract at **15, 19 and 30**, and
-the mission 30 carrier is the case the `sender` field was built for. See `docs/lore.md`.
-A cut-in never takes the last card — the client resumes and still gives the address.
+Cut-ins are live: the outpost interrupts a charter's contract at **14, 18 and 29** (and
+Helion cuts into an Ixion brief once, at 3), and the mission 29 carrier line is the case
+the `sender` field was built for. See `docs/lore.md`. A cut-in never takes the last card —
+the client resumes and still gives the address. The lone exception is a Helion contract
+whose arbitration annex comes last by design; there the objective rides the second-to-last
+card.

@@ -2,39 +2,44 @@
 
 ## Goal
 
-Enhance the narrative impact, environmental storytelling, and faction immersion across the 30-mission campaign without breaking the core physics loop or campaign determinism.
+Enhance the narrative impact, environmental storytelling, and faction immersion across the 29-mission campaign without breaking the core physics loop or campaign determinism.
 
 ---
 
+> **Framing note:** this plan predates the discipline that the carrier is never named. Where
+> the original text said "Guidance AI" or "flight AI", read *the carrier* — an unidentified
+> thing on the end of the telemetry link. See `docs/lore.md`.
+
 ## Core Narrative Pillars
 
-1. **Deliveries Build the World**: What the Guidance AI delivers in mission $N$ remains in the canyon for all future missions ($N+1 \dots 30$). Player success actively constructs future flight hazards.
+1. **Deliveries Build the World**: what the carrier delivers in mission $N$ remains in the canyon for all future missions ($N+1 \dots 29$). Player success actively constructs future flight hazards.
 2. **Physics as Faction Philosophy**:
-   * **Ixion Outpost** (*Science & Precedence*): Open pads, probe memorial yard, standard landers.
-   * **Helion Extraction** (*Sideways Drilling*): Cliff caverns, gantries, TD-4 Lander (manual attitude control).
-   * **Kessler Deep** (*Downward Mining*): Vertical shafts, winches, KD-9 Shaft Hauler (locked 0° vector translation).
-3. **Guidance AI Telemetry**: All lore and briefings are delivered as remote telemetry data packets and system diagnostics parsed by the flight AI.
+   * **Ixion Outpost** (*Science & Precedence*): open pads, TD-4 Lander (manual attitude control).
+   * **Helion Extraction** (*works the hole along*): the west end of the shared gallery, entered level and sideways; HD-7 Sidewinder (decoupled lateral translation).
+   * **Kessler Deep** (*works the hole down*): the shaft driven down Ixion's mouth, winches, KD-9 Shaft Hauler (locked-attitude twin vectoring).
+3. **Telemetry**: all lore and briefings arrive as remote transmissions and system diagnostics on the carrier's feed.
 
 ---
 
 ## Planned Enhancements
 
-### 1. Ixion Outpost Shutdown & Visual Transformation (Mission 28)
+### 1. Ixion Outpost Shutdown & Visual Transformation (Mission 27)
 
-* **Current State**: Ixion Outpost's pad is targetable in early missions, but its eventual decline is conveyed mostly through text.
+* **Current State**: Ixion Outpost's pad is targetable in early missions, but its eventual decline is conveyed only through text — and `Colony.darken` was removed, so nothing dims the outpost per-mission.
 * **Enhancement**:
-  * **Pad Power-Down**: At Mission 28 — the shutdown brief, not 20; this plan predates the campaign
-    settling on where Ixion ends — the outpost pad's landing lights go dark. The navigation
-    radar does **not**: Ixion leaves it powered on purpose and says so, and mission 30 depends
-    on it still transmitting. See `docs/lore.md`.
-  * **Corporate Claim Beacons**: Helion and Kessler emissive survey beacons spawn over the abandoned pad and probe yard.
+  * **Pad Power-Down**: at Mission 27 — the shutdown brief — the outpost pad's landing lights
+    go dark. The navigation radar does **not**: Ixion leaves it powered on purpose and says
+    so, and mission 29 and the epilogue both depend on it still transmitting. The briefs are
+    already written not to require this (mission 18 says *"off the surface"*, not *"lights
+    off"*), so it is additive. See `docs/lore.md`.
+  * **Corporate Claim Beacons**: Helion and Kessler emissive survey beacons spawn over the abandoned pad.
   * **Prop Eviction**: Scientific equipment is replaced by corporate construction staging props in later missions.
 
 ---
 
-### 2. Guidance AI Contextual Diagnostics
+### 2. Contextual Diagnostics
 
-Integrate real-time environmental analysis into the Guidance AI's system diagnostics (Card 2 of the Paged Telemetry Uplink):
+Integrate real-time environmental analysis into the carrier's system diagnostics (Card 2 of the Paged Telemetry Uplink):
 
 * **Corridor Density Readout**: Display active airspace clearance statistics:
   > `[ANALYSIS · CORRIDOR CLEARANCE: 42% (REDUCED BY HELION GANTRY M10)]`
@@ -56,9 +61,9 @@ Integrate real-time environmental analysis into the Guidance AI's system diagnos
 ## Implementation Plan
 
 1. **Phase 1: Prop & Lighting State Shifts (`Colony.ts` / `Missions.ts`)**
-   * Add `unpowered` / `abandoned` prop visual states for Ixion structures post-Mission 28,
-     excluding the radar.
+   * Add `unpowered` / `abandoned` prop visual states for Ixion structures post-Mission 27,
+     excluding the radar. (`Colony.darken` was removed and would need reinstating.)
 2. **Phase 2: Contextual Diagnostic Generator (`Missions.ts`)**
-   * Add helper to calculate canyon clearance & past wreck metrics for the Guidance AI briefing card.
+   * Add helper to calculate canyon clearance & past wreck metrics for the carrier's briefing card.
 3. **Phase 3: Web Audio Acoustic Effects (`Game.ts` / `Effects.ts`)**
    * Trigger ambient audio filters based on lander depth and corridor width.
