@@ -116,7 +116,7 @@ describe('InputManager keyboard', () => {
 });
 
 describe('InputManager touch', () => {
-  it('rotates left from a touch on the left half', () => {
+  it('rotates left from a touch in the left third', () => {
     const input = new InputManager();
 
     fake.emit('touchstart', touch(1, 100));
@@ -124,7 +124,7 @@ describe('InputManager touch', () => {
     expect(input.getState()).toEqual({ left: true, right: false, main: false });
   });
 
-  it('rotates right from a touch on the right half', () => {
+  it('rotates right from a touch in the right third', () => {
     const input = new InputManager();
 
     fake.emit('touchstart', touch(1, 900));
@@ -132,26 +132,41 @@ describe('InputManager touch', () => {
     expect(input.getState()).toEqual({ left: false, right: true, main: false });
   });
 
-  it('fires the main engine when both halves are held, and neither thruster', () => {
+  it('fires the main engine from a touch in the middle third', () => {
     const input = new InputManager();
 
-    fake.emit('touchstart', touch(1, 100));
-    fake.emit('touchstart', touch(2, 900));
+    fake.emit('touchstart', touch(1, 500));
 
     expect(input.getState()).toEqual({ left: false, right: false, main: true });
   });
 
-  it('falls back to a single thruster when one thumb lifts', () => {
+  /**
+   * The whole reason for three disjoint zones rather than the old "both halves at
+   * once" trick: a side zone and the middle zone are independent touches, so this is
+   * a touch player's equivalent of the keyboard's Left+Up — which `applyAttitude`'s
+   * own comment calls "the whole skill of a lander," and which the two-zone scheme
+   * could never produce.
+   */
+  it('holds a side zone and the middle zone at the same time', () => {
+    const input = new InputManager();
+
+    fake.emit('touchstart', touch(1, 100));
+    fake.emit('touchstart', touch(2, 500));
+
+    expect(input.getState()).toEqual({ left: true, right: false, main: true });
+  });
+
+  it('drops only the zone whose finger lifted', () => {
     const input = new InputManager();
     fake.emit('touchstart', touch(1, 100));
-    fake.emit('touchstart', touch(2, 900));
+    fake.emit('touchstart', touch(2, 500));
 
-    fake.emit('touchend', touch(2, 900));
+    fake.emit('touchend', touch(2, 500));
 
     expect(input.getState()).toEqual({ left: true, right: false, main: false });
   });
 
-  it('tracks a finger dragged across the midline', () => {
+  it('tracks a finger dragged from the left third to the right third', () => {
     const input = new InputManager();
     fake.emit('touchstart', touch(1, 100));
 
@@ -160,7 +175,7 @@ describe('InputManager touch', () => {
     expect(input.getState()).toEqual({ left: false, right: true, main: false });
   });
 
-  it('treats two touches on the same half as that half only', () => {
+  it('treats two touches in the same zone as that zone only', () => {
     const input = new InputManager();
 
     fake.emit('touchstart', touch(1, 100));
@@ -178,13 +193,18 @@ describe('InputManager touch', () => {
     expect(input.getState()).toEqual({ left: false, right: false, main: false });
   });
 
-  it('splits on the live window width', () => {
+  it('scales the three thirds to the live window width', () => {
     const input = new InputManager();
-    fake.innerWidth = 400;
+    fake.innerWidth = 300; // thirds at 100 and 200
 
-    fake.emit('touchstart', touch(1, 300)); // right of a 200 midpoint
+    fake.emit('touchstart', touch(1, 50));
+    expect(input.getState()).toEqual({ left: true, right: false, main: false });
 
-    expect(input.getState().right).toBe(true);
+    fake.emit('touchstart', touch(1, 150));
+    expect(input.getState()).toEqual({ left: false, right: false, main: true });
+
+    fake.emit('touchstart', touch(1, 250));
+    expect(input.getState()).toEqual({ left: false, right: true, main: false });
   });
 
   it('combines keyboard and touch', () => {

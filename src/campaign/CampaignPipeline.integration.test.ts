@@ -37,13 +37,13 @@ if (typeof globalThis.document === 'undefined') {
  * `ColonyGeneration.test.ts` deliberately stays terrain-free or fakes it for speed;
  * this is the one place that has to build an actual canyon per case to be worth
  * anything, so it stays deliberately small — a handful of mission ids spanning the
- * campaign's real terrain milestones (pre-dig, first floor dig, the wall-mounted
- * cavern dig, the shaft's two deepenings, fully built) rather than the full 30, and two seeds
- * rather than a wide sweep. `mastX` is fixed at 0 throughout: colony geometry never
+ * campaign's real terrain milestones (pre-dig, first floor dig, Helion's gallery inside
+ * it, the shaft's two deepenings, fully built) rather than the full twenty-nine, and two
+ * seeds rather than a wide sweep. `mastX` is fixed at 0 throughout: colony geometry never
  * depends on it (only the collider-less `radar` prop does), so sweeping it here would
  * just rebuild the same terrain repeatedly for no new coverage.
  */
-const IDS = [1, 15, 19, 20, 25, 30];
+const IDS = [1, 14, 18, 19, 24, 29];
 /**
  * 631729407 is here for a specific reason: it is a narrow canyon whose wall rises 12 units
  * clear of Helion's mouth band at the front edge of the cavern's own z-extent. That row
@@ -120,7 +120,7 @@ describe('the real pipeline against real terrain', () => {
     }
   }
 
-  it("Helion's cavern shaft is wall-mounted, not straight down", () => {
+  it("Helion's gallery deck resolves onto the real shaft floor, not its placeholder", () => {
     const { props } = runPipeline(19, 0);
     const colony = props.find(
       (p): p is Extract<Prop, { kind: 'pad' }> => p.kind === 'pad' && p.id === 'shaft-gallery',
@@ -130,11 +130,13 @@ describe('the real pipeline against real terrain', () => {
      * Repositioned by `applyDigAttachments` away from its authored placeholder.
      *
      * Checked on `y`, not `x`. This used to assert the deck had moved off x −48, which
-     * worked while Helion drove its own bore into the west wall — and became a false
-     * negative the day the gallery replaced it, because the west end of the gallery
-     * happens to land back on that same x. The height is the honest test: the placeholder
-     * is −12 and the gallery floor is nowhere near it, so a deck still reading −12 means
-     * `atCell` never resolved.
+     * worked while Helion drove its own bore into the west wall — and stopped meaning
+     * anything the day that bore was retired: Helion's gallery is the west end of the
+     * same floor-mounted shaft Kessler dug now, not a working of its own (see the
+     * `adds.digs` comment on the mission that hands it over), and the west end of that
+     * shared gallery happens to land back on that same x. The height is the honest test:
+     * the placeholder is −12 and the gallery floor is nowhere near it, so a deck still
+     * reading −12 means `atCell` never resolved.
      */
     expect(colony!.y).toBeDefined();
     expect(colony!.y).not.toBeCloseTo(-12, 0);
@@ -148,12 +150,12 @@ describe('the real pipeline against real terrain', () => {
     // cavern like Helion's, contradicting a campaign's worth of "come down straight"
     // briefing text. Checked on every seed this suite already sweeps, not just one.
     for (const seed of SEEDS) {
-      const { digs, props } = runPipeline(20, seed);
+      const { digs, props } = runPipeline(19, seed);
       /**
        * Located by the deck bolted to it, rather than by hunting for two dig records that
        * share an x — which is how this used to find the shaft, and which quietly stopped
-       * working when the second record moved to mission 21. That idiom was testing "the
-       * campaign happens to have deepened this bore by mission 20", which is a fact about
+       * working when the second record moved to mission 20. That idiom was testing "the
+       * campaign happens to have deepened this bore by mission 19", which is a fact about
        * the ledger's staging and not the property this test is named for.
        */
       const deck = props.find(
@@ -167,7 +169,7 @@ describe('the real pipeline against real terrain', () => {
   });
 
   it("Kessler's shaft pad tracks the real, wall-anchored x, not the old fixed x=60", () => {
-    const { props } = runPipeline(20, 0);
+    const { props } = runPipeline(19, 0);
     const shaftPad = props.find(
       (p): p is Extract<Prop, { kind: 'pad' }> => p.kind === 'pad' && p.id === 'shaft-head',
     );
@@ -385,7 +387,7 @@ describe('the ground a shaft opens through', () => {
        * everything under it; the gallery hangs off to the west and is reached by levelling
        * off — which is exactly the flight the briefs describe and the HD-7 exists for.
        */
-      const { props, digs, canyon, physics } = runPipeline(30, seed);
+      const { props, digs, canyon, physics } = runPipeline(29, seed);
       const shaft = mergeDigs(digs).find((d) => isFloorMounted(boreDirection(d).dir));
       expect(shaft, `seed ${seed}: expected a floor bore`).toBeDefined();
 

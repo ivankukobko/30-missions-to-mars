@@ -15,10 +15,10 @@ import { CANYON } from '../world/CanyonSpec.ts';
  * leaves out, since every property there holds regardless of what a canyon looks like and
  * every property here depends entirely on it. Each case builds an actual canyon, so the
  * sweep stays small: a handful of missions spanning the campaign's terrain milestones
- * (pre-dig, mid-campaign, the wall-mounted cavern, fully built) and two seeds, rather
- * than the full 30 by many.
+ * (pre-dig, mid-campaign, Helion's gallery inside the shared shaft, fully built) and two
+ * seeds, rather than the full twenty-nine by many.
  */
-const IDS = [1, 8, 15, 22, 30];
+const IDS = [1, 8, 14, 22, 29];
 const SEEDS = [0, 12345];
 
 /**

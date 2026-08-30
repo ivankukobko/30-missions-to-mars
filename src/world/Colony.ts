@@ -742,7 +742,6 @@ export class Colony {
     this.latticeCursor = 0;
     this.radar = null;
 
-    this.buildClaimMarkers(canyon);
     if (BACKDROP_ROWS_ENABLED) this.buildBackdropColony(props, canyon);
 
     for (const prop of props) {
@@ -1355,84 +1354,14 @@ export class Colony {
   }
 
   /**
-   * Territory boundary pylons. Decoration only — set back in Z, no colliders.
-   *
-   * Each one is planted on the ground at its own (x, z) rather than at FLOOR_Y. The
-   * canyon floor has real relief now, so a marker pinned to a fixed height reads as a
-   * flat slab punched through the terrain wherever the ground falls away.
+   * Territory boundary pylons used to stand here, one pair per charter, planted at their
+   * claim's edge from the moment the canyon generated — which put Helion's orange and
+   * Kessler's cyan on the floor from mission 1, missions before either charter is even
+   * mentioned in a brief. Removed rather than gated to a corp's first mission: the colony
+   * itself is already the claim marker, standing in the same colour the moment there is
+   * one cell of it to see, and a second, redundant marker that had to be *taught* when to
+   * appear was solving a problem the growth system had already solved correctly.
    */
-  private buildClaimMarkers(canyon: CanyonGenerator): void {
-    for (const corp of Object.values(CORPS)) {
-      if (corp.id === 'outpost') continue;
-      const edge = corp.claim[0] < 0 ? corp.claim[1] : corp.claim[0];
-
-      for (const z of [-12, -28]) {
-        const height = 16;
-        const baseY = canyon.heightAt(edge, z) - 1;
-
-        // The mast is lit, not emissive, so it shades like an object. Thin: it is a
-        // boundary marker, and at 0.9 it read as structure the player ought to avoid.
-        const mast = new THREE.Mesh(
-          new THREE.BoxGeometry(0.45, height, 0.45),
-          new THREE.MeshStandardMaterial({
-            color: corp.hull,
-            roughness: 0.6,
-            metalness: 0.2,
-            flatShading: true,
-          }),
-        );
-        mast.position.set(edge, baseY + height / 2, z);
-        this.scene.add(mast);
-        this.objects.push(mast);
-
-        /**
-         * The lamp cap, sized to the mast rather than to itself. At 1.7 across on a
-         * 0.45 pole it read as a brick balanced on a wire — nearly four times the
-         * mast's own width — and at `emissiveIntensity: 2` it was past the point ACES
-         * clips a saturated colour to white, which is why a marker meant to carry
-         * Helion's orange or Kessler's cyan came out a washed-out beige regardless of
-         * corp. Both were the same mistake: reaching for *more* — bigger box, hotter
-         * value — for something that only needed to be *seen*, not sized like a room.
-         *
-         * Kept a hair over the mast's own 0.45 rather than exactly matching it, purely
-         * so the cap still reads as a fitting rather than a butt-joint the same width
-         * disappearing into.
-         */
-        const lamp = new THREE.Mesh(
-          new THREE.BoxGeometry(0.55, 0.55, 0.55),
-          new THREE.MeshStandardMaterial({
-            color: corp.color,
-            emissive: corp.color,
-            emissiveIntensity: 1.3,
-          }),
-        );
-        lamp.position.set(edge, baseY + height, z);
-        this.scene.add(lamp);
-        this.objects.push(lamp);
-
-        /**
-         * The actual "shine" is a glow sprite layered over the cap, not a hotter
-         * surface — the same split the radar beacon already draws on. A hot emissive
-         * value buys brightness by giving up saturation; a soft billboard behind the
-         * cap buys reach — visible from much further down the corridor — while the
-         * cap itself stays at a value that still reads as the corp's own colour.
-         */
-        const glow = new THREE.Sprite(
-          new THREE.SpriteMaterial({
-            color: corp.color,
-            map: this.glowTexture(),
-            transparent: true,
-            depthWrite: false,
-            fog: false,
-          }),
-        );
-        glow.position.set(edge, baseY + height, z);
-        glow.scale.setScalar(2.2);
-        this.scene.add(glow);
-        this.objects.push(glow);
-      }
-    }
-  }
 
   /**
    * `darken` lived here and is gone deliberately.

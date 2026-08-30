@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Preview — 30 Missions to Mars</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #1a0c05;
+        overflow: hidden;
+        font-family: ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+      }
+      #app,
+      #app canvas {
+        display: block;
+        width: 100%;
+        height: 100%;
+      }
+      #controls {
+        position: fixed;
+        top: 10px;
+        left: 10px;
+        z-index: 10;
+        font-size: 12px;
+        color: #f6e6d8;
+        background: rgba(18, 9, 5, 0.88);
+        border: 1px solid rgba(255, 190, 140, 0.22);
+        padding: 10px 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+      }
+      #controls label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      #controls select,
+      #controls input,
+      #controls button {
+        font-family: inherit;
+        font-size: 12px;
+        background: #12090580;
+        color: #f6e6d8;
+        border: 1px solid rgba(255, 190, 140, 0.3);
+        padding: 2px 4px;
+      }
+      #controls button {
+        cursor: pointer;
+      }
+      #controls button:hover {
+        border-color: #ffbe8c;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="controls"></div>
+    <script type="module" src="/src/preview.ts"></script>
+  </body>
+</html>

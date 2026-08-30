@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CORPS } from '../world/CanyonSpec.ts';
 import type { PadInfo } from '../world/Colony.ts';
-import type { Mission } from '../campaign/Missions.ts';
+import { missionGoal, type Mission } from '../campaign/Missions.ts';
 import type { LandingScore, Rank } from '../campaign/Progress.ts';
 import type { Airframe } from '../entities/Airframe.ts';
 import { LANDER } from '../entities/Lander.ts';
@@ -92,6 +92,9 @@ export class Interface {
   private panel: HTMLElement;
   private reticle = new Reticle();
 
+  private pauseButton: HTMLElement;
+  private onPauseRequested: (() => void) | null = null;
+
   private altRow: HTMLElement;
   private hsRow: HTMLElement;
 
@@ -145,6 +148,21 @@ export class Interface {
 
     this.warning = el('div', 'warning hidden');
 
+    /**
+     * The one on-screen button the flight HUD carries.
+     *
+     * Not a contradiction of "no mute button on the console" above — that one had a
+     * keyboard-and-mouse substitute the whole time (Escape, then the pause overlay's own
+     * toggle) and existed only to save a menu trip. Pause has no substitute on a
+     * touchscreen: there is no Escape key to fall back to, so without this a phone player
+     * who needs to stop has no way to. Kept to the one icon a corner can hold rather than
+     * a bar of controls, for the same "does not steal canyon" reasoning `InputManager`'s
+     * own doc comment gives for leaving flight itself gesture-only.
+     */
+    this.pauseButton = el('button', 'pause-button', 'II');
+    this.pauseButton.setAttribute('aria-label', 'Pause');
+    this.pauseButton.addEventListener('click', () => this.onPauseRequested?.());
+
     // Outside `.hud`, like the augmented layer and for the same reason: this is the AI's
     // own status, not the vehicle's, so it must not inherit the charter's livery.
     this.uplink = el('div', 'uplink hidden');
@@ -154,7 +172,7 @@ export class Interface {
     this.uplinkText = el('div', 'uplink-text', UPLINK_DEFAULT);
     this.uplink.append(this.uplinkText, uplinkTrack);
 
-    this.hud.append(left, right, this.warning);
+    this.hud.append(left, right, this.warning, this.pauseButton);
 
     // --------------------------------------------------------------- marker
     this.marker = el('div', 'marker hidden');
@@ -267,6 +285,11 @@ export class Interface {
 
   private manifestFor(mission: Mission, vehicle: BriefVehicle, best: Rank | null): HTMLElement {
     const manifest = el('div', 'manifest');
+    // Prose, not a label/value pair — see `missionGoal`'s own comment for why this reuses
+    // the brief's own objective sentence rather than a second, hand-kept one. Right-aligning
+    // a full sentence the way `row()` right-aligns FUEL or MASS reads as a ransom note, so
+    // it gets its own block instead of joining the rows below it.
+    manifest.append(el('div', 'manifest-goal', missionGoal(mission)));
     manifest.append(
       row('PAYLOAD', `${mission.payload.name}`),
       row('MASS', `${mission.payload.mass.toFixed(1)} t`),
@@ -673,6 +696,12 @@ export class Interface {
     // Assigned rather than compared-then-assigned: this runs once a frame and setting
     // identical text is not a layout change in any engine that matters.
     this.uplinkText.textContent = label;
+  }
+
+  /** Wired once, at startup — the button itself is permanent HUD furniture, unlike the
+   *  callbacks `showPause` takes fresh each time the overlay it builds is a new one. */
+  setOnPause(cb: () => void): void {
+    this.onPauseRequested = cb;
   }
 
   setHudVisible(visible: boolean): void {

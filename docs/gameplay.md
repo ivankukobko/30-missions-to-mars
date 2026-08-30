@@ -81,5 +81,5 @@ Delivering to the wrong pad is a distinct failure. Corporate clients pay for add
 ## Progress and Seeds
 
 The canyon layout is per-player: a seed is rolled on first launch, stored in
-`localStorage` alongside campaign progress, and then frozen for all thirty missions so
-the colony ledger stays coherent.
+`localStorage` alongside campaign progress, and then frozen for all twenty-nine missions
+so the colony ledger stays coherent.

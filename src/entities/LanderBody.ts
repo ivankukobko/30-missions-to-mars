@@ -309,8 +309,10 @@ export class LanderBody {
     frame: Extract<Airframe, { scheme: 'differential' }>,
   ): void {
     const hasFuel = this.fuel > 0;
-    // Both engines from the dedicated key, or from holding both directions at once. On
-    // touch the InputManager has already collapsed "both halves" into `main`.
+    // Both engines from the dedicated key — on touch, the middle third of the screen —
+    // or from holding both directions at once, which is left as a keyboard fallback
+    // for pressing both arrows together rather than something touch can produce: the
+    // side zones and the middle zone are disjoint, so a touch is never "both."
     const both = input.main || (input.left && input.right);
     const leftPressed = hasFuel && (both || input.left);
     const rightPressed = hasFuel && (both || input.right);
@@ -342,7 +344,10 @@ export class LanderBody {
    * Decoupled horizontal translation scheme (Helion craft).
    * Bottom main nozzle provides vertical lift (+Y).
    * Lateral RCS thrusters shift horizontal position (±X) without tilting/rotating.
-   * Holding Left + Right together fires the main vertical thruster.
+   * Holding Left + Right together fires the main vertical thruster — a keyboard
+   * fallback for pressing both arrows; on touch the middle zone drives `main` on its
+   * own, disjoint from the side zones, which is what finally lets a touch player hold
+   * altitude and translate at once instead of only ever getting one axis.
    */
   private applyTranslation(
     dt: number,

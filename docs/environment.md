@@ -37,7 +37,7 @@ stay legible.
 
 The two corporations now face each other **across** the canyon — Helion holds the west
 wall, Kessler the east, the outpost the floor between them. They build toward each other
-over thirty missions, so the corridor closes horizontally, in frame, in front of the
+over twenty-nine missions, so the corridor closes horizontally, in frame, in front of the
 player. The mine descends as a shaft in the floor between them.
 
 ### Sampling

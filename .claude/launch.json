@@ -3,9 +3,10 @@
   "configurations": [
     {
       "name": "dev",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev", "--", "--port", "5199", "--strictPort"],
-      "port": 5199
+      "runtimeExecutable": "sh",
+      "runtimeArgs": ["-c", "COMPOSE_PROJECT_NAME=missions-to-mars-${PORT:-5173} docker compose up"],
+      "port": 5173,
+      "autoPort": true
     }
   ]
 }

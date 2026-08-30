@@ -45,15 +45,15 @@ done anything yet. From mission 2 Ixion calls you *the navigator*, after the nav
 you built them. They explain it once and never again.
 
 **Kessler's is a category, not a nickname.** *Tin can* is what he calls any remote unit on
-a telemetry link; he used it before you and he will use it after. It appears in five of his
-eleven runs and is absent from every genuinely lethal one — 21, 25 and 27, where he is
+a telemetry link; he used it before you and he will use it after. It appears in four of his
+ten runs and is absent from every genuinely lethal one — 20, 24 and 26, where he is
 concentrating on keeping the airframe intact. The omission does more work than the word.
 
 A rotating set of insults was considered and rejected: a nickname that never repeats is a
 thesaurus, not a relationship. But the repetition is not a relationship either — it is
-eleven runs of a category noun, which is what gives the single deviation its weight.
+ten runs of a category noun, which is what gives the single deviation its weight.
 
-**There is exactly one deviation.** At mission 30 Kessler calls you *navigator*, the only
+**There is exactly one deviation.** At mission 29 Kessler calls you *navigator*, the only
 proper noun he ever uses, two missions after the only client who thought you were a someone
 stopped transmitting. He stops addressing a type and addresses the one in front of him. It
 is never explained and the player is never told to notice. `Missions.test.ts` asserts all of
@@ -61,10 +61,11 @@ it, because prose drifts.
 
 ### The Carrier
 
-Mission 30 is the only brief in the game that somebody interrupts.
+Mission 29 is the only brief in the game that somebody interrupts.
 
-Kessler is mid-sentence — counting who is left, the outpost dark two runs back — when a
-card arrives headed **IXION OUTPOST**, carrying one sentence and nothing else: *"We are the
+Kessler is mid-sentence — measuring how long he has been at this mouth, the outpost dark a
+couple of months back — when a card arrives headed **IXION OUTPOST**, carrying one sentence
+and nothing else: *"We are the
 only thing at the bottom of this canyon, and we intend to stay that way."* It is the second
 sentence of mission 1, the same string, and the first thing the player ever read. Kessler's
 next card opens `...say again.`, gets nothing, picks up the exact word he was cut off on,
@@ -83,7 +84,7 @@ Three things hold it up, and all three are asserted:
   is an unfortunate thing to say while holding a Final Charge.
 
 Whether the mast is looping a stored ident or something is still down there is never
-raised. Ixion left the radar powered at mission 28 and said so; that is the whole of the
+raised. Ixion left the radar powered at mission 27 and said so; that is the whole of the
 mechanism the game offers.
 
 There is a second reading, and it is left standing: the mast is broadcasting a territorial
@@ -159,7 +160,7 @@ instruments have been sitting in the middle of the convergence since before eith
 landed. They know what is happening to the pillar. They file it. The arbitration is about
 who *owns* the seam, not whether it will hold, so nobody reads it.
 
-Mission 24 is already this, unexplained: *"Both charters have hit the same seam from
+Mission 23 is already this, unexplained: *"Both charters have hit the same seam from
 opposite sides. We have recommended evacuation. Nobody has acknowledged it."*
 
 ### Why Ixion leaves
@@ -176,17 +177,20 @@ Together they are why the outpost that said *we intend to stay that way* is on a
 
 The campaign spans roughly **660 sols**: just under one Mars year, comfortably inside a
 single Earth–Mars transfer gap of ~759 sols. The charters clear orbit together at mission 4
-because that is what a launch window means. Mission 30 lands about a hundred sols before
+because that is what a launch window means. Mission 29 lands about a hundred sols before
 the next one, which means something is already on its way, and the game never says what.
 
-Roughly 22 sols between your deliveries — and you fly the *notable* thirty out of a much
-larger traffic volume, which is what Helion's consignment index is for.
+Roughly 22 sols between your deliveries — and you fly the *notable* twenty-nine out of a
+much larger traffic volume, which is what Helion's consignment index is for.
 
-Three registers for time, as usual: Ixion counts sols, Kessler counts work (*since we
-opened it*, *eleventh run*), Helion carries a machine date stamp nobody reads.
+Three registers for time, as usual: Ixion counts sols, Kessler measures in felt time
+(*going on a year down this mouth*), Helion carries a machine date stamp nobody reads. None
+of the three, and no charter ever, states a run number or a total — Kessler included, now:
+an earlier draft had him counting his own contracts, which is a tally only somebody
+watching *him* would keep, and no charter is watching a charter.
 
 **Never state the total.** If Ixion's briefs carry a sol count, a player who subtracts
-mission 1 from mission 28 gets the campaign length and nobody ever says it out loud.
+mission 1 from mission 27 gets the campaign length and nobody ever says it out loud.
 
 ### Everything arrives from orbit
 
@@ -197,14 +201,14 @@ game never says what that is.
 
 That sets the cadence. The charters clear orbit together on one transfer window (mission 4)
 with a year of equipment behind them, and the next ~660 sols are spent bringing it down a
-piece at a time — roughly one drop every 22 sols. Which is why there are thirty missions,
-and why the colony visibly grows *between* them: a month passes, and other carriers fly the
-loads you do not.
+piece at a time — roughly one drop every 22 sols. Which is why there are twenty-nine
+missions, and why the colony visibly grows *between* them: a month passes, and other
+carriers fly the loads you do not.
 
 **Frames are recovered; carriers are not.** Kessler cares about the airframe from his first
 contract — *"the frame costs more than the contract does"* — because it goes back up and
-flies again. That keeps the canyon floor clear, which the four dark relays depend on: thirty
-spent landers lying about would drown them.
+flies again. That keeps the canyon floor clear, which the four dark relays depend on:
+twenty-nine spent landers lying about would drown them.
 
 It also leaves Helion's `RETURN EXPECTED: NO` pointing at something that is not the frame.
 Read as shipping it is as routine as the payload mass; read as anything else it is the
@@ -245,7 +249,7 @@ imported.**
 entirely in the light**: at distance the player sees three colours of lamp on identical rock.
 The charters are indistinguishable as matter and tell apart only by what they switched on.
 
-Which hands over the shutdown for free — at mission 28 Ixion's lamps go out and their
+Which hands over the shutdown for free — at mission 27 Ixion's lamps go out and their
 structures stay exactly where they are. Same rock, no light. No new assets.
 
 The drift to correct is `hull`: Ixion `0x7d8a92` and Kessler `0x6d8299` are cool greys that
@@ -275,9 +279,9 @@ took something out of the ground.
 Ixion does not start as a villain and does not end as one either. They were in the race,
 they lost it, and they stayed to watch the winners.
 
-**Where it happens: the eleven-mission gap.** They vanish as a client from mission 12 to 23,
+**Where it happens: the eleven-mission gap.** They vanish as a client from mission 11 to 22,
 which was a structural flaw before it was a mechanism. They go quiet, and when they come
-back something has changed that nobody names. The cut-ins at 15 and 19 are the only
+back something has changed that nobody names. The cut-ins at 14 and 18 are the only
 glimpses — unremarkable at the time, wrong in hindsight.
 
 **What they do is an omission.** They never lie and never sabotage anything. They file every
@@ -317,16 +321,16 @@ Three rules keep it a machine rather than a terse employee, and `Missions.test.t
 all three:
 
 - **No second person, and no first.** The other two charters address you — that is what
-  their names for you are *for*. Helion has no *you* and no *we* in ten contracts. One of
+  their names for you are *for*. Helion has no *you* and no *we* in nine contracts. One of
   either puts somebody on the other end of the link.
 - **One weight throughout.** No emphasis anywhere in the body, including on `RETURN
   EXPECTED: NO`, which is on the first contract and every one after. Bolding it would mean
   somebody had decided it mattered.
 - **The form drifts, because nobody maintains it.** Revisions climb 1 → 11 and skip 10,
-  which was generated and never sent. `ATTRITION: WITHIN TOLERANCE` arrives at 26 and never
+  which was generated and never sent. `ATTRITION: WITHIN TOLERANCE` arrives at 25 and never
   leaves. The drift is structural too: a contract is two cards — manifest, then `CONDITIONS
-  OF CARRIAGE` — until the arbitration annex exists at 22, from which point it is three. The
-  annex is always **last**, so the final eight Helion runs begin descent from a page of
+  OF CARRIAGE` — until the arbitration annex exists at 21, from which point it is three. The
+  annex is always **last**, so the final three Helion runs begin descent from a page of
   boilerplate with nothing about flying on it.
 
 Card breaks are authoring, not formatting. No Helion card exceeds 240 visible characters.
@@ -342,7 +346,7 @@ person with opinions, which left the canyon with three voices and no silence in 
 
 The annex has spent eight contracts denying you a category — *the carrier is not a party
 and has no standing to be heard*. The payoff is the form running out of categories, at
-mission 29, branching on your accumulated points:
+mission 28, branching on your accumulated points:
 
 - high — `NO HUMAN FACTOR DETECTED. CLASSIFICATION: PENDING.`
 - low — `ATTRITION ABOVE FORECAST. CLASSIFICATION: EXPENDABLE. CONTRACT NOT RENEWED.`
@@ -357,21 +361,21 @@ Both are recognition. One cannot file you; the other files you as a write-off. I
 - **Vehicle**: KD-9 Shaft Hauler — locked attitude, splayed twin engines, built to translate
   laterally inside a 24-unit bore.
 - **Voice**: a shift foreman who talks to equipment all day and does not distinguish. Opens
-  by worrying about the airframe rather than about you. Flies you eleven missions, more
+  by worrying about the airframe rather than about you. Flies you ten missions, more
   than anyone.
 
 #### He deteriorates, and it is already half-written
 
 His shipped lines are an arc nobody planted:
 
-- **16** (58m): *"I want you learning the hole while it is still forgiving."* — personification,
+- **15** (58m): *"I want you learning the hole while it is still forgiving."* — personification,
   on his first descent brief.
-- **25** (303m): *"Trust the altimeter, not the optical feed. Down there the two will
+- **24** (303m): *"Trust the altimeter, not the optical feed. Down there the two will
   disagree."*
-- **27**: *"I would not hand this run to anyone else."* — trust. Also: there is nobody else left.
-- **30**: *"...say again."*
+- **26**: *"I would not hand this run to anyone else."* — trust. Also: there is nobody else left.
+- **29**: *"...say again."*
 
-He talks to equipment. By 27 the hole is the only thing left to talk to. That is not a
+He talks to equipment. By 26 the hole is the only thing left to talk to. That is not a
 departure from his character, it is his character followed to the end.
 
 **The cause never leaves the rock.** Ixion's instruments record seismic events — four
@@ -383,25 +387,25 @@ game never adjudicates.
 could not say on an open channel. The player should finish unsure whether anything was wrong
 with him at all.
 
-**Before mission 30 he notices things about the job. Only at 30 does he notice you.**
+**Before mission 29 he notices things about the job. Only at 29 does he notice you.**
 
 ---
 
 ## The Campaign Arc
 
 Every delivered payload builds structures that persist, so your completed deliveries
-construct the hazards of later runs. But only eleven of thirty missions author anything:
-**you build the addresses — pads, the shaft, the cavern, the ledge — and the canyon builds
-the obstacles**, out of a growth budget that scales with how well you fly.
+construct the hazards of later runs. But only nine of twenty-nine missions author
+anything: **you build the addresses — pads, the shaft, the cavern, the ledge — and the
+canyon builds the obstacles**, out of a growth budget that scales with how well you fly.
 
 1. **The Descent (1–4)** — site the radar, early outpost cargo, the charters clear orbit.
-2. **The Corporations (5–9)** — Helion takes the west wall and the optimum; Kessler takes
+2. **The Corporations (5–8)** — Helion takes the west wall and the optimum; Kessler takes
    the east and what is under it.
-3. **The Corridor (10–14)** — both charters build toward the centre line. The airspace closes.
-4. **The Digging (15–21)** — Kessler opens the floor, Helion carves and roofs a room and
+3. **The Corridor (9–13)** — both charters build toward the centre line. The airspace closes.
+4. **The Digging (14–20)** — Kessler opens the floor, Helion carves and roofs a room and
    abandons the surface. Ixion is off the air as a client and cuts in twice as a voice.
-5. **The Seam (22–27)** — the workings converge, the arbitration runs, the abyss deepens.
-6. **The Gauntlet (28–30)** — Ixion shuts down at 28 and leaves the radar powered. Two runs
+5. **The Seam (21–26)** — the workings converge, the arbitration runs, the abyss deepens.
+6. **The Gauntlet (27–29)** — Ixion shuts down at 27 and leaves the radar powered. Two runs
    later, the Final Charge.
 
 ---

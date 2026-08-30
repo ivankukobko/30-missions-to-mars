@@ -1,6 +1,5 @@
 import * as THREE from 'three';
-import { CANYON, COLOR_SCHEMES } from '../world/CanyonSpec.ts';
-import type { PadInfo } from '../world/Colony.ts';
+import { COLOR_SCHEMES } from '../world/CanyonSpec.ts';
 import type { CanyonGenerator } from '../world/CanyonGenerator.ts';
 import { MISSION_COUNT } from '../campaign/Missions.ts';
 import { checkLayout } from '../campaign/Layout.ts';
@@ -12,10 +11,9 @@ import { planColonies, missionWorlds } from '../campaign/ColonyPlan.ts';
  */
 export interface InspectorHost {
   camera: THREE.PerspectiveCamera;
-  /** Terrain height, for placing the focus point on the ground. */
-  groundAt(x: number, z: number): number;
-  pads(): PadInfo[];
-  targetPad(): PadInfo | null;
+  /** For the perf readout. Raw, like `camera` — three.js keeps no live vertex/triangle
+   *  counter of its own, so the inspector has to walk the scene itself. */
+  scene: THREE.Scene;
   missionId(): number;
   seed(): number;
   /** Best landing points per mission so far — colonies grow larger the better a corp's
@@ -51,52 +49,6 @@ export interface InspectorHost {
   setInspecting(on: boolean): void;
 }
 
-interface View {
-  label: string;
-  /** Focus point, orbit angles and range. `focus` may be resolved at click time. */
-  make(host: InspectorHost): { focus: THREE.Vector3; yaw: number; pitch: number; dist: number };
-}
-
-/**
- * Preset vantages. These are the questions you actually want to ask of a generator —
- * what does the canyon look like end to end, is the colony sitting on the ground, does
- * the far wall meet the upland — and each one is fiddly to reach by hand.
- */
-const VIEWS: View[] = [
-  {
-    label: 'Colony',
-    make: () => ({ focus: new THREE.Vector3(0, 30, -20), yaw: 0, pitch: -0.32, dist: 250 }),
-  },
-  {
-    label: 'Down canyon',
-    make: () => ({ focus: new THREE.Vector3(0, 60, -700), yaw: 0, pitch: -0.12, dist: 620 }),
-  },
-  {
-    label: 'Cross-section',
-    make: () => ({ focus: new THREE.Vector3(0, 110, 0), yaw: -Math.PI / 2, pitch: -0.1, dist: 430 }),
-  },
-  {
-    label: 'Rim',
-    make: () => ({ focus: new THREE.Vector3(0, CANYON.RIM_Y, -120), yaw: 0.5, pitch: -0.28, dist: 330 }),
-  },
-  {
-    label: 'From above',
-    make: () => ({ focus: new THREE.Vector3(0, 0, -260), yaw: 0, pitch: -1.35, dist: 700 }),
-  },
-  {
-    label: 'Target pad',
-    make: (host) => {
-      const pad = host.targetPad();
-      return {
-        focus: new THREE.Vector3(pad?.x ?? 0, pad?.y ?? 0, 0),
-        yaw: 0.35,
-        pitch: -0.3,
-        dist: 55,
-      };
-    },
-  },
-];
-
 const PAN_SPEED = 60;
 const BOOST = 4;
 
@@ -113,6 +65,13 @@ export class Inspector {
   private host: InspectorHost;
   private panel: HTMLElement;
   private stats: HTMLElement;
+  private perf: HTMLElement;
+
+  /** Windowed rather than sampled every frame — a raw 1/dt reading jitters too much to
+   *  read, and re-walking the scene that often would tax the very thing it measures. */
+  private perfAccum = 0;
+  private perfFrames = 0;
+  private static readonly PERF_WINDOW = 0.5;
 
   private active = false;
   private focus = new THREE.Vector3(0, 30, -20);
@@ -131,6 +90,7 @@ export class Inspector {
     this.panel.innerHTML = this.markup();
     document.body.appendChild(this.panel);
     this.stats = this.panel.querySelector('#dbg-stats')!;
+    this.perf = this.panel.querySelector('#dbg-perf')!;
 
     this.wireControls();
     this.wireCamera();
@@ -150,12 +110,8 @@ export class Inspector {
         <button id="dbg-apply">Apply</button>
         <button id="dbg-random" title="random seed">Roll</button>
         <span class="debug-sep"></span>
-        <button id="dbg-free" class="debug-toggle">Free camera: off</button>
+        <button id="dbg-free" class="debug-toggle">Free Cam (F2): off</button>
         <button id="dbg-gizmos" class="debug-toggle">Gizmos: off</button>
-        <select id="dbg-view" title="preset vantage">
-          ${VIEWS.map((v, i) => `<option value="${i}">${v.label}</option>`).join('')}
-        </select>
-        <button id="dbg-jump">Jump</button>
         <select id="dbg-scheme" title="colour grading">
           ${Object.keys(COLOR_SCHEMES)
             .map((name) => `<option value="${name}">${name}</option>`)
@@ -164,9 +120,7 @@ export class Inspector {
       </div>
       <div class="debug-row debug-foot">
         <div id="dbg-stats" class="debug-stats"></div>
-        <div class="debug-help">
-          drag orbit &middot; wheel zoom &middot; WASD pan &middot; QE height &middot; shift fast &middot; F2 toggle
-        </div>
+        <div id="dbg-perf" class="debug-stats debug-perf"></div>
       </div>
     `;
   }
@@ -230,20 +184,6 @@ export class Inspector {
     });
     this.showGizmoState();
 
-    // Picking a vantage does not move the camera; Jump does. Six buttons cost a row of
-    // width apiece, and the list only grows.
-    const viewField = this.panel.querySelector('#dbg-view') as HTMLSelectElement;
-    this.panel.querySelector('#dbg-jump')!.addEventListener('click', () => {
-      const view = VIEWS[Number(viewField.value)]?.make(this.host);
-      if (!view) return;
-      this.focus.copy(view.focus);
-      this.yaw = view.yaw;
-      this.pitch = view.pitch;
-      this.dist = view.dist;
-      if (!this.active) this.toggle();
-      this.place();
-    });
-
     // A grading is judged by flying it, not by reading its hex — this is the whole
     // reason `COLOR_SCHEMES` exists as a switchable set rather than as a single retuned
     // palette in source. `change` rather than a button: two entries today, and a select
@@ -306,7 +246,7 @@ export class Inspector {
     this.active = !this.active;
     this.held.clear();
     const button = this.panel.querySelector('#dbg-free')!;
-    button.textContent = `Free camera: ${this.active ? 'ON' : 'off'}`;
+    button.textContent = `Free Cam (F2): ${this.active ? 'on' : 'off'}`;
     button.classList.toggle('on', this.active);
     this.host.setInspecting(this.active);
     if (this.active) this.place();
@@ -360,6 +300,44 @@ export class Inspector {
     if (moved) this.place();
   }
 
+  /**
+   * Called every frame the panel exists, not just while the free camera is active —
+   * unlike `update`, the perf readout is meant to describe whatever the game is actually
+   * doing (flying, paused on a menu, mid-uplink), so it can't be gated on `this.active`.
+   *
+   * Triangle and vertex counts come off a scene walk, the same way the three.js editor's
+   * own viewport stats do: indexed geometry counts a triangle per three indices and a
+   * vertex per position entry, unindexed counts a triangle per three positions. That is
+   * the whole scene, culling and all — cheap enough at this game's mesh count that
+   * windowing it to twice a second is about not bothering with it every frame, not about
+   * affording the walk at all.
+   */
+  sampleFrame(dt: number): void {
+    this.perfAccum += dt;
+    this.perfFrames++;
+    if (this.perfAccum < Inspector.PERF_WINDOW) return;
+
+    const fps = this.perfFrames / this.perfAccum;
+    this.perfAccum = 0;
+    this.perfFrames = 0;
+
+    let triangles = 0;
+    let vertices = 0;
+    this.host.scene.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      const geo = mesh.isMesh ? mesh.geometry : null;
+      if (!geo?.attributes.position) return;
+      triangles += (geo.index ? geo.index.count : geo.attributes.position.count) / 3;
+      vertices += geo.attributes.position.count;
+    });
+
+    this.perf.innerHTML = `
+      <span>fps <b>${fps.toFixed(0)}</b></span>
+      <span>tris <b>${Math.round(triangles).toLocaleString()}</b></span>
+      <span>verts <b>${vertices.toLocaleString()}</b></span>
+    `;
+  }
+
   get inspecting(): boolean {
     return this.active;
   }
@@ -397,23 +375,14 @@ export class Inspector {
     // growing a different colony than the campaign actually built.
     const plan = planColonies(id, worlds, this.host.scores(), this.host.seed(), terrain);
     const allProps = [...current.props, ...plan.colonies];
-
-    const counts = new Map<string, number>();
-    for (const p of allProps) counts.set(p.kind, (counts.get(p.kind) ?? 0) + 1);
     const issues = checkLayout(allProps, current.digs, undefined, terrain, plan.network.channels);
 
-    const pads = this.host.pads();
-    const target = this.host.targetPad();
-    const floor = this.host.groundAt(0, 0);
-
     // Seed and mission are omitted: both are sitting in their own fields a row above,
-    // and a readout that repeats its own inputs is just noise to scan past.
+    // and a readout that repeats its own inputs is just noise to scan past. Floor
+    // height, dig count, pad count, target pad and the per-kind prop tally went the same
+    // way — a count of how many colony props exist doesn't say whether the colony grew
+    // right, and the layout check below is the thing that actually answers that.
     this.stats.innerHTML = `
-      <span>floor@0 <b>${floor.toFixed(1)}</b></span>
-      <span>${[...counts].map(([k, n]) => `${k} <b>${n}</b>`).join(' &middot; ')}</span>
-      <span>digs <b>${current.digs.length}</b></span>
-      <span>pads <b>${pads.length}</b></span>
-      <span>target <b>${target ? `${target.id} (${target.x}, ${target.y.toFixed(1)})` : 'none'}</b></span>
       <span class="${issues.length ? 'bad' : 'good'}">layout ${
         issues.length ? `${issues.length} issue(s)` : 'clean'
       }</span>

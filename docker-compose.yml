@@ -3,14 +3,24 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: 30-missions-to-mars
+    # No fixed `container_name`: two Claude Code sessions running `docker compose up`
+    # concurrently (one per assigned `PORT`, see below) each need their own container,
+    # and a shared fixed name would collide on the second `up` regardless of port.
     ports:
-      - "5173:5173"
+      # `${PORT:-5173}` on both sides — not just the host side — so the container's own
+      # Vite (reading the same `PORT` via `vite.config.js`) is always listening on
+      # whichever port got mapped, rather than mapping to 5173 while Vite defaults
+      # somewhere else inside. `PORT` set in whatever environment invokes `docker compose`
+      # (the harness sets it per session when auto-assigning a free port) is what compose
+      # substitutes here, so a bare `docker compose up` from a human still lands on the
+      # documented 5173 default with nothing to configure.
+      - "${PORT:-5173}:${PORT:-5173}"
     volumes:
       - .:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
+      - PORT=${PORT:-5173}
     stdin_open: true
     tty: true
     command: npm run dev -- --host

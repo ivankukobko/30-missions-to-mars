@@ -15,8 +15,8 @@ replaced or removed — is a simplification, not the invariant.
 
 ### The Layout Resolver
 
-Thirty missions of hand-typed coordinates accumulate and are never removed, so a span
-authored in mission 12 can end up hanging over a pad placed in mission 5 and nothing in
+Twenty-nine missions of hand-typed coordinates accumulate and are never removed, so a span
+authored in mission 11 can end up hanging over a pad placed in mission 5 and nothing in
 the source connects the two. `Layout.ts` is that connection: a pad reserves its footprint
 and an approach corridor above it, an excavation reserves the lanes at its lips, and
 anything that would stand in either is relocated — as little as the rules allow, on its
@@ -30,7 +30,7 @@ down — including inside ground a later Helion tower grows through. It can neit
 approach nor be blocked by one.
 
 That exemption used to be expressed by giving the radar a zero-width span, which does not
-work: a degenerate interval strictly inside another still overlaps it. From mission 21,
+work: a degenerate interval strictly inside another still overlaps it. From mission 20,
 where `shaft-ledge` sits 45 units below the floor, a radar planted near the shaft was
 reported as blocking its approach corridor. Nothing acted on the report, because the only
 consumer was a `console.warn` — which is the whole argument for the campaign layout check
@@ -48,7 +48,7 @@ This was not always the rule and the difference is worth keeping written down, b
 alternative is genuinely tempting. Reserving the whole campaign's network once, from
 mission one, makes the forbidden set monotonic — it can only ever shrink the buildable
 canyon, never a standing colony — so a colony can never lose a cell. That guarantee is real
-and it is bought at a real price: on mission 1 the player is looking at mission 30's
+and it is bought at a real price: on mission 1 the player is looking at mission 29's
 airspace, roughly a third of the canyon sterile for approaches nobody has flown, and every
 colony in the game grown around obstacles that are not there.
 

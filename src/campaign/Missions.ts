@@ -36,12 +36,12 @@ export interface Mission {
   /**
    * The sol this delivery lands on, counting from the prologue.
    *
-   * Thirty deliveries across 628 sols — just under a Mars year, comfortably inside a single
-   * Earth–Mars transfer gap of ~759. That is the fact the whole campaign hangs on: the
-   * charters clear orbit together because a window is the only time anyone can, they bring
-   * a year of equipment down a piece at a time, and mission 30 lands about a hundred sols
-   * before the next one opens — so something is already on its way and the game never says
-   * what.
+   * Twenty-nine deliveries across 628 sols — just under a Mars year, comfortably inside a
+   * single Earth–Mars transfer gap of ~759. That is the fact the whole campaign hangs on:
+   * the charters clear orbit together because a window is the only time anyone can, they
+   * bring a year of equipment down a piece at a time, and mission 29 lands about a hundred
+   * sols before the next one opens — so something is already on its way and the game never
+   * says what.
    *
    * **Uneven on purpose.** A flat cadence would be a number that changes; the gaps are the
    * story. Three deliveries fall inside nine sols while the injunction holds, because two
@@ -50,8 +50,11 @@ export interface Mission {
    *
    * **Never stated as a total.** Ixion carries sol counts in their briefs and nobody ever
    * subtracts them out loud — a player who does gets the length of the campaign, which is
-   * the only place that number exists. Kessler counts work instead, Helion carries a
-   * machine date stamp nobody reads: three registers, as with everything else here.
+   * the only place that number exists. Kessler measures in felt time rather than a tally of
+   * jobs flown, Helion carries a machine date stamp nobody reads: three registers, as with
+   * everything else here — and none of the three, nor the console between missions, ever
+   * says how many are left. A charter cannot announce the campaign is ending because no
+   * charter knows it is; the epilogue is the first thing in the campaign that does.
    */
   sol: number;
   client: CorpId;
@@ -131,7 +134,7 @@ export interface Mission {
    * It is permanent, and that is the point rather than an oversight. A contract suspended
    * under injunction never built anything, so the colony is a mission smaller for the rest
    * of the campaign — the legal fight leaves a dent in the canyon that is still visible at
-   * mission 30.
+   * mission 29.
    *
    * The cargo is still flown. Helion is a machine and does not stop shipping because a
    * tribunal said so; the pipeline arrives and lies on the deck, which is a more accurate
@@ -147,9 +150,10 @@ export interface Mission {
  * this canyon, and a shaft is the one place the twin is unambiguously the better tool —
  * locked rotation and canted engines put the vehicle sideways on demand without ever
  * having to recover an attitude, which is what threading a 24-wide bore with rock on
- * both sides actually asks for. Helion drills sideways into walls, so their frame
- * translates rather than rotates. Ixion is a science outpost landing on open pads, and
- * flies the frame every tolerance in the game was tuned against.
+ * both sides actually asks for. Helion's own targets sit to the side rather than below —
+ * the crest deck, then the west end of the shared gallery it never dug — so their frame
+ * translates rather than rotates too. Ixion is a science outpost landing on open pads,
+ * and flies the frame every tolerance in the game was tuned against.
  *
  * One frame per charter is also what the panel needs to be true. The HUD is diegetic —
  * you are connecting to the vehicle's own instruments — so an airframe the client does
@@ -203,16 +207,45 @@ export function resolveBriefCards(mission: Mission): BriefCard[] {
 }
 
 /**
+ * The plain-text line naming what this run is for — "Deliver the reclaimer to the
+ * outpost pad." Pulled from whichever message carries the `<b>OBJECTIVE</b>` marker
+ * rather than authored as its own field, for the same reason `resolveBriefCards` gives
+ * the marker no card of its own: the sentence already exists, inside an employer's own
+ * words, and a second hand-kept copy is one more place for it to drift from what the
+ * player actually read. This is not that rejected card — nothing here invents a speaker
+ * or touches the brief sequence; it is a plain-data readout (the pause overlay, next to
+ * PAYLOAD and FUEL) reusing the one sentence that already says the job.
+ *
+ * Mission 1 is the one mission with nothing to pull: `messages` is empty by design (no
+ * link yet to receive a brief on — see its own comment in `missions.yaml`), so this falls
+ * back to a line worded like its `target: null` already reads — any survivable touchdown
+ * completes it.
+ */
+export function missionGoal(mission: Mission): string {
+  const marker = '<b>OBJECTIVE</b>';
+  for (const m of mission.messages) {
+    const at = m.content.indexOf(marker);
+    if (at === -1) continue;
+    return m.content
+      .slice(at + marker.length)
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  return 'Land intact — anywhere survivable.';
+}
+
+/**
  * Which theme a run plays: its client's, unless the mission says otherwise.
  *
- * Only mission 30 overrides it, and the brief is why. Ixion cuts into Kessler's final
+ * Only mission 29 overrides it, and the brief is why. Ixion cuts into Kessler's final
  * contract with mission 1's opening line, word for word — "We are the only thing at the
  * bottom of this canyon, and we intend to stay that way" — from an outpost that went dark
- * two runs earlier. The campaign ends in the key it started in, under a charter that is
- * not there any more, while the vehicle and the payload stay Kessler's.
+ * two missions earlier. The campaign ends in the key it started in, under a charter that
+ * is not there any more, while the vehicle and the payload stay Kessler's.
  *
  * That is the case for the field existing at all. Deriving the theme from the client was
- * right for twenty-nine missions and had no way to express the thirtieth, because the
+ * right for twenty-eight missions and had no way to express the twenty-ninth, because the
  * thing being said is precisely that the music and the employer have come apart.
  */
 export function musicTrackFor(mission: Mission): MusicTrack {
@@ -382,7 +415,7 @@ export function getMission(id: number): Mission | null {
  * Bare removal is enough now that pads carry no hand-authored platform under them —
  * the grown colony is whatever's standing at that x, and it answers to the mission
  * index and the corp's own maturity, not to this ledger. Helion's crest pad still
- * needs striking at mission 19: `cappedMouths` (Layout.ts) judges a mouth by x-overlap
+ * needs striking at mission 18: `cappedMouths` (Layout.ts) judges a mouth by x-overlap
  * alone, with no height exemption, so a pad left standing at the cavern's own x would
  * still read as capping it from above even with nothing but the grown colony behind it.
  */
@@ -456,7 +489,7 @@ export function worldAt(
    *
    * The dead ones are unconditional. They predate every charter in this canyon — that is
    * the entire claim they make — so they are in the world at mission 1 exactly as they
-   * are at mission 30, and a player who never flies the prologue simply reads them as
+   * are at mission 29, and a player who never flies the prologue simply reads them as
    * scenery, which is the correct outcome.
    *
    * The live one appears from the moment it is planted, which is what `relay !== null`
@@ -491,7 +524,7 @@ export function worldAt(
  * it eight times from mission 2. The other three are properly missable, which is what
  * makes finding one feel found rather than placed.
  *
- * They are never mentioned in any brief. One line from Ixion at mission 23 comes near it
+ * They are never mentioned in any brief. One line from Ixion at mission 22 comes near it
  * and does not say *you will have seen them*.
  */
 const DEAD_RELAYS = [-34, -68, 62, 96];
@@ -523,7 +556,7 @@ export const RIM_SITES = [132, 150, 168];
  * The prologue, by name rather than by index.
  *
  * It **is** mission 1 and lives in `missions.yaml` with everything else — it is scored,
- * it has a grid cell, and `MISSION_COUNT` is still 30. An earlier build kept it outside
+ * it has a grid cell, and `MISSION_COUNT` is still 29. An earlier build kept it outside
  * the table as `id: 0` on the argument that the numbered campaign is what a charter paid
  * for; that is an author's rule the player has no way to perceive. What they perceive is
  * that a vehicle went down, so it was a mission.

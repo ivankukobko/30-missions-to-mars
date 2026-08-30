@@ -73,7 +73,7 @@ const STEP_SECONDS = 10.5;
 const GLIDE = 0.7;
 
 /**
- * Bits in a mission ident. Thirty missions need five, and `11110` is the last one.
+ * Bits in a mission ident. Twenty-nine missions need five, and `11101` is the last one.
  */
 const IDENT_BITS = 5;
 /** Time per bit. Quick — this is a machine transmitting, not a phrase being played. */
@@ -103,10 +103,12 @@ const BAR_SECONDS = STEP_SECONDS / IDENT_BITS;
  *
  * The ident is one bit per bar, which is on or off and cannot by itself pick a rate. The
  * *run length* can, and it is already sitting there in the number. Each consecutive set
- * bit ratchets one division faster, so mission 30 — `11110` — is four bars accelerating
- * into a bar of silence, and mission 16 — `10000` — is one slow stroke and four bars of
- * nothing. The build and the drop come out of the mission number; nobody authored thirty
- * patterns and nobody can get them out of sync with the campaign.
+ * bit ratchets one division faster, so mission 16 — `10000` — is one slow stroke and four
+ * bars of nothing, while mission 29 — the campaign's own last delivery, `11101` — spends
+ * three bars building, 1/4 to 1/8 to 1/8 triplet, drops to a bar of silence, and closes on
+ * one more lone stroke before the word repeats. The build and the drop come out of the
+ * mission number; nobody authored twenty-nine patterns and nobody can get them out of
+ * sync with the campaign.
  *
  * A clear bit resets the run, so `10101` is three separate slow strokes rather than a
  * build. Whether a mission grooves or merely ticks is decided by its number.
@@ -179,8 +181,9 @@ export function wobbleBar(missionId: number, barIndex: number): WobbleBar | null
  * is the **mission number in binary**, most significant bit first, one chord tone per set
  * bit and silence per clear one. It is a callsign, which is what a machine would actually
  * transmit, and it makes every mission audibly itself — mission 16 is a single stroke and
- * nothing else, mission 30 is four and a rest. Because higher numbers carry more set bits,
- * the ident thickens as the canyon does, which nobody had to author.
+ * nothing else, mission 29 — the last delivery the campaign has — spends three bars
+ * building before it breaks. Because higher numbers carry more set bits, the ident
+ * thickens as the canyon does, which nobody had to author.
  */
 export class MusicComposer {
   private ctx: AudioContext | null = null;
@@ -359,8 +362,8 @@ export class MusicComposer {
    * The score has been transmitting the mission number as a five-bit word all campaign,
    * and because the numbers grow, the figure has been thickening the whole way: mission 1
    * is `00001` — four rests and one stroke, the sparsest thing this system can say — and
-   * mission 30 is `11110`. The player has heard the dense end of that for ten missions
-   * when this arrives.
+   * mission 29, the last one, is `11101`. The player has heard the dense end of that for
+   * ten missions when this arrives.
    *
    * What is transmitting is deliberately undecidable, and it is undecidable *because the
    * two candidates make the same sound*: the relay landed in mission 1, above the blast

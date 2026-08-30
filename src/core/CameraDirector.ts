@@ -31,10 +31,44 @@ interface Framing {
 
 /** Above this height over the ground, landing gives way to flight. */
 const LANDING_CEILING = 85;
-/** Altitude at which the sky phase begins, provided the ground is far below. */
-const SKY_FLOOR = 620;
-/** Below this far under the canyon floor, the lander is down a hole. */
-const SHAFT_MOUTH = 20;
+/**
+ * Altitude at which the sky phase begins, provided the ground is far below.
+ *
+ * Lowered from 620. A mission enters at y≈1250 doing 55 u/s under `GRAVITY = -6.0`
+ * (`Game.ts`), so free fall alone — no thrust, the case `phaseFor` can actually predict —
+ * crossed the old 620 at t≈8.0s, already well past the 1.5-second uplink handshake. The
+ * height-above-ground gate below is untouched and is what actually ends the phase near a
+ * colony's own elevated terrain; this one is what governs it over open canyon, where nothing
+ * but altitude says whether you're still meant to be reading the wide shot. 520 buys about
+ * another second of it (t≈8.9s), long enough for the pad-aim lean below to read before the
+ * frame commits to the tighter flight tracking.
+ */
+const SKY_FLOOR = 520;
+/**
+ * How far the sky phase leans its yaw toward the mission's own target pad, 0..1 against
+ * the yaw that would otherwise just centre the vehicle.
+ *
+ * Not a position bias — an earlier version pulled `camera.position.x` toward the pad
+ * instead, and the yaw computed just below promptly turned it straight back: that yaw
+ * exists to keep the lander in view against whatever the camera's x is doing, so it
+ * cancelled the lean it was never told about. Feeding the lean into the yaw target
+ * itself, ahead of that cancellation, is the only place it survives. 0.55 rather than 1:
+ * fully committing to the pad's bearing would swing the vehicle toward the frame's edge
+ * on a pad far off its track, and `keepFramed` would then spend its own budget hauling
+ * it back — better to lean far enough to read as "that way" and leave `keepFramed`
+ * headroom for its actual job.
+ */
+const SKY_AIM_TOWARD_PAD = 0.55;
+/**
+ * How far below the *local* natural floor counts as down a hole, in units of gear
+ * clearance rather than of canyon-wide terrain variance — see `phaseFor`'s own comment
+ * for why comparing against the real ground at this column is what makes a small number
+ * safe here. A ground pad's own deck sits `groundY + 1.3` above that terrain
+ * (`Colony.buildPad`), and the lander's origin settles another `LANDER.RADIUS` (0.62)
+ * above the deck, so an ordinary touchdown never reads more than about 2 units below the
+ * natural floor even mid-bounce. Four is comfortable margin over that and nothing more.
+ */
+const SHAFT_MOUTH = 4;
 /**
  * Within this of whatever is underneath, the shot goes tight regardless of where you are.
  *
@@ -82,13 +116,29 @@ export class CameraDirector {
    * +67 on a tower crest to −142 down the shaft, and "almost landed" has to mean near
    * the surface you are actually approaching, wherever that happens to be.
    */
-  private phaseFor(altitude: number, heightAboveGround: number): Phase {
-    // Buffered rather than triggered exactly at the floor line. A pad sits flush with
-    // the floor, so a lander settling onto one hovers within noise of `CANYON.FLOOR_Y`
-    // — without the buffer that thrashes the phase between 'landing' and 'shaft' on
-    // sub-unit altitude jitter, and the framing cuts with it. The 20 units of slack
-    // means the shaft phase only commits once the vehicle is unambiguously below grade.
-    if (altitude < CANYON.FLOOR_Y - SHAFT_MOUTH) return 'shaft';
+  private phaseFor(altitude: number, heightAboveGround: number, belowLocalFloor: number): Phase {
+    /**
+     * Below the *local* floor by more than a gear's clearance, not below the global
+     * constant by more than a guess.
+     *
+     * This used to compare `altitude` against `CANYON.FLOOR_Y - 20` — a fixed 20-unit
+     * buffer under one global number the same for every column. It had to be that
+     * generous because `CANYON.FLOOR_Y` is a nominal baseline, not where the ground
+     * actually is: measured across ten seeds, `outpost-main` — an ordinary ground pad,
+     * never a shaft — settles as low as y = −10.8, comfortably inside a 20-unit buffer
+     * and comfortably outside anything smaller. A player asking for the shaft framing to
+     * commit the moment the vehicle passes a couple of units below grade cannot be
+     * answered by shrinking that number; the number was never measuring the right thing.
+     *
+     * `belowLocalFloor` is `groundAt(x, 0) − y` — depth below the real, un-carved terrain
+     * at the vehicle's own column (`CanyonGenerator.heightAt` is unaffected by any dig
+     * cut into it; see its own doc comment). Against *that*, a landed vehicle sits within
+     * its own gear height and touchdown settle of zero everywhere, on every seed, so the
+     * buffer only has to cover that — a few units — and the shaft phase can commit almost
+     * immediately once the vehicle is unambiguously past the lip, instead of twenty units
+     * into a descent that might not be much longer than that.
+     */
+    if (belowLocalFloor > SHAFT_MOUTH) return 'shaft';
     // Or simply close to whatever is below, wherever that is. Additive rather than a
     // replacement for the under-grade test above: descending a 172-deep bore leaves the
     // vehicle a long way over its floor for most of the trip, and that whole descent
@@ -126,6 +176,21 @@ export class CameraDirector {
       /**
        * Positioned on the back wall of the shaft opening, following the player closely
        * down into the bore with wide FOV so side walls are clearly visible.
+       *
+       * `posRate`/`rotRate` raised from 5.5/4.5 — the *second* of two cascaded lags:
+       * `update`'s `blend` chases `want.pitch` first, and only once that has moved does
+       * `camera.rotation.x` chase it here. Both were tuned back when the first stage took
+       * over a second to arrive on its own, so this one was never the bottleneck and
+       * never got measured.
+       *
+       * It was, once `blend` stopped being one: driven frame-by-frame from a synthetic
+       * descent at the entry sink rate, crossing the mouth and holding at the old rates
+       * left the camera still 3°+ off the shaft's own level `-0.15` for **1.4s after the
+       * phase had already committed**, and inside 1° only at 2.2s — on a bore that is
+       * often not much longer than that to fly. At these rates the same trace is inside
+       * 3° in 0.42s and inside 1° in 0.63s. That gap is the whole of what read as the
+       * camera hesitating: the phase was never wrong, the lens just had not caught up to
+       * it yet, for most of the descent.
        */
       return {
         distance: lerp(10, 14, pace),
@@ -135,8 +200,8 @@ export class CameraDirector {
         leadX: 0.05,
         leadY: 0.05,
         follow: 1,
-        posRate: 5.5,
-        rotRate: 4.5,
+        posRate: 8,
+        rotRate: 9,
       };
     }
 
@@ -208,10 +273,22 @@ export class CameraDirector {
     };
   }
 
+  /**
+   * How far `y` sits below the real, un-carved terrain at column `x` — see `phaseFor`'s
+   * own comment for what this is answering instead of the global floor constant.
+   *
+   * `-Infinity` with no `groundAt`: this only runs before the first mission's terrain
+   * exists, and "not below anything" is the correct read of not knowing yet, the same
+   * way `liftAboveGround` treats a missing probe as nothing to clamp against.
+   */
+  private belowLocalFloor(x: number, y: number): number {
+    return this.groundAt ? this.groundAt(x, 0) - y : -Infinity;
+  }
+
   /** Places the camera immediately, without easing. Used when a mission loads. */
   snapTo(x: number, y: number): void {
     this.smoothedSpeed = FULL_SPEED;
-    this.phase = this.phaseFor(y, Infinity);
+    this.phase = this.phaseFor(y, Infinity, this.belowLocalFloor(x, y));
     this.now = this.framingFor(this.phase, 1);
     this.yaw = 0;
     this.camera.position.set(this.clampX(x), y + this.now.offsetY, this.now.distance);
@@ -255,15 +332,39 @@ export class CameraDirector {
     vx: number,
     vy: number,
     heightAboveGround: number,
+    /** The mission's own target pad, x only — null on a mission with none (the prologue,
+     *  the relay). See `SKY_AIM_TOWARD_PAD`. */
+    padX: number | null = null,
   ): void {
     this.smoothedSpeed = damp(this.smoothedSpeed, Math.hypot(vx, vy), 0.9, dt);
     const pace = clamp01(this.smoothedSpeed / FULL_SPEED);
 
-    this.phase = this.phaseFor(targetY, heightAboveGround);
+    this.phase = this.phaseFor(targetY, heightAboveGround, this.belowLocalFloor(targetX, targetY));
     const want = this.framingFor(this.phase, pace);
 
-    // Every value eases, so a phase change is a camera move rather than a cut.
-    const blend = 2.0;
+    /**
+     * Every value eases, so a phase change is a camera move rather than a cut — but the
+     * move itself was too slow to read as following.
+     *
+     * This is a *target*, not the camera: `this.now.pitch` chases `want.pitch` at this
+     * rate, and only then does `camera.rotation.x` chase `this.now.pitch` at `rotRate`
+     * (in the shaft framing below) — two cascaded lags, not one. The phase decision
+     * itself was never the problem: `phaseFor` commits to `'shaft'` the moment the
+     * vehicle is 20 units below the floor line, by design (see `SHAFT_MOUTH`'s own
+     * comment on why that buffer exists), and holds it the whole way down. Everything
+     * after that was the lens failing to catch up to a decision that was already right.
+     *
+     * Driven frame-by-frame from a synthetic descent at the entry sink rate (mission 26,
+     * seed 12345), the old rate of 2.0 left `camera.rotation.x` more than 3° off the
+     * shaft's own level `-0.15` for **1.4 seconds after the phase had already
+     * committed**, and more than 1° off for 2.2 — on a bore that often does not take
+     * much longer than that to fly. For most of a descent the shot was still the wide,
+     * steeply pitched-down flight framing, which is exactly what read as "looking down
+     * the hole" with no legible sense of the vehicle's own lateral drift inside a
+     * corridor twelve units wide. At 9.0, paired with the faster `rotRate` below, the
+     * same trace is inside 3° in 0.42s and inside 1° in 0.63s.
+     */
+    const blend = 9.0;
     this.now.distance = damp(this.now.distance, want.distance, blend, dt);
     this.now.offsetY = damp(this.now.offsetY, want.offsetY, blend, dt);
     this.now.pitch = damp(this.now.pitch, want.pitch, blend, dt);
@@ -301,10 +402,17 @@ export class CameraDirector {
     // up the difference with yaw. The parallax that swing produces against the walls
     // and the background structures is most of what sells depth.
     const dx = targetX - this.camera.position.x;
-    const wantYaw = Math.max(
-      -0.5,
-      Math.min(0.5, Math.atan2(-dx, Math.max(20, this.camera.position.z))),
-    );
+    let wantYaw = Math.atan2(-dx, Math.max(20, this.camera.position.z));
+
+    // The sky hold (`SKY_FLOOR`) exists to give this a moment to turn toward the pad
+    // you are actually meant to land on, not just whatever is straight ahead of the
+    // vehicle's own track — see `SKY_AIM_TOWARD_PAD`.
+    if (this.phase === 'sky' && padX !== null) {
+      const dxPad = padX - this.camera.position.x;
+      const padYaw = Math.atan2(-dxPad, Math.max(20, this.camera.position.z));
+      wantYaw = lerp(wantYaw, padYaw, SKY_AIM_TOWARD_PAD);
+    }
+    wantYaw = Math.max(-0.5, Math.min(0.5, wantYaw));
     this.yaw = damp(this.yaw, wantYaw, this.now.rotRate, dt);
 
     this.camera.rotation.x = damp(this.camera.rotation.x, this.now.pitch, this.now.rotRate, dt);

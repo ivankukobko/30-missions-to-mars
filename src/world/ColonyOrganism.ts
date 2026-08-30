@@ -213,6 +213,13 @@ const DIRS = [
   { dc: 0, dr: -1, link: LINK.down, back: LINK.up },
 ] as const;
 
+/** `DIRS` minus climbing — every direction that keeps a tip at the same row. Support and
+ *  adjacency checks (`reachOf`, `rivals`, the final link pass) need all four neighbours
+ *  regardless of growth order and still use `DIRS`; only `candidates`' own growth choice
+ *  needs the climb held back, which is what this exists for. See its own doc comment. */
+const GROUND_DIRS = DIRS.filter((d) => d.dr <= 0);
+const CLIMB_DIR = DIRS.find((d) => d.dr === 1)!;
+
 /**
  * Scoring weights. Deliberately few and each one a behaviour you can name, rather than
  * the six mutually-compensating noise terms this replaced.
@@ -257,17 +264,27 @@ const W_HEIGHT = 4.0;
 const W_APEX = 0.55;
 
 /**
- * A plain preference for growing sideways.
+ * A plain preference for growing sideways over down, within the ground tier.
  *
- * Needed because every other term quietly favours *up*. A cell above the tip stands on
- * its own roof and collects the full substrate bonus; a cell beside it usually stands on
- * nothing and collects none. `W_APEX` pulls toward the top centre, which is up as well as
- * inward. Even with cantilever making a sideways arm *legal*, none of that made it
- * attractive, and colonies kept coming out four times taller than wide (width/height 0.27
- * median across six seeds). This is the counterweight, and it is a plain constant rather
- * than a rule because there is nothing clever to say: a settlement spreads.
+ * Used to be the whole fix for a colony climbing too eagerly — every other term quietly
+ * favours *up* (a cell above the tip stands on its own roof and collects the full
+ * substrate bonus; a cell beside it usually stands on nothing and collects none, and
+ * `W_APEX` pulls toward the top centre, which is up as well as inward), and colonies kept
+ * coming out four times taller than wide (width/height 0.27 median across six seeds) with
+ * only this constant leaning against it. It no longer has to win that fight alone: climbing
+ * is gated behind `GROUND_DIRS`/`CLIMB_DIR` in `candidates` now, offered only once the
+ * ground and every layer behind it are genuinely spent. `W_LATERAL` still earns its keep as
+ * the tie-break *inside* that ground tier — sideways over down when both are viable — which
+ * is a smaller job than it used to have, not a redundant one.
  */
 const W_LATERAL = 0.7;
+
+/** Small edge for climbing a real rock face over spreading past it — see `scoreDir`'s own
+ *  comment. Sized to decide a near tie, not to compete with `W_APEX` or the height cost:
+ *  a wall a colony is already touching should win a close call against open floor, not
+ *  override the reasons — budget, rivals, the pull toward its own hardware — a filament
+ *  might have for going anywhere else instead. */
+const W_ROCK_CLIMB = 0.2;
 
 /**
  * What a move into the layer in front or behind is worth, flat.
@@ -572,25 +589,43 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
      * built two cells and nothing else from mission 8 onward.
      */
     const homeward = Math.min(1, here / 6);
-    const scored: Move[] = [];
 
-    for (const d of DIRS) {
+    /** One direction's move, scored — shared by the ground pass below and by the climb
+     *  candidate, which is the same formula asked about the one direction the ground pass
+     *  leaves out. */
+    const scoreDir = (d: (typeof DIRS)[number]): Move | null => {
       const col = tip.col + d.dc;
       const row = tip.row + d.dr;
-      if (!openAt(col, row, tip.layer)) continue;
+      if (!openAt(col, row, tip.layer)) return null;
       const cellReach = reachOf(tip.corp, col, row, tip.layer);
-      if (cellReach === null) continue;
+      if (cellReach === null) return null;
       // Rock *or its own roof*: adding a storey to what it already built is ordinary
       // construction and should not score as badly as reaching into open air. Without
       // this a colony squeezed off the floor by its own pads' channels — Ixion, which
       // sits in the middle of the canyon surrounded by them — has no scoring move left
       // anywhere and stops at a handful of cells.
-      const footing = substrate.at(col, row, tip.layer) === "surface" || at(col, row - 1, tip.layer)?.corp === tip.corp;
+      const onRock = substrate.at(col, row, tip.layer) === "surface";
+      const footing = onRock || at(col, row - 1, tip.layer)?.corp === tip.corp;
       const adjacentRivals = rivals(tip.corp, col, row, tip.layer);
+      // `W_LATERAL` rewards staying at the same row *or* hugging rock the tip is already
+      // built against — climbing a wall face is the same act as spreading along a floor,
+      // both are surface the corp did not have to manufacture, and only one of them used to
+      // carry the bonus. A climb this cheap still costs `W_HEIGHT`, so a rock face is not a
+      // free ladder to the rim; it is simply no longer taxed twice for the one thing that
+      // makes it different from climbing into open air.
+      //
+      // `W_ROCK_CLIMB` is the tie-break on top of parity: a real wall is a stronger
+      // structural reason to go up than a flat floor is to go sideways, since the colony
+      // did not choose the wall, the terrain did, and building away from it to keep
+      // spreading is the less natural read. Without this the two were merely equal, and
+      // equal loses to whichever direction `W_JITTER` happens to favour that cell — a
+      // colony spored against a cliff would as often walk the length of the floor as
+      // climb the face beside it, which is the wall reading as scenery instead of ground.
       const score =
         layerSurface(tip.layer) * (footing ? 1 : 0) +
         W_ATTRACT * homeward * (here - pull(tip.corp, col, row)) +
-        W_LATERAL * (shape[tip.corp]?.lateral ?? 1) * (d.dr === 0 ? 1 : 0) +
+        W_LATERAL * (shape[tip.corp]?.lateral ?? 1) * (d.dr === 0 || onRock ? 1 : 0) +
+        W_ROCK_CLIMB * (d.dr === 1 && onRock ? 1 : 0) +
         W_STRAIGHT * (d.link === tip.lastDir ? 1 : 0) -
         W_HEIGHT * (shape[tip.corp]?.height ?? 1) * (row / lattice.rows) ** 2 -
         W_RIVAL * adjacentRivals +
@@ -598,20 +633,37 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
           (shape[tip.corp]?.gravity ?? 1) *
           ((apexPull(tip.corp, tip.col, tip.row) - apexPull(tip.corp, col, row)) / lattice.cellSize) +
         W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(col, row, tip.layer), step, 1);
-      scored.push({
-        col,
-        row,
-        layer: tip.layer,
-        link: d.link,
-        back: d.back,
-        score,
-        reach: cellReach,
-        encroach: adjacentRivals > 0,
-      });
+      return { col, row, layer: tip.layer, link: d.link, back: d.back, score, reach: cellReach, encroach: adjacentRivals > 0 };
+    };
+
+    const scored: Move[] = [];
+    for (const d of GROUND_DIRS) {
+      const move = scoreDir(d);
+      if (move) scored.push(move);
     }
 
     /**
-     * **Depth is offered only when the layer a tip is on has nowhere worth going.**
+     * Climbing onto real rock is ground-tier too, gate and all — hugging a face the corp
+     * did not build is thigmotropism, the same reason `footing` already prices standing
+     * against a wall like standing on the floor. What the gate below holds back is climbing
+     * onto *nothing but the corp's own roof*, which is a different act with a different
+     * cost: rock was always there for free; a storey exists only because the one under it
+     * does, so it is manufactured floor before it is anything to build on. `cliff` in
+     * `ColonyOrganism.test.ts` is the fixture for exactly this distinction — a colony
+     * spored against a wall keeps creeping up it from the first tier, budget allowing,
+     * while one on open ground defers to the ballooning rule below.
+     */
+    const climbsOntoRock =
+      substrate.at(tip.col + CLIMB_DIR.dc, tip.row + CLIMB_DIR.dr, tip.layer) === 'surface';
+    if (climbsOntoRock) {
+      const onRock = scoreDir(CLIMB_DIR);
+      if (onRock) scored.push(onRock);
+    }
+
+    /**
+     * **Depth is offered only when the layer a tip is on has nowhere worth going on the
+     * ground, and climbing away from rock only when neither the ground nor any layer
+     * does.**
      *
      * A rule rather than a weight, because a weight cannot express it. None of the terms
      * above means anything across a layer — the cell behind is the same column, the same
@@ -622,10 +674,19 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
      * face collapsed from about 40 to 12, on 121 of 441 corp-missions under ten. Dropping
      * it to 0.05 only moved the number (66).
      *
-     * The real requirement was never a preference, it was an order: fill the face, then
-     * thicken. Gating on viability says exactly that and needs no constant to hold the line
-     * — a tip goes backwards when it is finished or fenced, which is precisely where the
-     * canyon has no width left to give it.
+     * The real requirement was never a preference, it was an order: fill the ground, then
+     * thicken, then climb. Gating on viability says exactly that and needs no constant to
+     * hold the line — a tip goes backwards, or up, when it is finished or fenced, which is
+     * precisely where the canyon has no width left to give it.
+     *
+     * Climbing used to compete in the very first pass, scored against the ground by the
+     * same terms — and lost only to `W_LATERAL`, a plain constant added specifically
+     * because open air above a tip is legal almost everywhere, so "the ground is not
+     * viable" was true so rarely that depth, and every corp's own `shape.height`, were
+     * fighting a move that had already usually won. Climbing behind the same gate as depth
+     * is what makes width and depth a colony's first instinct and height its last one: a
+     * settlement's own footprint fills in — a genuine `x`/`z` spread, not girth hidden
+     * behind a face nobody sees — before it ever reads as a tower.
      *
      * **A rival's seam counts as fenced.** "Nowhere worth going" originally meant no legal
      * move scoring above `MIN_SCORE`, and a move onto ground a competitor is already
@@ -640,9 +701,20 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     // The questions below read the *first* option, so the sort has to happen before they
     // are asked rather than once at the end.
     scored.sort((a, b) => b.score - a.score);
-    if (!allowDepth || viableFace(scored)) return scored;
+    if (viableFace(scored)) return scored;
 
-    scored.push(...depthMoves(tip, step));
+    if (allowDepth) {
+      scored.push(...depthMoves(tip, step));
+      scored.sort((a, b) => b.score - a.score);
+      if (viableFace(scored)) return scored;
+    }
+
+    // Already offered above if it lands on rock — this is only the open-air case, held
+    // back until here.
+    if (!climbsOntoRock) {
+      const climb = scoreDir(CLIMB_DIR);
+      if (climb) scored.push(climb);
+    }
     return scored.sort((a, b) => b.score - a.score);
   }
 

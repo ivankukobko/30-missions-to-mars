@@ -106,19 +106,19 @@ function moduleDepth(size: number, limit: number): number {
  * ground or the wall", in the simulation's own units, not a height read off the world and
  * hoped to correlate.
  */
-type MassClass = 'tank' | 'vessel' | 'mast';
+type MassClass = 'tank' | 'room' | 'mast';
 
 /**
  * `reachOf` only ever returns 0, 1 or `MAX_CANTILEVER` (2) for a claimed cell — anything
  * past that is rejected outright, never merely penalised. Three legal values map onto the
  * vocabulary with nothing left to threshold: standing on something is a tank, one step of
- * bracing off a supported neighbour is still a vessel, and the maximum the simulation
- * allows is a mast — the furthest a charter is ever let hang a module from what holds it.
+ * bracing off a supported neighbour is a room, and the maximum the simulation allows is a
+ * mast — the furthest a charter is ever let hang a module from what holds it.
  */
 function massClassOf(reach: number): MassClass {
   if (reach <= 0) return 'tank';
   if (reach >= 2) return 'mast';
-  return 'vessel';
+  return 'room';
 }
 
 /**
@@ -129,7 +129,7 @@ function massClassOf(reach: number): MassClass {
  * Everything the taper needs comes from going thinner, never fatter — a mast three-fifths
  * as thin as a standard vessel reads as pipe and steelwork without touching that guarantee.
  */
-const RADIUS_SCALE: Record<MassClass, number> = { tank: 1, vessel: 1, mast: 0.42 };
+const RADIUS_SCALE: Record<MassClass, number> = { tank: 1, room: 1, mast: 0.42 };
 
 function box(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
   const geo = new THREE.BoxGeometry(w, h, d);
@@ -175,9 +175,12 @@ function pipe(
   return geo;
 }
 
-/** One cell's open frame: four legs, two rings, one diagonal. The game's own lattice
- *  vocabulary at cell scale — deliberately not the X-brace placeholder the previous
- *  model used, which read as a flat star from the flight camera. */
+/** One cell's open frame: four legs, two rings. The game's own lattice vocabulary at cell
+ *  scale — deliberately not the X-brace placeholder the previous model used, which read
+ *  as a flat star from the flight camera. Once carried a single diagonal of its own, on
+ *  the back face; retired once a *built* cell's cage grew eight, converging on the centre
+ *  instead of bracing one face — an unbuilt cell's plain twelve-edge cube reads as the
+ *  vocabulary's own empty case beside that, not as a cube that is merely missing one line. */
 function frameMembers(cell: PlacedCell, size: number, z: number): THREE.BufferGeometry[] {
   const out: THREE.BufferGeometry[] = [];
   const t = size * MEMBER;
@@ -190,11 +193,82 @@ function frameMembers(cell: PlacedCell, size: number, z: number): THREE.BufferGe
     for (const sz of [-hw, hw]) out.push(box(h, t, t, cell.x, cell.y + sy, z + sz));
     for (const sx of [-hw, hw]) out.push(box(t, t, h, cell.x + sx, cell.y + sy, z));
   }
-  const diagonal = new THREE.BoxGeometry(t, h * 1.35, t);
-  diagonal.rotateZ(Math.PI / 4);
-  diagonal.translate(cell.x, cell.y, z - hw);
-  out.push(diagonal);
   return out;
+}
+
+/** One open twelve-edge cube, `size` on a side — the same shape `frameMembers` draws for
+ *  a bare cell, generalised only in size, never in proportion: every cage in this file,
+ *  bare or built, is a cube, not a box stretched to whatever it happens to hold. */
+function cageBox(cx: number, cy: number, z: number, size: number, t: number): THREE.BufferGeometry[] {
+  const out: THREE.BufferGeometry[] = [];
+  const h = size / 2;
+  for (const sx of [-h, h]) {
+    for (const sz of [-h, h]) out.push(box(t, size, t, cx + sx, cy, z + sz));
+  }
+  for (const sy of [-h, h]) {
+    for (const sz of [-h, h]) out.push(box(size, t, t, cx, cy + sy, z + sz));
+    for (const sx of [-h, h]) out.push(box(t, t, size, cx + sx, cy + sy, z));
+  }
+  return out;
+}
+
+/** A thin box running from one point to another — a strut, not a member on any one
+ *  cube's own axis. `BoxGeometry`'s long side is local Y by construction, so aligning it
+ *  is one quaternion between "up" and the strut's own direction, the general case of the
+ *  single `rotateZ(Math.PI / 4)` diagonal `frameMembers` uses when that direction happens
+ *  to be a flat 45°. */
+function strut(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, t: number): THREE.BufferGeometry {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dz = z2 - z1;
+  const len = Math.hypot(dx, dy, dz);
+  const geo = new THREE.BoxGeometry(t, len, t);
+  geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, dy, dz).normalize()));
+  geo.translate((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
+  return geo;
+}
+
+/**
+ * The cage around one *built* cell: an open cube with eight diagonal struts running from
+ * its corners to the centre, where the actual hull, room or pipe stands. Sized and drawn
+ * **per cell**, exactly like a bare cell's own `frameMembers`, never stretched along a
+ * merged run — a run's pipe or hull is one continuous piece, but the claim is still made
+ * one cell at a time, so a three-cell vessel wears three cages, not one three-cell-long
+ * box wearing a costume.
+ *
+ * The cube is the same `size * 0.86` a bare cell's own cage uses — the volume a charter
+ * claims does not change with what went up inside it. The struts used to stop short, at a
+ * smaller nested cube's own corner; there is no second cube any more (a wireframe echo of
+ * geometry already standing there was drawing the same shape twice), so they run all the
+ * way to the point that geometry is centred on instead of stopping in open air partway.
+ *
+ * Corner marks on the cube, in the badge material (`marks`) rather than structural steel —
+ * the same fitting a bare cell's own corners already carry, and what actually makes a
+ * cage legible at flight distance: wireframe alone reads as texture on the hull behind it
+ * until something on its corners catches the eye first.
+ */
+function cellCage(cx: number, cy: number, z: number, size: number): { frame: THREE.BufferGeometry[]; marks: THREE.BufferGeometry[] } {
+  const outer = size * 0.86;
+  const t = size * MEMBER;
+  const half = outer / 2;
+
+  const frame = [...cageBox(cx, cy, z, outer, t)];
+  for (const sx of [-1, 1]) {
+    for (const sy of [-1, 1]) {
+      for (const sz of [-1, 1]) {
+        frame.push(strut(cx + sx * half, cy + sy * half, z + sz * half, cx, cy, z, t * 0.6));
+      }
+    }
+  }
+
+  const node = outer * 0.13;
+  const marks: THREE.BufferGeometry[] = [];
+  for (const sx of [-half, half]) {
+    for (const sy of [-half, half]) {
+      for (const sz of [-half, half]) marks.push(box(node, node, node, cx + sx, cy + sy, z + sz));
+    }
+  }
+  return { frame, marks };
 }
 
 /**
@@ -517,7 +591,25 @@ export function buildColonyCells(
               }
             }
           }
+        } else if (massClass === 'room') {
+          /**
+           * A room: the one boxy shape in this vocabulary, and deliberately the exception
+           * to the file's own header comment about why everything else is round. A room
+           * braced one step off a supported neighbour reads as secondary structure, not
+           * the pressure hull itself — a flat-walled equipment or crew module hung off the
+           * tank that actually holds pressure, the way a real refinery does it. Boxy is
+           * what tells a room apart from a tank at a glance, which is the whole reason for
+           * the three-way split; giving it the same cylinder as a tank would have made the
+           * two classes indistinguishable except by radius.
+           *
+           * No flange, no footing, no antenna — those are the pipe vocabulary's own
+           * fittings, for joints and skirts a flat-walled box does not have.
+           */
+          const roomW = vertical ? face : length;
+          const roomH = vertical ? length : face;
+          hulls.push(box(roomW, roomH, deep, cx, cy, at));
         } else {
+          // TANK or MAST — the pipe vocabulary this file's own header explains.
           shell.push(pipe(radius, length, deep, building.axis, cx, cy, at));
           /**
            * A flange at each end of the run rather than a collar on its roof.
@@ -576,6 +668,14 @@ export function buildColonyCells(
 
         for (let i = 0; i < span; i++) {
           const cell = run[i];
+
+          // The cage — see `cellCage`'s own comment. One per cell, not one stretched to
+          // the run: the pipe or hull inside is a single continuous piece, but the claim
+          // underneath it is still made a cell at a time, exactly as a bare cell's own
+          // cage already is.
+          const cage = cellCage(cell.x, cell.y, at, cellSize);
+          frames.push(...cage.frame);
+          marks.push(...cage.marks);
           /**
            * Fitting size off the **cell**, not off the vessel it is bolted to.
            *
@@ -589,18 +689,21 @@ export function buildColonyCells(
           const t = cellSize * LAMP_THICK;
 
           /**
-           * The house fitting, on every room rather than only the ones beside a lane: one lit
-           * port, camera-facing.
+           * The house fitting: one lit port, camera-facing — **room only.**
            *
-           * A horizontal band used to sit below it. Both together were too much — a canyon of
-           * modules each carrying two lit elements on the face you always see reads as noise,
-           * and the lane marking drowned in it. The port alone is enough to say "pressurised
-           * and occupied", and everything the *edges* now carry reads against a quiet face.
+           * A tank is a pressure vessel, sealed, with nothing behind its own wall a window
+           * would open onto; a mast is bare steelwork with no wall at all. A room is the
+           * one class here that actually reads as occupied space, so it is the one class
+           * that gets a window. Giving every built cell the same port — the original
+           * intent, before the three-way split — said "pressurised and occupied" about a
+           * tank too, which is a claim its own shape already contradicts.
            *
-           * Only hulls: a frame has no wall to hang a port on, and the open lattice is the
-           * whole point of drawing it.
+           * A horizontal band used to sit below it. Both together were too much — a canyon
+           * of modules each carrying two lit elements on the face you always see reads as
+           * noise, and the lane marking drowned in it. The port alone is enough, and
+           * everything the *edges* now carry reads against a quiet face.
            */
-          if (!bare) {
+          if (!bare && massClass === 'room') {
             marks.push(box(face * 0.3, face * 0.22, t * 0.7, cell.x, cell.y, at + faceZ * 0.92));
           }
 

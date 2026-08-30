@@ -56,19 +56,22 @@ type State =
 /**
  * How long you watch before the vehicle is yours.
  *
- * Three seconds is short enough that a retry does not grind — this is a landing game and
- * missions get re-flown a great deal — and long enough to read as a handshake rather than
- * a stutter. Nothing of the vehicle's is drawn for the whole of it: no console, no
- * augmented layer, only the status line. You are not connected to the airframe yet, so
- * none of the airframe's instruments have any business being on screen.
+ * Was three seconds; cut to 1.5 once thirty missions of watching the same handshake made
+ * "reads as a handshake rather than a stutter" the wrong side to be erring on — a retry a
+ * player has already seen a hundred times should not spend two extra seconds proving the
+ * uplink again. 1.5s is still enough for the bar to visibly fill rather than just flash.
+ * Nothing of the vehicle's is drawn for the whole of it: no console, no augmented layer,
+ * only the status line. You are not connected to the airframe yet, so none of the
+ * airframe's instruments have any business being on screen.
  *
  * Costs no altitude budget in practice. Missions enter at y≈1250 doing 55 u/s and the
- * thrust is sized to shed roughly 88 before touchdown; three seconds of free fall is
- * about 190 units and leaves the vehicle at 73. That is what already happened, because
- * burning at twelve hundred units up only buys a longer fight with gravity — the uplink
- * takes away a thing nobody was doing.
+ * thrust is sized to shed roughly 88 before touchdown; 1.5s of free fall under
+ * `GRAVITY = -6.0` is 55·1.5 + 0.5·6·1.5² ≈ 89 units and leaves the vehicle at 64 u/s,
+ * well inside what was already being given away at three seconds (190 units, 73 u/s) —
+ * because burning at twelve hundred units up only buys a longer fight with gravity, the
+ * uplink takes away a thing nobody was doing regardless of how long it runs.
  */
-const UPLINK_SECONDS = 3;
+const UPLINK_SECONDS = 1.5;
 
 /** Controls during the uplink: none of them. */
 const IDLE_INPUT: InputState = { left: false, right: false, main: false };
@@ -101,7 +104,7 @@ const FALL_STALL_TAU = 1.6;
  * Both are tested two ways and take **whichever comes first**, and that is not
  * belt-and-braces — either test alone is wrong somewhere on the map.
  *
- * Altitude alone is wrong because the ground is not at `FLOOR_Y`. Mission 30 enters at
+ * Altitude alone is wrong because the ground is not at `FLOOR_Y`. Mission 29 enters at
  * x −18, where the terrain stands at y≈177 — up on the shoulder, sixty under the rim —
  * so a cut at `FLOOR_Y + 45` would drive the vehicle a hundred and thirty units into
  * rock. Colony size scales with the player's score too, so what is standing under that x
@@ -225,6 +228,10 @@ export class Game {
   constructor(container: HTMLElement, uiLayer: HTMLElement) {
     this.container = container;
     this.ui = new Interface(uiLayer);
+    // Same guard `onKey`'s own P shortcut uses — pausing only means something mid-flight.
+    this.ui.setOnPause(() => {
+      if (this.state === 'PLAYING') this.pause();
+    });
 
     // Antialiasing is off deliberately. Measured on this scene, 4x MSAA costs about
     // half again the frame time — 1.76 ms to 2.64 ms at full resolution — because the
@@ -535,17 +542,17 @@ export class Game {
   /**
    * The sky, as a function of the calendar.
    *
-   * Thirty deliveries across 628 sols is just under a Mars year, so the campaign walks
-   * through one seasonal cycle exactly once — and the light is the only place the player
-   * can feel that. Two independent movements:
+   * Twenty-nine deliveries across 628 sols is just under a Mars year, so the campaign
+   * walks through one seasonal cycle exactly once — and the light is the only place the
+   * player can feel that. Two independent movements:
    *
    * **Elevation declines across the campaign**, from high sun on the first deliveries to a
-   * low rake by the thirtieth. Deliberately monotonic rather than a full seasonal cycle,
-   * and worth being straight about why: 628 sols is 0.94 of a Mars year, so a real cycle
-   * returns almost exactly to where it started — mission 2 and mission 30 come out lit
-   * identically, and the first delivery inherits the gloom that should belong only to the
-   * last. This is dramatic, not simulated. A campaign that darkens is the arc; a campaign
-   * that darkens and brightens again is weather.
+   * low rake by the twenty-ninth. Deliberately monotonic rather than a full seasonal
+   * cycle, and worth being straight about why: 628 sols is 0.94 of a Mars year, so a real
+   * cycle returns almost exactly to where it started — mission 2 and mission 29 come out
+   * lit identically, and the first delivery inherits the gloom that should belong only to
+   * the last. This is dramatic, not simulated. A campaign that darkens is the arc; a
+   * campaign that darkens and brightens again is weather.
    *
    * Floored well above the horizon regardless, because a canyon nobody can see is not
    * atmosphere, it is an unplayable mission — below the rim the only real light is already
@@ -556,7 +563,7 @@ export class Game {
    * missions are lit from close to the same angle and the campaign swings the shadows
    * across the canyon about twice. Deliberately a drift, not a per-mission scatter: a
    * light that jumps somewhere new every mission reads as a bug, and one that never moves
-   * reads as thirty errands on the same afternoon.
+   * reads as twenty-nine errands on the same afternoon.
    *
    * Exposure and the fill lights are *derived from the elevation* rather than being a
    * third knob. A low sun is warmer and dimmer, a high one cooler and brighter, which is
@@ -669,7 +676,7 @@ export class Game {
    * off.
    *
    * Reuses the world that is already standing. The player has just landed the charge on
-   * mission 30, so the terrain, the colonies and the physics are built and correct — the
+   * mission 29, so the terrain, the colonies and the physics are built and correct — the
    * only honest thing left to change is that nothing is lit any more, and that is a
    * post-pass over the built scene rather than a rebuild (see `Colony.blackout`).
    *
@@ -679,7 +686,8 @@ export class Game {
    * beacon transmits and the same fact Helion files as `CARRIER: CLASSIFICATION PENDING`.
    * Whether this is your first delivery still transmitting from the rim or your
    * replacement on its first run is not answered anywhere, and cannot be: the campaign
-   * spent thirty missions not answering things, and the ending is not the place to start.
+   * spent twenty-nine missions not answering things, and the ending is not the place to
+   * start.
    */
   private beginEpilogueFall(): void {
     const first = getMission(1);
@@ -957,6 +965,7 @@ export class Game {
         moving ? this.lander.vx : 0,
         moving ? this.lander.vy : 0,
         this.heightAboveGround,
+        this.targetPad?.x ?? null,
       );
     }
     this.colony.update(elapsed, this.director.camera, this.lander ?? undefined, this.missionTime);
@@ -968,6 +977,9 @@ export class Game {
     this.director.applyShake(elapsed);
 
     this.renderer.render(this.scene, this.director.camera);
+    // Unconditional, unlike `inspector.update` above: the perf readout describes
+    // whatever the game is actually doing, not just the free-camera state.
+    this.inspector?.sampleFrame(elapsed);
   }
 
   private stepSimulation(elapsed: number): void {
@@ -1278,7 +1290,23 @@ export class Game {
       : (this.lander?.y ?? CANYON.FLOOR_Y);
     // Below the rim the air is in shadow; below the floor, in the shaft, it is black.
     const belowRim = clamp01((CANYON.RIM_Y - y) / CANYON.RIM_Y);
-    const inShaft = clamp01((CANYON.FLOOR_Y - y) / 180);
+    /**
+     * `y` measured against depth was the only signal here until a one-row gallery only
+     * 18–24 units under the floor (the shared shaft's Helion branch, `outpost-main`/seed
+     * 12345) landed `inShaft` at 0.10–0.13 — the 180-unit ramp is Kessler's own three
+     * hundred unit descent, so anything shallower stayed in the thin, dusty air the canyon
+     * floor gets, not the "abyss" the comment above promises. That thinness is what let a
+     * seam in the rock read as *background showing through* instead of murk — the fog
+     * wasn't thick enough to make the far side illegible even where the geometry was
+     * right. `director.phase` already answers the question this was approximating: it is
+     * `'shaft'` exactly when the camera is over a locally-measured excavation (see
+     * `CameraDirector.belowLocalFloor`), independent of how deep that excavation happens
+     * to be. Snapping `inShaft` to 1 on that phase, rather than waiting for it to be
+     * earned by depth, means every excavation gets the same "you should not be able to
+     * see past this" treatment the deep ones already had — `damp` below still rolls it in
+     * over its usual ~0.45s rather than cutting hard on the phase edge.
+     */
+    const inShaft = this.director.phase === 'shaft' ? 1 : clamp01((CANYON.FLOOR_Y - y) / 180);
 
     const targetDensity = lerp(lerp(0.0011, 0.0052, belowRim), 0.014, inShaft);
     this.fog.density = damp(this.fog.density, targetDensity, 2.2, dt);
@@ -1614,14 +1642,12 @@ export class Game {
 
     this.inspector = new Inspector({
       camera: this.director.camera,
-      groundAt: (x, z) => this.canyon.heightAt(x, z),
-      pads: () => this.colony.pads,
-      targetPad: () => this.targetPad,
+      scene: this.scene,
       missionId: () => this.mission?.id ?? 1,
       /**
        * Straight into the ending, on whatever canyon is loaded.
        *
-       * Goes through mission 30 first so the epilogue runs over the world it is about to
+       * Goes through mission 29 first so the epilogue runs over the world it is about to
        * bury — the collapse is a post-pass over the built scene, so triggering it on, say,
        * mission 4's canyon would topple a settlement that never grew.
        */

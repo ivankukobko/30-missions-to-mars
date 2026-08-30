@@ -9,9 +9,22 @@ export interface InputState {
 /**
  * Keyboard and multi-touch, normalised to one state object.
  *
- * Touch layout: the left half of the screen rotates left, the right half rotates
- * right, and holding both fires the main engine — so one thumb steers and two thumbs
- * burn, with no on-screen buttons stealing canyon.
+ * Touch layout: three vertical thirds of the screen, each its own zone rather than a
+ * state derived from the others. Middle is always the "forward" control — the main
+ * engine, or both engines on the differential scheme — and left/right mean whatever
+ * `LanderBody.step` does with `input.left`/`right` on the flown airframe: rotation on
+ * the attitude craft, lateral thrust on the other two. The zones themselves never
+ * move, so the schema is one thing to learn regardless of which vehicle is loaded;
+ * only what a side does changes, and the panel and the vehicle's own response teach
+ * that live.
+ *
+ * Three independent zones rather than the old "hold both halves at once" trick for
+ * main: that scheme read as one flag derived from two touches, so a hand was either
+ * entirely on one half or straddling both, and it could not reproduce the keyboard's
+ * Left+Up — which `applyAttitude`'s own comment calls "the whole skill of a lander."
+ * A touch in the middle third and a touch in a side third are unrelated inputs, so
+ * they combine exactly like two keys do. No on-screen buttons stealing canyon either
+ * way — the zones are read off raw coordinates, never drawn.
  */
 export class InputManager {
   private state: InputState = { left: false, right: false, main: false };
@@ -79,18 +92,19 @@ export class InputManager {
   }
 
   private merge(): void {
-    const mid = window.innerWidth / 2;
-    let touchLeft = false;
-    let touchRight = false;
+    const width = window.innerWidth;
+    let zoneLeft = false;
+    let zoneMid = false;
+    let zoneRight = false;
     for (const clientX of this.touches.values()) {
-      if (clientX < mid) touchLeft = true;
-      else touchRight = true;
+      if (clientX < width / 3) zoneLeft = true;
+      else if (clientX > (2 * width) / 3) zoneRight = true;
+      else zoneMid = true;
     }
-    const bothHalves = touchLeft && touchRight;
 
-    this.state.left = this.keys.left || (touchLeft && !bothHalves);
-    this.state.right = this.keys.right || (touchRight && !bothHalves);
-    this.state.main = this.keys.main || bothHalves;
+    this.state.left = this.keys.left || zoneLeft;
+    this.state.right = this.keys.right || zoneRight;
+    this.state.main = this.keys.main || zoneMid;
   }
 
   getState(): InputState {

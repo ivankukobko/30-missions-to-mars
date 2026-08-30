@@ -134,12 +134,10 @@ export type CorpId = 'outpost' | 'helion' | 'kessler';
 export interface Corp {
   id: CorpId;
   name: string;
-  /** Neon / signage colour. Also tints this corp's pads and markers. */
+  /** Neon / signage colour. Also tints this corp's pads. */
   color: number;
   /** Structural colour of their buildings. */
   hull: number;
-  /** Claim territory across the canyon. */
-  claim: [number, number];
 }
 
 /**
@@ -154,21 +152,18 @@ export const CORPS: Record<CorpId, Corp> = {
     name: 'IXION OUTPOST',
     color: 0x36f5a0,
     hull: 0x7d8a92,
-    claim: [-16, 16],
   },
   helion: {
     id: 'helion',
     name: 'HELION EXTRACTION',
     color: 0xffa42b,
     hull: 0x8a6248,
-    claim: [-66, -20],
   },
   kessler: {
     id: 'kessler',
     name: 'KESSLER DEEP',
     color: 0x35c8ff,
     hull: 0x6d8299,
-    claim: [20, 66],
   },
 };
 

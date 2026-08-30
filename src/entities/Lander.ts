@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import type { InputState } from '../core/InputManager.ts';
 import { cargoShape, type Payload } from '../campaign/Missions.ts';
@@ -36,8 +37,16 @@ export { LANDER, type Contact };
 const HULL = {
   /** The structural spine. Everything else hangs off it. */
   CHASSIS: { w: 1.15, h: 0.36, d: 0.7, y: -0.14 },
-  /** Deck plate. Its top face is what cargo stands on. */
-  DECK: { w: 1.25, h: 0.07, d: 0.8, y: 0.075 },
+  /**
+   * Deck plate. Its top face is what cargo stands on.
+   *
+   * Square, not the 1.25×0.8 rectangle it used to be — every hull profile revolves
+   * around Y (`buildHullBody`), so the chassis underneath is already round in plan; the
+   * deck was the one part of every airframe's silhouette that read as longer one way
+   * than the other from directly overhead. `w` doubling as `d` matches the hull it sits
+   * on rather than picking a side to be the longer one.
+   */
+  DECK: { w: 1.25, h: 0.07, d: 1.25, y: 0.075 },
   /**
    * Nominal vertical station of an engine pod. Where they sit *across* is the
    * airframe's business, and a canted pod is lifted from here — see `mountHeight`.
@@ -64,6 +73,14 @@ const LEG = {
    * Narrow enough that the deployed feet span 0.81 either side — near where the cone's
    * gear reached. Horizontal overhang past the 0.62 collider is the reading that
    * matters in a canyon, where the walls are the thing you are threading.
+   *
+   * Also the fore/aft hinge offset, not just the port/starboard one — the four hinges sit
+   * at the corners of a square, `±HINGE_X` on both axes, so the stance reads the same
+   * from any bearing. It used to be a bare `0.3` on the fore/aft axis alone, sized to fit
+   * inside the chassis's old 0.7-deep footprint rather than to match the port/starboard
+   * spacing — a rectangle nobody chose on purpose, left over from before the deck (and
+   * every hull profile revolving round) made "square in plan" the shape everything else
+   * here already commits to.
    */
   HINGE_X: 0.4,
   HINGE_Y: -0.32,
@@ -157,14 +174,22 @@ interface HullProfile {
 }
 
 /**
- * One silhouette per airframe, so a client is recognisable by hull alone at a range
- * where the trim colour has already fogged out.
+ * One silhouette per *charter* airframe, so a client is recognisable by hull alone at a
+ * range where the trim colour has already fogged out.
  *
  * They all occupy the same vertical span as the box they replaced — only the radius
  * curve differs — which is what lets this be a drop-in for `chassis` rather than a
  * renegotiation of where the deck, the gear or the engines sit.
+ *
+ * The relay is not in here — see `buildRelayMast`. It used to be, as a lathe profile
+ * that only ever varied 0.13 to 0.19 across its whole height: a straight taper, smooth,
+ * one continuous surface. Every *other* airframe here is a single lathe-revolved shell
+ * for the same reason a real hull is one welded skin, but the relay carries nothing and
+ * builds nothing — it is the one vehicle in the roster that is closer kin to the
+ * colony's own scaffolding than to a charter's hull, so it is built the way the colony
+ * now is: nested open frames, not a smooth revolve.
  */
-const HULL_PROFILES: Record<Airframe['id'], HullProfile> = {
+const HULL_PROFILES: Record<Exclude<Airframe['id'], 'relay'>, HullProfile> = {
   /**
    * TD-4, Ixion: the rocket-truck. Narrow at the throat, swelling toward the deck and
    * levelling off just under it — the "still a flatbed" part of the brief. A rounded
@@ -212,29 +237,6 @@ const HULL_PROFILES: Record<Airframe['id'], HullProfile> = {
       [1, 0.32],
     ],
   },
-  /**
-   * UL-5: a mast. The only profile that never swells.
-   *
-   * The three charter hulls are all variations on "wide in the middle" — a rocket, a
-   * barrel, a saucer — because all three are built around carrying something. This one
-   * carries nothing, and reads at a glance as a different *class* of object rather than
-   * a fourth vehicle: a pole with legs under it.
-   *
-   * That silhouette is load-bearing well past the prologue. Four dead relays are seeded
-   * half-buried in the canyon, and the only thing that makes them legible as corpses is
-   * that the player spent a mission flying this shape. Nothing labels them. So the
-   * profile has to survive being seen small, in dust, at a distance — which is why it is
-   * six facets and a straight taper rather than anything sculpted.
-   */
-  relay: {
-    segments: 6,
-    points: [
-      [0, 0.15],
-      [0.3, 0.19],
-      [0.72, 0.17],
-      [1, 0.13],
-    ],
-  },
 };
 
 /**
@@ -264,6 +266,182 @@ function buildHullBody(profile: HullProfile, material: THREE.Material): THREE.Ob
   return [shell, cap(bottom, baseR, false), cap(top, topR, true)];
 }
 
+/** A thin box running from one point to another. `BoxGeometry`'s long side is local Y by
+ *  construction, so aligning it to an arbitrary strut is one quaternion between "up" and
+ *  the strut's own direction — the ring edges below only ever need the horizontal case,
+ *  but the general form costs nothing extra and one helper is one thing to get right. */
+function strutBetween(x1: number, y1: number, z1: number, x2: number, y2: number, z2: number, t: number): THREE.BufferGeometry {
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const dz = z2 - z1;
+  const len = Math.hypot(dx, dy, dz);
+  const geo = new THREE.BoxGeometry(t, len, t);
+  geo.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(dx, dy, dz).normalize()));
+  geo.translate((x1 + x2) / 2, (y1 + y2) / 2, (z1 + z2) / 2);
+  return geo;
+}
+
+/**
+ * A stack of open, tapering ring-and-post tiers — the shared construction behind both the
+ * relay's ribbed base (`buildRelayMast`) and its square-sectioned tower (`buildRelayTower`).
+ * One function rather than two near-copies: both are literally the same shape, "N open
+ * frames, each narrower than the one below," and the only things that ever differ between
+ * the two call sites are how many sides a tier has, how wide it is, and where in the
+ * *whole* taper it starts counting from — all three already parameters.
+ *
+ * `folded` decides what "stack" means, and the two readings are both real states this
+ * antenna is in at different points of a mission, not a style choice:
+ *
+ *   - **Nested (`folded: true`)** — every tier starts at the same `startY`, so narrower
+ *     tiers nest *inside* wider ones rather than sitting on top of them. This is the
+ *     antenna as it flies: one telescoped tube, collapsed to its shortest length, the way
+ *     a real extending mast rides before it is deployed.
+ *   - **Stacked (`folded: false`)** — each tier starts where the one before it ended, so
+ *     the assembly reads its full extended height. Not built by anything yet — see
+ *     `preview.ts`'s `unfolded` mode — but the geometry it will drive once the relay
+ *     gets a deploy animation of its own, the same way the legs already have one.
+ *
+ * `tierOffset` is which tier index this call's first radius actually is in the whole
+ * relay's taper, not just this call's own array — `buildRelayTower` passes
+ * `RELAY_BASE_RADII.length` so its own tiers continue the base's growth (see
+ * `RELAY_TIER_GROWTH`) instead of restarting it. Nested, the base's and tower's tiers all
+ * share one bottom line and read as one stack, not two, so their heights have to grow
+ * along one continuous count too.
+ */
+function stackedCage(
+  startY: number,
+  tierHeight: number,
+  radii: readonly number[],
+  sides: number,
+  memberT: number,
+  folded: boolean,
+  tierOffset = 0,
+): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
+  const ring = (y: number, r: number) => {
+    for (let i = 0; i < sides; i++) {
+      const a0 = (i / sides) * Math.PI * 2;
+      const a1 = ((i + 1) / sides) * Math.PI * 2;
+      parts.push(strutBetween(r * Math.cos(a0), y, r * Math.sin(a0), r * Math.cos(a1), y, r * Math.sin(a1), memberT));
+    }
+  };
+  let cursor = startY;
+  radii.forEach((r, tier) => {
+    const h = tierHeightAt(tierHeight, tierOffset + tier);
+    const yLo = folded ? startY : cursor;
+    const yHi = yLo + h;
+    cursor = yHi;
+    for (let i = 0; i < sides; i++) {
+      const a = (i / sides) * Math.PI * 2;
+      const post = new THREE.BoxGeometry(memberT, h, memberT);
+      post.translate(r * Math.cos(a), (yLo + yHi) / 2, r * Math.sin(a));
+      parts.push(post);
+    }
+    ring(yLo, r);
+    ring(yHi, r);
+  });
+  return parts;
+}
+
+/**
+ * The relay's own lower body: two open, ribbed drums stacked and tapering, wide enough to
+ * stand near the splayed legs' own span, rather than `buildHullBody`'s single lathe-
+ * revolved shell — see `HULL_PROFILES`'s own comment for why this one vehicle gets a
+ * different construction, and `buildCargo`'s `'tower'` shape for the two narrower,
+ * square-sectioned tiers that continue above the deck.
+ *
+ * Telescoping, not smoothly tapered: each tier holds one constant radius the whole way
+ * up, and the *next* tier starts over at a smaller one, so the join between them reads as
+ * a step — the collar a real extending mast has at every joint — rather than a continuous
+ * curve no built object actually has.
+ *
+ * Eight sides rather than six, and open — posts and rings, nothing solid between them —
+ * for the same reason as before: this is the one vehicle whose whole point is that it
+ * carries nothing, and a denser ring of thin verticals reads as the ribbed drum a real
+ * folded mast is, where a shell would read as a hull with nothing inside it to pressurise.
+ */
+const RELAY_BASE_RADII = [0.32, 0.2] as const;
+const RELAY_BASE_SIDES = 8;
+const RELAY_MEMBER = 0.018;
+/** The tower's own radii and side count — `buildRelayTower` needs them too, to fold into
+ *  the same band as the base rather than its own separate one. */
+const RELAY_TOWER_RADII = [0.17, 0.095] as const;
+const RELAY_TOWER_SIDES = 4;
+
+/**
+ * Half-width of the relay's own small deck pad — see the constructor's own comment on
+ * why it has one at all. Wider than `RELAY_BASE_RADII`'s own bottom tier (0.32 — the pad
+ * sits at the legs, under the base's *widest* ring, not up at the narrower base/tower
+ * seam) by a small, fixed lip, so it reads as a foot the legs and the base both stand on
+ * rather than either one's own top or bottom face.
+ */
+const RELAY_DECK_HALF = 0.38;
+
+/**
+ * Height of the very first, widest tier — every other tier's own height grows from this
+ * one by `RELAY_TIER_GROWTH`, not a second constant, so there is exactly one length to
+ * tune the whole taper by. A tier does not get shorter when it telescopes out: folding
+ * and unfolding only ever change *where* a tier's own height starts (`stackedCage`'s own
+ * `folded` flag: the same `padTop` for all four rings when folded, or each stacked on the
+ * last when not) — never how tall it is. An earlier version recomputed a shorter height
+ * to fit the unfolded stack into the old deck-anchored span, which put the antenna
+ * backwards: the *extended* state read shorter per segment than the collapsed one.
+ */
+const RELAY_FOLD_HEIGHT = 0.4;
+
+/**
+ * How much taller each tier stands than the one before it, counting from the base's own
+ * widest ring through the tower's narrowest — see `stackedCage`'s `tierOffset` param for
+ * why the count runs continuously across both functions rather than restarting at the
+ * tower. Nested, this is what gives the folded mast its conic silhouette: the narrowest,
+ * innermost tier is also the tallest, so its own rim stands proud of every wider tier
+ * wrapped around it, the way the inner tube of a real collapsed telescope always shows a
+ * little of itself above the collar just outside it. Extended, it just means the tiers
+ * nearer the tip are a little longer than the ones nearer the deck — still true to scale,
+ * since which tier a ring belongs to doesn't change between the two states, only where
+ * that ring's own span starts.
+ */
+const RELAY_TIER_GROWTH = 1.15;
+
+/** Height of tier `tier`, counting from the very base of the whole taper (0 = the widest
+ *  ring, see `RELAY_TIER_GROWTH`) — the one place this grows from `tierHeight`, so
+ *  `stackedCage` and `stackedTop` can never disagree about how tall a given tier is. */
+function tierHeightAt(tierHeight: number, tier: number): number {
+  return tierHeight * RELAY_TIER_GROWTH ** tier;
+}
+
+/**
+ * Where a `stackedCage` stack of `count` tiers (starting at whole-taper index
+ * `tierOffset`) actually ends, without rebuilding its geometry just to read the number
+ * back off it — `buildRelayTower` needs the base's own top, both to know where to start
+ * stacking when unfolded and to report its own top to the strobe.
+ *
+ * Nested, every tier shares the same `startY`, so the stack's top is set by its tallest —
+ * which, growth being positive, is always its *last*, narrowest tier. Stacked, it is the
+ * running total of every tier's own height.
+ */
+function stackedTop(startY: number, tierHeight: number, count: number, folded: boolean, tierOffset = 0): number {
+  if (folded) return startY + tierHeightAt(tierHeight, tierOffset + count - 1);
+  let y = startY;
+  for (let t = 0; t < count; t++) y += tierHeightAt(tierHeight, tierOffset + t);
+  return y;
+}
+
+function buildRelayMast(material: THREE.Material, folded: boolean): THREE.Object3D[] {
+  // The one anchor both states share — see `RELAY_FOLD_HEIGHT`'s own comment. Folded, the
+  // tower nests in this exact band too; unfolded, `buildRelayTower` picks up wherever
+  // this stack's own top lands.
+  const padTop = LEG.HINGE_Y + HULL.DECK.h;
+  const parts = stackedCage(padTop, RELAY_FOLD_HEIGHT, RELAY_BASE_RADII, RELAY_BASE_SIDES, RELAY_MEMBER, folded);
+
+  const merged = mergeGeometries(parts, false);
+  for (const part of parts) part.dispose();
+  if (!merged) return [];
+  const mesh = new THREE.Mesh(merged, material);
+  mesh.castShadow = true;
+  return [mesh];
+}
+
 /** Everything about the vehicle that is geometry rather than state. */
 class LanderView {
   group = new THREE.Group();
@@ -278,7 +456,13 @@ class LanderView {
   private strobe!: THREE.Mesh;
   private scene: THREE.Scene;
 
-  constructor(scene: THREE.Scene, payload: Payload, airframe: Airframe) {
+  /**
+   * `relayFolded` only matters for the relay airframe, and defaults to the only state
+   * anything in the actual game builds — see `buildRelayMast`'s call site for why. The
+   * `false` case exists for `preview.ts`'s `unfolded` mode, so the deployed antenna can
+   * be looked at before anything drives it there in play.
+   */
+  constructor(scene: THREE.Scene, payload: Payload, airframe: Airframe, relayFolded = true) {
     this.scene = scene;
 
     /**
@@ -301,28 +485,57 @@ class LanderView {
       flatShading: true,
     });
 
-    // The hull: one silhouette per airframe, occupying exactly the vertical span the
-    // box it replaces did — see `HULL_PROFILES`. Only the radius curve differs, so
-    // nothing downstream (deck, gear, engines) needed to change to make room for it.
-    for (const part of buildHullBody(HULL_PROFILES[airframe.id], frameMat)) {
+    // The hull: one silhouette per charter airframe, occupying exactly the vertical span
+    // the box it replaces did — see `HULL_PROFILES`. Only the radius curve differs, so
+    // nothing downstream (deck, gear, engines) needed to change to make room for it. The
+    // relay is the one exception — see `buildRelayMast`. Always folded here: nothing yet
+    // drives a deploy animation for it (unlike the legs), so the live vehicle is always
+    // the collapsed antenna it flies with — see `preview.ts`'s `unfolded` mode for the
+    // other state, until this one gets its own animation to actually reach it in play.
+    const hullParts =
+      airframe.id === 'relay' ? buildRelayMast(frameMat, relayFolded) : buildHullBody(HULL_PROFILES[airframe.id], frameMat);
+    for (const part of hullParts) {
       this.group.add(part);
     }
 
     // Deck in the lighter grey against the dark chassis, so the flatbed line separates
     // by value rather than hue — it still has to read at a third of display resolution,
     // and that line is the primary attitude cue now the nose cone is gone.
-    const deck = new THREE.Mesh(
-      new THREE.BoxGeometry(HULL.DECK.w, HULL.DECK.h, HULL.DECK.d),
-      hullMat,
-    );
-    deck.position.y = HULL.DECK.y;
-    deck.castShadow = true;
-    this.group.add(deck);
+    //
+    // The relay gets its own, much smaller one, resting directly on the legs — see
+    // `RELAY_DECK_HALF`. Every other airframe carries a load that has to be held down to
+    // *something* flat, sized to that load; the relay carries nothing, and the full
+    // 1.25-wide deck read as a slab dropped into the middle of what should be one
+    // continuous taper from the legs to the beacon. It still needs *a* pad, though: the
+    // platform the legs actually support and the ribbed base actually stands on, at
+    // `LEG.HINGE_Y` — not further up at the base/tower seam, which is a joint in the
+    // taper, not a place anything is standing.
+    if (airframe.id === 'relay') {
+      const deck = new THREE.Mesh(
+        new THREE.BoxGeometry(RELAY_DECK_HALF * 2, HULL.DECK.h, RELAY_DECK_HALF * 2),
+        hullMat,
+      );
+      deck.position.y = LEG.HINGE_Y + HULL.DECK.h / 2;
+      deck.castShadow = true;
+      this.group.add(deck);
+    } else {
+      const deck = new THREE.Mesh(
+        new THREE.BoxGeometry(HULL.DECK.w, HULL.DECK.h, HULL.DECK.d),
+        hullMat,
+      );
+      deck.position.y = HULL.DECK.y;
+      deck.castShadow = true;
+      this.group.add(deck);
+    }
 
     // Cargo: size from mass, silhouette from type. Both are information the pilot
-    // needs — heavy handles differently, and the shape says which run this is.
-    const cargo = this.buildCargo(payload);
-    cargo.group.position.y = DECK_TOP;
+    // needs — heavy handles differently, and the shape says which run this is. The
+    // relay carries nothing to size or silhouette — it is its own cargo — so it gets
+    // its own upper body instead: see `buildRelayTower`, whose own comment is why its
+    // group gets no offset here — its geometry already carries its own absolute anchor,
+    // which for the relay is not `DECK_TOP` the way every other airframe's cargo is.
+    const cargo = airframe.id === 'relay' ? this.buildRelayTower(relayFolded) : this.buildCargo(payload);
+    cargo.group.position.y = airframe.id === 'relay' ? 0 : DECK_TOP;
     this.group.add(cargo.group);
 
     const flameMat = new THREE.MeshBasicMaterial({
@@ -406,7 +619,7 @@ class LanderView {
      * plumes instead of standing in them.
      */
     for (const sx of [-1, 1]) {
-      for (const sz of [-0.3, 0.3]) {
+      for (const sz of [-LEG.HINGE_X, LEG.HINGE_X]) {
         const hinge = new THREE.Group();
         hinge.position.set(sx * LEG.HINGE_X, LEG.HINGE_Y, sz);
 
@@ -461,17 +674,18 @@ class LanderView {
      * bright enough to reach the canyon floor unavoidably did, since three.js tests
      * light layers against the camera and offers no per-object exclusion.
      */
-    this.buildRunningLights(cargo.group, cargo.height);
+    this.buildRunningLights(cargo.group, cargo.height, airframe.id !== 'relay');
 
     scene.add(this.group);
   }
 
   /**
-   * Running lights. Port red, starboard green, a hazard beacon on the load and a warm
-   * strip under the deck — enough self-illumination to read the vehicle's attitude
-   * against a dark canyon at a glance, with no light in the scene at all.
+   * Running lights. Port red, starboard green, a hazard beacon on the load and — on
+   * every airframe that has one — a warm strip under the deck: enough self-illumination
+   * to read the vehicle's attitude against a dark canyon at a glance, with no light in
+   * the scene at all.
    */
-  private buildRunningLights(cargo: THREE.Group, cargoHeight: number): void {
+  private buildRunningLights(cargo: THREE.Group, cargoHeight: number, hasDeck: boolean): void {
     const lamp = (color: number, intensity: number) => this.lamp(color, intensity);
 
     /**
@@ -481,23 +695,35 @@ class LanderView {
      *
      * Dimmer than that ring at 2.4 rather than 3.4, because this is several times its
      * area. At the old figure it was bright enough to swamp anything mounted near it.
+     *
+     * Gated on `hasDeck` — the relay does not have one to sit under (see the deck's own
+     * comment in the constructor), and a flat lit panel the same footprint as the deck
+     * it no longer carries is the deck showing up again in a different colour.
      */
-    const strip = new THREE.Mesh(new THREE.BoxGeometry(1.19, 0.07, 0.74), lamp(0xffd9a8, 2.4));
-    strip.position.y = -0.1;
-    this.group.add(strip);
+    if (hasDeck) {
+      const strip = new THREE.Mesh(new THREE.BoxGeometry(1.19, 0.07, 0.74), lamp(0xffd9a8, 2.4));
+      strip.position.y = -0.1;
+      this.group.add(strip);
+    }
 
     // Port / starboard, aviation convention — which way you are leaning, at a glance.
     // At the deck tips rather than on the chassis flank: they are small and the strip
     // is not, so they need the vehicle's widest, highest corners to be seen at all,
-    // where they sit against sky instead of beside a lamp forty times their area.
+    // where they sit against sky instead of beside a lamp forty times their area. The
+    // relay's own deck tip is `RELAY_DECK_HALF` at `LEG.HINGE_Y` — the same small
+    // protrusion past the edge, at the pad it is actually sitting on, rather than the
+    // ordinary deck's own tip and height landing well outside and above a pad a third
+    // the width, standing at the legs rather than under the tower.
     //
     // Driven at 2.8, not the 5 they had on the cone. These are the only two objects on
     // the vehicle whose *hue* is the information, and ACES pushes a saturated colour to
     // white as it brightens — on a dark narrow hull that went unnoticed, but against the
     // deck plate a red and a green lamp both came out white, which is worse than no lamp.
+    const navTip = hasDeck ? 0.67 : RELAY_DECK_HALF + 0.02;
+    const navY = hasDeck ? DECK_TOP - 0.02 : LEG.HINGE_Y + HULL.DECK.h / 2;
     for (const [sx, color] of [[-1, 0xff3b30], [1, 0x34ff6a]] as const) {
       const nav = new THREE.Mesh(new THREE.BoxGeometry(0.17, 0.17, 0.17), lamp(color, 2.8));
-      nav.position.set(sx * 0.67, DECK_TOP - 0.02, 0);
+      nav.position.set(sx * navTip, navY, 0);
       this.group.add(nav);
       this.navLights.push(nav);
     }
@@ -518,6 +744,60 @@ class LanderView {
   /** Emissive material. The vehicle is lit rather than lighting — see above. */
   private lamp(color: number, intensity: number): THREE.MeshStandardMaterial {
     return new THREE.MeshStandardMaterial({ color, emissive: color, emissiveIntensity: intensity });
+  }
+
+  /**
+   * The relay's own upper body — two open, square-sectioned frames continuing the mast,
+   * each narrower than the one below, matching the sketch's own distinction between the
+   * round ribbed drum `buildRelayMast` builds and the boxes stacked above it.
+   *
+   * Reports the same `{group, height}` shape `buildCargo` does, and for the same reason
+   * the constructor picks between the two with one ternary rather than a second code
+   * path further down: `buildRunningLights` only needs a group to parent the strobe to
+   * and a height to clear it by, and it does not care whether what is inside that group
+   * is a manifest or the vehicle's own structure.
+   *
+   * Built at **absolute** height, unlike `buildCargo`'s shapes — those sit at a local
+   * origin the constructor then offsets by `DECK_TOP`, which is fine when every shape
+   * shares that one anchor. Folded, this tower shares its anchor with the base instead
+   * (`RELAY_FOLD_HEIGHT`, off the pad) — a *different* one than unfolded uses (`DECK_TOP`)
+   * — so the anchor has to live in the geometry itself, not in a caller that only knows
+   * one. The constructor sets this group's own position to zero for the relay rather
+   * than offsetting it, and `height` reports the structure's absolute top for the same
+   * reason.
+   */
+  private buildRelayTower(folded: boolean): { group: THREE.Group; height: number } {
+    const group = new THREE.Group();
+    const frameMat = new THREE.MeshStandardMaterial({
+      color: 0x55636d,
+      roughness: 0.65,
+      metalness: 0.15,
+      flatShading: true,
+    });
+    const padTop = LEG.HINGE_Y + HULL.DECK.h;
+    // Folded: the same band the base nests in, see `RELAY_FOLD_HEIGHT`'s own comment.
+    // Unfolded: wherever the base's own stack actually ends, read back via `stackedTop`
+    // rather than recomputed here, so the tower picks up exactly where the base leaves
+    // off rather than at a fixed height unrelated to it.
+    const baseTop = stackedTop(padTop, RELAY_FOLD_HEIGHT, RELAY_BASE_RADII.length, folded);
+    const startY = folded ? padTop : baseTop;
+    // The tower's own tiers continue the base's taper rather than restarting it — see
+    // `stackedCage`'s `tierOffset` param — so the narrowing, and nested the height growth
+    // that gives the conic silhouette, reads as one continuous run through all four tiers.
+    const tierOffset = RELAY_BASE_RADII.length;
+    const parts = stackedCage(startY, RELAY_FOLD_HEIGHT, RELAY_TOWER_RADII, RELAY_TOWER_SIDES, 0.016, folded, tierOffset);
+    const merged = mergeGeometries(parts, false);
+    for (const part of parts) part.dispose();
+    if (merged) {
+      const mesh = new THREE.Mesh(merged, frameMat);
+      mesh.castShadow = true;
+      group.add(mesh);
+    }
+    // Top of the whole structure: the tower's own top, in either state — the strobe
+    // (`buildRunningLights`) parents here and offsets upward from it, so this has to be
+    // the true top regardless of how `folded` shaped the stack beneath it.
+    const topY = stackedTop(startY, RELAY_FOLD_HEIGHT, RELAY_TOWER_RADII.length, folded, tierOffset);
+    return { group, height: topY };
   }
 
   /**
@@ -688,9 +968,10 @@ export class Lander {
     payload: Payload,
     fuel: number,
     airframe: Airframe = AIRFRAMES.lander,
+    relayFolded = true,
   ) {
     this.body = new LanderBody(payload, Math.round(fuel * airframe.fuelScale), airframe);
-    this.view = new LanderView(scene, payload, airframe);
+    this.view = new LanderView(scene, payload, airframe, relayFolded);
     this.idle = idleFiring(airframe);
     this.view.update(this.body, this.idle);
   }

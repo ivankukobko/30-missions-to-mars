@@ -162,6 +162,38 @@ body {
   margin-top: 12px;
 }
 
+/*
+ * The pause button. Bottom-right, clear of both top corners' readouts and of the fuel
+ * bar under `.hud-left` — the one patch of the HUD nothing else claims.
+ *
+ * `#ui-layer` is `pointer-events: none` end to end so the raw window-level touch
+ * listeners `InputManager` reads flight from are never blocked by UI sitting over the
+ * canyon; every element meant to be tappable opts back in individually, this one included.
+ */
+.pause-button {
+  position: absolute;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  right: max(18px, env(safe-area-inset-right));
+  pointer-events: auto;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--edge);
+  background: rgba(18, 9, 5, 0.55);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+
+.pause-button:hover,
+.pause-button:focus-visible {
+  border-color: var(--corp);
+  background: rgba(18, 9, 5, 0.8);
+}
+
 .inst {
   display: flex;
   flex-direction: column;
@@ -969,6 +1001,16 @@ body {
   font-size: 12px;
 }
 
+/* The mission's own objective sentence — left-aligned prose, not a `.manifest-row`'s
+   label/value pair. See `Interface.ts`'s `manifestFor` for why it gets its own block. */
+.manifest-goal {
+  padding: 3px 0 14px;
+  border-bottom: 1px solid rgba(255, 190, 140, 0.1);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
 .manifest-label {
   color: var(--ink-dim);
   letter-spacing: 0.12em;
@@ -1545,12 +1587,12 @@ button.primary:focus-visible {
 }
 
 /*
- * Readout left, key reminder right, on one line.
+ * Colony readout left, perf readout right, on one line.
  *
  * `nowrap` is doing the work: the generic row wraps rather than shrinks, so with wrap
- * inherited the help text drops onto a line of its own even when there is room beside
- * the readout. Held on one line, the readout absorbs the squeeze by wrapping inside
- * itself, which it is already laid out to do.
+ * inherited the perf readout would drop onto a line of its own even when there is room
+ * beside the colony readout. Held on one line, the colony readout absorbs the squeeze by
+ * wrapping inside itself, which it is already laid out to do.
  */
 .debug-foot {
   justify-content: space-between;
@@ -1589,13 +1631,12 @@ button.primary:focus-visible {
   color: #ff7a5c;
 }
 
-.debug-help {
-  color: var(--ink-dim);
-  opacity: 0.7;
-  pointer-events: none;
-  /* Pinned right. Left to shrink it wraps under the readout and the row costs a line
-     it does not need — the readout beside it already wraps internally. */
+/* Same look as `.debug-stats`, but pinned right rather than wrapping — it updates every
+   half second regardless of what the colony readout is doing and would otherwise get
+   wrapped away with it under a squeeze. */
+.debug-perf {
   flex-shrink: 0;
+  flex-wrap: nowrap;
 }
 
 .debug-panel input {

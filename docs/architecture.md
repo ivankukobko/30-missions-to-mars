@@ -162,7 +162,7 @@ the pixel edges the look depends on, and cost the fragments the downscale exists
 save. The HUD is DOM, so it stays sharp over the top.
 
 It is also the largest performance lever, because the scene is entirely fragment-bound.
-Measured at mission 30: 52 draw calls and 116k triangles are nowhere near mattering,
+Measured at mission 29: 52 draw calls and 116k triangles are nowhere near mattering,
 but the canvas was 3.06M pixels running a PBR loop over 13 lights. Cost falls with the
 square of the divisor.
 
@@ -217,7 +217,7 @@ What they are actually for:
   sweep is tested against steps far larger than the hull, at every descent rate from 10 to
   400 u/s.
 - **The campaign ledger.** `checkLayout(worldAt(id, mastX))` is asserted clean for all
-  thirty missions across ten radar positions. This check already existed but only as a
+  twenty-nine missions across ten radar positions. This check already existed but only as a
   `console.warn` behind the DEV flag, which is exactly why a live violation sat unnoticed
   in it — see the radar note in [Colony Documentation](colony.md).
 - **Frame-rate independence.** `damp` is asserted to land in the same place whether the

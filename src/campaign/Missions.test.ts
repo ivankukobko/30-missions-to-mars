@@ -9,6 +9,7 @@ import {
   getMission,
   worldAt,
   resolveBriefCards,
+  missionGoal,
   EPILOGUE,
   PROLOGUE,
   RIM_SITES,
@@ -118,7 +119,7 @@ function resolvedWorldAt(id: number, mastX: number | null = null): { props: Prop
  * PARKED: voice and continuity rules, while the campaign is being rewritten.
  *
  * These are not correctness tests. Each one pins a *decision* about who speaks, what they
- * call you, and where in the thirty an interruption lands — and every one of them failed
+ * call you, and where in the twenty-nine an interruption lands — and every one of them failed
  * today because the story moved, not because anything broke. During an authoring pass that
  * is pure friction: the test goes red, the prose is fine, and the fix is to retype the
  * assertion to match what was just written, which proves nothing.
@@ -139,12 +140,12 @@ function resolvedWorldAt(id: number, mastX: number | null = null): { props: Prop
  */
 
 describe('campaign table', () => {
-  it('has thirty missions', () => {
-    expect(MISSION_COUNT).toBe(30);
+  it('has twenty-nine missions', () => {
+    expect(MISSION_COUNT).toBe(29);
   });
 
-  it('numbers them 1..30 with no gaps or duplicates', () => {
-    expect(IDS).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+  it('numbers them 1..29 with no gaps or duplicates', () => {
+    expect(IDS).toEqual(Array.from({ length: 29 }, (_, i) => i + 1));
   });
 
   it('gives every mission a payload with a positive mass', () => {
@@ -181,6 +182,21 @@ describe('campaign table', () => {
       const annexed = cards[last].title.startsWith('ANNEX');
       expect(cards.indexOf(carrying[0]), `mission ${m.id}`).toBe(annexed ? last - 1 : last);
     }
+  });
+
+  it("reads the pause overlay's goal line straight off the brief's own OBJECTIVE", () => {
+    for (const m of DELIVERIES) {
+      const card = resolveBriefCards(m).find((c) => c.body.includes('<b>OBJECTIVE</b>'))!;
+      const expected = card.body.split('<b>OBJECTIVE</b>')[1].replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+      expect(missionGoal(m), `mission ${m.id}`).toBe(expected);
+      // Plain text for a plain-data readout — no leftover markup from the brief's own HTML.
+      expect(missionGoal(m), `mission ${m.id}`).not.toMatch(/[<>]/);
+    }
+  });
+
+  it('gives the silent prologue a goal line anyway, matching its own null address', () => {
+    expect(PROLOGUE.messages).toEqual([]);
+    expect(missionGoal(PROLOGUE)).toBe('Land intact — anywhere survivable.');
   });
 
   it('names an address for every mission except the two that plant landmarks', () => {
@@ -439,7 +455,7 @@ describe('who the briefs are talking to', () => {
     expect(named.length).toBeGreaterThanOrEqual(5);
     expect(named.length).toBeLessThan(kessler.length);
     // Absent on the runs that can actually kill you — the tell is the omission.
-    for (const id of [21, 25, 27]) {
+    for (const id of [20, 24, 26]) {
       expect(briefs.find((b) => b.id === id)!.text).not.toMatch(/tin can/i);
     }
   });
@@ -447,12 +463,12 @@ describe('who the briefs are talking to', () => {
   it.skip('gives the last word in the campaign to the name Ixion gave you', () => {
     const last = briefs[briefs.length - 1];
 
-    expect(last.id).toBe(30);
+    expect(last.id).toBe(29);
     expect(last.client).toBe('kessler');
-    // The single deviation in twelve runs, two missions after Ixion goes off the air.
+    // The single deviation in eleven runs, two missions after Ixion goes off the air.
     expect(last.text).toMatch(/navigator/i);
     expect(last.text).not.toMatch(/tin can/i);
-    const others = briefs.filter((b) => b.client === 'kessler' && b.id !== 30);
+    const others = briefs.filter((b) => b.client === 'kessler' && b.id !== 29);
     for (const b of others) expect(b.text).not.toMatch(/navigator/i);
   });
 });
@@ -528,16 +544,16 @@ describe('music track', () => {
 
   it('ends the campaign in the key it opened in', () => {
     // Ixion's theme under Kessler's final contract. The outpost has gone dark by mission
-    // 30 and cuts in anyway, quoting mission 1's opening line verbatim — the music is
+    // 29 and cuts in anyway, quoting mission 1's opening line verbatim — the music is
     // what makes that land as a return rather than as a stray transmission.
-    expect(musicTrackFor(getMission(30)!)).toBe(musicTrackFor(getMission(1)!));
-    expect(musicTrackFor(getMission(30)!)).toBe('outpost');
+    expect(musicTrackFor(getMission(29)!)).toBe(musicTrackFor(getMission(1)!));
+    expect(musicTrackFor(getMission(29)!)).toBe('outpost');
   });
 
-  it('leaves the thirtieth run Kessler in every respect except the music', () => {
+  it('leaves the twenty-ninth run Kessler in every respect except the music', () => {
     // The override is a comment on the contract, not a change to it. If this ever starts
     // failing, the mission was rewritten and the callback no longer means what it meant.
-    const last = getMission(30)!;
+    const last = getMission(29)!;
     expect(last.client).toBe('kessler');
     expect(airframeFor(last)).toBe('hauler');
     expect(last.target).toBe('shaft-deep');
@@ -547,7 +563,7 @@ describe('music track', () => {
     // Deliberately exact. A second override is a design decision, not a tuning tweak, and
     // should have to be argued for here before it ships.
     const overridden = MISSIONS.filter((m) => m.musicTrack).map((m) => m.id);
-    expect(overridden).toEqual([30]);
+    expect(overridden).toEqual([29]);
   });
 
   it('names a track that actually has a theme', () => {
@@ -796,8 +812,8 @@ describe('brief cards', () => {
     // — a machine that has heard their assay and is not addressing them about it — and
     // every interruption after it is Ixion doing the cutting.
     //
-    // So the canyon's first victim is its last voice, and mission 3 and mission 30 are
-    // the same brief structure thirty missions apart: someone talking, someone arriving
+    // So the canyon's first victim is its last voice, and mission 3 and mission 29 are
+    // the same brief structure twenty-six missions apart: someone talking, someone arriving
     // on a channel they were not invited to, and the first party carrying on regardless.
     const interruptedIxion = MISSIONS.filter(
       (m) =>
@@ -810,10 +826,10 @@ describe('brief cards', () => {
       (m) =>
         m.client !== 'outpost' && resolveBriefCards(m).some((c) => c.title === 'IXION OUTPOST'),
     );
-    expect(ixionCutting.map((m) => m.id)).toEqual([15, 19, 30]);
+    expect(ixionCutting.map((m) => m.id)).toEqual([14, 18, 29]);
   });
 
-  it.skip('gives mission 1 the last word, in mission 30, unchanged', () => {
+  it.skip('gives mission 1 the last word, in mission 29, unchanged', () => {
     // The first sentence the player ever read, returning as the last — verbatim, because
     // a paraphrase is a reference and the same string is a recurrence. It carries no
     // name, which is what keeps Kessler's "navigator" three cards later his own choice
@@ -824,9 +840,9 @@ describe('brief cards', () => {
     // Mission 2, not 1: the prologue is silent, so the first sentence the player ever
     // reads is the first thing Ixion says once the link they just landed is up.
     const carrying = MISSIONS.filter((m) => transmission(m).includes(LINE));
-    expect(carrying.map((m) => m.id)).toEqual([2, 30]);
+    expect(carrying.map((m) => m.id)).toEqual([2, 29]);
 
-    const card = resolveBriefCards(MISSIONS[29]).find((c) => c.body.includes(LINE))!;
+    const card = resolveBriefCards(MISSIONS[28]).find((c) => c.body.includes(LINE))!;
     expect(card.title).toBe('IXION OUTPOST');
     expect(card.body).toBe(LINE);
     expect(card.body).not.toMatch(/navigator/i);
@@ -957,12 +973,12 @@ describe('the Helion contract form', () => {
   it('grows a page when the paperwork does', () => {
     // Helion has no arc because Helion has no character, so the drift has to be visible
     // in the document itself. The arbitration annex earns its own card the moment it
-    // exists, at 22 — and it is the *last* card, so from there on the descent begins
+    // exists, at 21 — and it is the *last* card, so from there on the descent begins
     // from a page of boilerplate that has nothing to do with flying.
     const pages = new Map(helion.map((m) => [m.id, ownCards(m)]));
     for (const [id, cards] of pages) {
-      expect(cards.length, `mission ${id}`).toBe(id >= 22 ? 3 : 2);
-      if (id >= 22) expect(cards[cards.length - 1].title).toBe('ANNEX A — ARBITRATION');
+      expect(cards.length, `mission ${id}`).toBe(id >= 21 ? 3 : 2);
+      if (id >= 21) expect(cards[cards.length - 1].title).toBe('ANNEX A — ARBITRATION');
     }
   });
 
@@ -1001,7 +1017,7 @@ describe('the epilogue', () => {
   });
 
   it('cuts Kessler off, and lets nothing resume', () => {
-    // He is interrupted twice in two briefs. In mission 30 the carrier cuts in and he
+    // He is interrupted twice in two briefs. In mission 29 the carrier cuts in and he
     // picks the sentence back up; here there is no third card of his.
     expect(EPILOGUE[0].content.trim()).toMatch(/—$/);
     expect(EPILOGUE.filter((m) => m.sender === 'KESSLER DEEP')).toHaveLength(1);
@@ -1029,15 +1045,15 @@ describe('the epilogue', () => {
 });
 
 describe('the prologue', () => {
-  it('is mission 1 of thirty, not a thirty-first mission bolted on', () => {
+  it('is mission 1 of twenty-nine, not a thirtieth mission bolted on', () => {
     // It is numbered, scored and in the table, because "which of these did a company pay
     // for" is an author's distinction the player has no way to perceive: a vehicle went
     // down, so it was a mission. What pays for it is the one thing the campaign never
     // shows, so numbering it costs nothing and leaving it out cost a whole flight.
     expect(PROLOGUE.id).toBe(1);
     expect(MISSIONS[0]).toBe(PROLOGUE);
-    expect(MISSION_COUNT).toBe(30);
-    expect(IDS).toEqual(Array.from({ length: 30 }, (_, i) => i + 1));
+    expect(MISSION_COUNT).toBe(29);
+    expect(IDS).toEqual(Array.from({ length: 29 }, (_, i) => i + 1));
   });
 
   it('has nobody to talk to it', () => {
@@ -1147,14 +1163,14 @@ describe("Helion's mass allowance", () => {
      * The rule that makes this readable at all, and it was learned the hard way: the
      * figure was on all nine contracts, starting at 9.8, and it meant nothing. A large
      * number with no denominator in view is just a number that gets smaller, and nine
-     * appearances spread over twenty-four missions is not a sequence anybody holds in
+     * appearances spread over twenty-three missions is not a sequence anybody holds in
      * their head between sightings.
      *
      * Under three tonnes it reads on its own — a small number approaching zero is
      * self-explanatory in a way that 9.8 is not — and the four sightings are close enough
      * together to land as one movement.
      */
-    expect(carrying.map((m) => m.id)).toEqual([19, 22, 26, 29]);
+    expect(carrying.map((m) => m.id)).toEqual([18, 21, 25, 28]);
     for (const m of helion) {
       const shown = resolveBriefCards(m).some((c) => FIGURE.test(c.body));
       expect(shown, `mission ${m.id}`).toBe(CEILING - consignedBy.get(m.id)! < 3);
@@ -1191,14 +1207,14 @@ describe("Helion's mass allowance", () => {
      */
     const last = helion[helion.length - 1];
     const penultimate = helion[helion.length - 2];
-    expect(last.id).toBe(29);
+    expect(last.id).toBe(28);
     expect(last.payload.mass).toBeLessThan(penultimate.payload.mass);
     expect(last.payload.mass).toBeLessThanOrEqual(CEILING - consignedBy.get(penultimate.id)!);
 
     expect(transmission(last)).toContain('NO FURTHER CONSIGNMENT CAN BE SCHEDULED');
     // Once, at the end. Said earlier it would be a threat the contract cannot yet make.
     const saying = MISSIONS.filter((m) => transmission(m).includes('NO FURTHER CONSIGNMENT'));
-    expect(saying.map((m) => m.id)).toEqual([29]);
+    expect(saying.map((m) => m.id)).toEqual([28]);
   });
 });
 
@@ -1448,7 +1464,7 @@ describe('the calendar', () => {
   it('fits inside one transfer window, with room after it', () => {
     /**
      * The constraint the whole timeline exists to satisfy. An Earth–Mars window opens about
-     * every 759 sols, and the campaign has to fit inside one with a margin — mission 30
+     * every 759 sols, and the campaign has to fit inside one with a margin — mission 29
      * lands roughly a hundred sols before the next, which is what makes "something is
      * already on its way" true without anybody saying it.
      *
@@ -1463,10 +1479,10 @@ describe('the calendar', () => {
 
   it('makes the nine days literally nine', () => {
     // Ixion says "nine days of no drill running anywhere in this canyon". The order is
-    // served on mission 9 and overturned on 12, and the arithmetic between them is the
+    // served on mission 8 and overturned on 11, and the arithmetic between them is the
     // line — not a figure of speech that happens to sound right.
-    const served = getMission(9)!;
-    const overturned = getMission(12)!;
+    const served = getMission(8)!;
+    const overturned = getMission(11)!;
     expect(transmission(overturned)).toContain('Nine days');
     expect(overturned.sol - served.sol).toBe(9);
   });
@@ -1490,9 +1506,9 @@ describe('the calendar', () => {
      * 7905 state nothing about the campaign on their own, and their difference is the only
      * place its length exists. A count from mission 1 would have printed the answer.
      *
-     * Kessler counts work: his own runs, his own shifts, never yours. Helion carries the
-     * sol in a file reference nobody reads, which is a machine stamping a document rather
-     * than anybody keeping time.
+     * Kessler measures in felt time — a season, going on a year — never a job count.
+     * Helion carries the sol in a file reference nobody reads, which is a machine
+     * stamping a document rather than anybody keeping time.
      */
     const ixion = MISSIONS.filter((m) => m.client === 'outpost').map(transmission).join(' ');
     const stamps = [...ixion.matchAll(/Sol (\d{4})/g)].map((x) => Number(x[1]));
@@ -1509,15 +1525,22 @@ describe('the calendar', () => {
 
   it('lets nobody count your deliveries', () => {
     /**
-     * The thing that made the campaign read as thirty errands rather than two years of
-     * work. Kessler opened the last brief with "Thirtieth run", which is a tally only
-     * somebody watching *you* would keep — and none of these three are watching you. He
-     * counts his own contracts now, which is eleven.
+     * The thing that makes the campaign read as time passing rather than a checklist
+     * being worked through. Nobody keeps a running tally of your runs — not the console
+     * between missions, not Ixion's sols (which count from *their own* landing, eleven
+     * years back, not from yours), and not Kessler, who measures the mouth in felt time
+     * ("going on a year down this mouth") rather than in a job number. A charter stating
+     * a total, or its own run count, would be a narrator's slip: none of these three know
+     * how long the story is, or that it is about to end — see `sol`'s own comment in
+     * Missions.ts. The epilogue is the first thing in the campaign that finds either out,
+     * and even it names no number.
      */
+    const NO_TALLY =
+      /thirtieth|twenty-ninth|your (thirtieth|last) run|that is (thirty|twenty-nine)|\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)\s+run\b/i;
     const spoken = MISSIONS.map(transmission).join(' ');
-    expect(spoken).not.toMatch(/thirtieth|twenty-ninth|your (thirtieth|last) run/i);
-    expect(transmission(MISSIONS[MISSIONS.length - 1])).toContain('Eleventh run of mine');
-    expect(MISSIONS.filter((m) => m.client === 'kessler')).toHaveLength(11);
+    expect(spoken).not.toMatch(NO_TALLY);
+    const epilogueSpoken = EPILOGUE.map((m) => m.content).join(' ');
+    expect(epilogueSpoken).not.toMatch(NO_TALLY);
   });
 
   it('never says how long any of it took', () => {

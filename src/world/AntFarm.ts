@@ -71,9 +71,14 @@ const DEPTH_STEPS = Math.round(CORRIDOR_DEPTH / FACET_PITCH);
  * own displacement and they agreed only by arithmetic that had to keep being re-earned.
  *
  * Depth gets the larger share because it is free: z is the axis the camera looks down, so
- * jitter there is pure surface relief and costs the corridor nothing. Across and down are
- * held to 1.2 on a twelve-unit bore, which leaves 9.6 clear against a vehicle 1.62 across
- * — well inside the one-sided rule the old `RELIEF` constant recorded the cost of breaking.
+ * jitter there is pure surface relief and costs the corridor nothing — **as long as it is
+ * one-sided.** It shipped signed (`hash01() * 2 - 1`, applied to z the same as x and y),
+ * which is exactly the fault the old `RELIEF` constant's comment recorded the cost of:
+ * "a signed noise pushed walls into the bore and pinched it shut for six missions." Here
+ * it pushed the face plate up to 2.5 units *toward the camera* of its own nominal plane —
+ * proud of the corridor's own front boundary, poking into the volume the vehicle and the
+ * lens both occupy, which read as geometry clipping close to the camera because that is
+ * exactly what it was. `zJitter` below is the one-sided version: it only ever recedes.
  */
 const JITTER_DEPTH = 2.5;
 const JITTER_PLANE = 1.2;
@@ -132,10 +137,25 @@ export class AntFarm {
    * sky. The shaft came out sealed, flyable by eye and not at all in fact, which is the
    * exact class of defect a screenshot cannot show and the reason the test that found it
    * asks whether the axis can be swept rather than whether a mesh looks right.
+   *
+   * Tested against the cell's own *centre*, not its top. It was the top (`+ SHAFT_CELL/2`)
+   * until the shared complex's six-wide Helion gallery, which cuts only one row (12 units)
+   * under a surface that rolls by a few units of its own accord. Requiring the *whole*
+   * neighbour cell submerged demands ground reach a full 12 units above the shared
+   * boundary; measured on `outpost-main`/seed 12345 the gallery's real overhead was
+   * 8.1–9.9 units at every western column — genuine rock, just short of that bar — so the
+   * ceiling and the mouth's west wall (row 0's own west neighbour was 2.1 units short of
+   * *its* threshold the same way) were silently skipped across the whole span, reading as
+   * see-through cave and a one-sided entrance. Halving the bar to the centre only asks for
+   * half a nominal cell of overburden, which the measured gap clears with room, while the
+   * open-sky cell directly above the mouth (its centre sits 6.3 units above the highest
+   * ground either side, per the same measurement) stays correctly rejected — so the mouth
+   * itself does not reseal. A true skylight would still show: this only forgives ordinary
+   * terrain roughness, not an actual breach.
    */
   private isRock(col: number, row: number): boolean {
     if (this.carve.has(col, row)) return false;
-    return this.carve.grid.worldY(row) + SHAFT_CELL / 2 <= this.groundAt(col);
+    return this.carve.grid.worldY(row) <= this.groundAt(col);
   }
 
   /**
@@ -186,7 +206,19 @@ export class AntFarm {
         // Natural ground at this column, on the face's own plane — cells the ground has not
         // reached are open sky, not rock. Unchanged from the plate build, and still the
         // whole reason the excavation meets the terrain rather than nearly meeting it.
-        if (g.worldY(row) + SHAFT_CELL / 2 > this.groundAt(col)) continue;
+        //
+        // Tested at the cell's centre, matching `isRock` below, for the same reason: the
+        // strict top-based version dropped a cell's plate whenever ground missed its own
+        // top by any amount, and at row 0 that miss can be a few tenths of a unit of
+        // ordinary terrain roughness — measured case, the mouth's own west column losing
+        // its back plate by 0.3 units out of 12. Being this permissive is safe now only
+        // because `seamTopToTerrain` (called at the end of `build`) pulls every lattice
+        // column's shallowest vertex down to the real surface afterwards — the plate can
+        // never stand proud of the ground it approximated, whatever this test lets through.
+        // Without that pass this same permissiveness measured 14 face vertices above real
+        // terrain, worst case 7.6 units, at the `FACE_MARGIN` fringe where the canyon slopes
+        // away — "rock through the floor," and the reason the two are a matched pair.
+        if (g.worldY(row) > this.groundAt(col)) continue;
 
         const carved = this.carve.has(col, row);
         const into = carved ? back : face;
@@ -252,6 +284,10 @@ export class AntFarm {
       }
     }
 
+    // Last, so every quad above is already indexed against `this.points` — this only ever
+    // moves points that exist, never creates or reorders them. See the method's own comment.
+    this.seamTopToTerrain();
+
     /**
      * `rockCut`, not `rockMid` — an excavation is cut open the mission it is dug, so
      * nothing has settled on it yet. `PALETTE.rockCut`/`rockCutLow` are that: the one
@@ -271,6 +307,17 @@ export class AntFarm {
   /** Shared vertex buffer, and the cache that makes it shared. */
   private points: number[] = [];
   private seen = new Map<number, number>();
+  /**
+   * The shallowest vertex seen so far for each `(i, k)` lattice column — the one
+   * `seamTopToTerrain` pulls down to the real surface. Keyed on a plain string rather than
+   * a packed integer: unlike `seen`, this map is small (one entry per column, not per
+   * lattice point) and built once per excavation, so the packing's speed is not worth its
+   * risk here — `i` and `k` are far enough apart in range that a bit-packed key can collide
+   * silently, where `${i},${k}` cannot. `j` is carried alongside the point index rather
+   * than recovered from it later, so "shallowest" is a plain comparison, not an inverse of
+   * `vertex`'s own displacement math.
+   */
+  private topOfColumn = new Map<string, { idx: number; j: number }>();
 
   /**
    * The index of the lattice point at `(i, j, k)`, creating it on first request.
@@ -292,17 +339,67 @@ export class AntFarm {
     this.points.push(
       i * FACET_PITCH + this.jitter(i, j, k, 1) * JITTER_PLANE,
       g.topY - j * FACET_PITCH + this.jitter(i, j, k, 2) * JITTER_PLANE,
-      FRONT_Z - k * FACET_PITCH + this.jitter(i, j, k, 3) * JITTER_DEPTH,
+      FRONT_Z - k * FACET_PITCH - this.zJitter(i, j, k) * JITTER_DEPTH,
     );
     this.seen.set(key, at);
+
+    // Smaller `j` is shallower (closer to `topY`) — see `worldY`'s own comment. Recorded
+    // once per `(i, k)`, on creation, because every later request for the same `(i, j, k)`
+    // is a cache hit above and never reaches here.
+    const ik = `${i},${k}`;
+    const shallowest = this.topOfColumn.get(ik);
+    if (shallowest === undefined || j < shallowest.j) this.topOfColumn.set(ik, { idx: at, j });
     return at;
+  }
+
+  /**
+   * Welds the shallowest vertex of every lattice column to the real terrain surface —
+   * generate the grid and the excavation's own geometry first, at its ordinary nominal
+   * positions, then match only this outermost ring to the landscape, once, after the fact.
+   *
+   * This is what makes the per-cell visibility tests upstream (`isRock`, and the plate
+   * loop's own ground check) safe to be as permissive as closing every real gap requires:
+   * however far a cell's nominal top overshoots real ground, only its *shallowest* vertex
+   * per column is a candidate here, and it is only ever pulled *down* — never pushed up,
+   * so a column already meeting the ground exactly (the ordinary case, deep in the
+   * excavation) is untouched. A side wall, sharing its pinned edge's `(i, k)` columns with
+   * whatever plate sits beside it, is welded by the same pass without needing its own case:
+   * the cache that joins their vertices in the first place is what makes one welded point
+   * do for both.
+   *
+   * Sampled with `includeDigs: false`, matching `groundAt` — the undisturbed surface this
+   * excavation was cut from, not the pit its own floor now reads as.
+   */
+  private seamTopToTerrain(): void {
+    for (const { idx } of this.topOfColumn.values()) {
+      const x = this.points[idx * 3];
+      const z = this.points[idx * 3 + 2];
+      const ground = this.terrain.heightAt(x, z, false);
+      if (this.points[idx * 3 + 1] > ground) this.points[idx * 3 + 1] = ground;
+    }
   }
 
   /** Signed, in −1…1, and a pure function of the lattice index and the campaign seed — so a
    *  rebuilt canyon is the identical rock, and neighbouring facets agree because they are
-   *  asking about the same point rather than about their own corner of it. */
+   *  asking about the same point rather than about their own corner of it. In-plane only —
+   *  see `zJitter` for why depth cannot use this. */
   private jitter(i: number, j: number, k: number, salt: number): number {
     return hash01(this.seed, i, j * 64 + k, salt) * 2 - 1;
+  }
+
+  /**
+   * `0…1`, never negative, subtracted rather than added — so a vertex can only ever recede
+   * from its nominal plane, into the rock, and never advance out of it toward the camera.
+   *
+   * This is the one-sided rule every displacement in this file answers to, and depth is
+   * the one axis where breaking it is a *visible* fault rather than a cosmetic one: a face
+   * plate that jitters toward the viewer stops sitting at the corridor's own front boundary
+   * and starts standing proud of it, in the volume the vehicle and the lens both use. Across
+   * and down (`jitter`, used for x and y) have no such hazard — nothing there is bounded by
+   * where the camera happens to be — which is why only this one is signed away from zero.
+   */
+  private zJitter(i: number, j: number, k: number): number {
+    return hash01(this.seed, i, j * 64 + k, 3);
   }
 
   /** Two triangles, wound consistently. The materials are `DoubleSide`, so this decides

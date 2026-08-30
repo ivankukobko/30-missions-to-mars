@@ -36,7 +36,11 @@ type ColonyProp = Extract<Prop, { kind: 'colony' }>;
  */
 function cellBudget(flown: number, points: number, isFirstMission: boolean): number {
   if (isFirstMission) return FIRST_MISSION_CELLS;
-  return Math.round(BASE_CELLS + PER_MISSION_CELLS * flown + PER_POINT_CELLS * points);
+  const ramped = Math.min(flown, RAMP_MISSIONS);
+  const full = Math.max(0, flown - RAMP_MISSIONS);
+  return Math.round(
+    BASE_CELLS + RAMP_PER_MISSION_CELLS * ramped + PER_MISSION_CELLS * full + PER_POINT_CELLS * points,
+  );
 }
 
 /**
@@ -66,7 +70,26 @@ function cellBudget(flown: number, points: number, isFirstMission: boolean): num
  * whole intent: space should decide a colony's size, not a coefficient.
  */
 const BASE_CELLS = 10;
-const PER_MISSION_CELLS = 10;
+const PER_MISSION_CELLS = 7;
+/**
+ * A slower rate for a corp's own first few missions, so the jump off `FIRST_MISSION_CELLS`
+ * reads as a start rather than a reveal.
+ *
+ * The steady-state rate is tuned for a colony already standing — a mission-to-mission
+ * addition next to what is already there. Applied from mission 1 of a corp's own sequence,
+ * the same rate instead measures a jump off a floor held at three cells by design (see
+ * `FIRST_MISSION_CELLS`), and the two are not the same quantity: three missions in, the raw
+ * formula already answers as if a colony had been standing for that long, so mission 3 reads
+ * as a reveal of a city that was apparently there all along rather than as one more
+ * building going up. `RAMP_MISSIONS` of `RAMP_PER_MISSION_CELLS` first, then
+ * `PER_MISSION_CELLS` — a slower opening act, and `PER_MISSION_CELLS` itself came down
+ * alongside it (10 to 7): without that, the mission right after the ramp ends buys as much
+ * in one jump as the whole ramp bought across five, which reads as a jolt rather than a
+ * resumption — and on a seed where a route has already narrowed the corp's own floor by
+ * then, that jolt has nowhere left to go but up.
+ */
+const RAMP_PER_MISSION_CELLS = 3;
+const RAMP_MISSIONS = 5;
 /**
  * Per landing point, where a landing is scored 0–100 (`scoreLanding`).
  *
