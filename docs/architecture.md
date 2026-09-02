@@ -185,11 +185,13 @@ Two other things came out of that profiling:
 | `src/core/EpilogueFall.ts` | The ending's timing: the stalled handshake, the beacon, the cut |
 | `src/campaign/SaveData.ts` | Preferences, save slots and playthrough history |
 | `src/campaign/FuelBudget.ts` | What a mission's fuel is unavoidably spent on |
+| `src/testing/Autopilot.ts` | A reference pilot: consistent rather than good |
+| `src/testing/flyMission.ts` | Flying a mission headlessly, on the real physics |
 | `src/ui/Interface.ts` | HUD, briefs, results, target marker |
 
 ## Tests
 
-575 tests, run in the container:
+578 tests, run in the container:
 
 ```bash
 docker compose run --rm --no-deps app sh -c "npm run typecheck && npm test"
@@ -222,6 +224,13 @@ What they are actually for:
   `npm run fuel:report` prints it per mission. The spread is 27 points today (15% of the
   tank on mission 2, 42% on mission 13), which means the same flying does not score the
   same everywhere; the test ratchets it so it cannot widen while that is decided.
+- **What a run actually scores.** `FuelBudget` bounds what a mission costs; the
+  reference pilot in `src/testing/` flies it. One controller, the same on every mission,
+  on the real `LanderBody` against the real `PhysicsWorld` with the colony built into it —
+  so any difference between two missions is a difference in the missions. It lands 20 of
+  29 and scores **64 to 78 points**, a spread that straddles the A/B boundary at 66. The
+  nine it cannot fly are the deliveries whose approach is not vertical, which need a path
+  follower rather than a descend-and-translate profile. `npm run pilot:report`.
 - **Campaign pacing, not just legality.** `ColonyBalance.test.ts` asserts the things a
   legality check cannot see: that the canyon closes in across every stretch of the
   campaign, that a charter builds on its own missions, that flying well buys visible
