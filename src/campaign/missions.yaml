@@ -336,13 +336,13 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          The array has been reading the seam for a season. Same story every night — richer rock further down, and more small quakes each time. Helion read the same and stopped, if Helion's got anyone to do the reading. We act on it.
+          The array has been reading the seam for a season. Same story every night — richer rock further down, more small quakes each time. Helion read the same and stopped, if there is anyone at Helion to do the reading. You two related, tin can?
       - sender: KESSLER DEEP
         content: >-
-          This liner is the last thing you bring me on the surface. From tomorrow we take Ixion's old working down — a proper shaft, straight down the hole they started.
+          Anyway. This liner is the last thing you bring me on the surface. From tomorrow we take Ixion's old working down — a proper shaft, straight down the hole they started.
       - sender: KESSLER DEEP
         content: >-
-          Heaviest load you have carried for us, tin can, and the deck has not grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER DECK.
+          Heaviest load you have carried for us, and the deck has not grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER DECK.
 
   - id: 14
     sol: 190
