@@ -336,6 +336,57 @@ it a step — full pull until one cell away, then nothing — was tried with `W_
 and every tip dies on arrival. Kessler finished the campaign with a single cell on two of
 five seeds.
 
+### A raised deck is held up, not merely leaned toward
+
+**A charter builds a supported column to its own mid-air deck before it spends budget on
+anything else** (`spine`, derived in `ColonyPlan`, placed in `growColony` ahead of free
+growth). Candidate columns are tried from the deck's own axis outward to
+`MAX_CANTILEVER`, the highest-reaching one wins, and an offset column finishes with a
+horizontal bracket back under the deck — each cell of which costs one step of reach,
+which is exactly why the search never offers a column further out than the cantilever
+allows.
+
+Gravity toward elevated pads (`apex`) was supposed to do this and cannot. A weight biases
+a direction; it does not guarantee an arrival. Measured over 208 deck-missions on eight
+seeds before the spine existed: **63% had no cell of the deck's own charter beneath it**,
+only 3% touched it from below, and the nearest own cell sat a median of 20 units from the
+deck edge. `buildPad` draws no legs and no tower, so those decks were slabs in open air.
+
+Counting cells *alongside* the deck as well — a room bracketed off a wall, which reads
+perfectly well — only lifts that to 39% held.
+
+### A deck's x comes from its charter's wall, not from a number
+
+The spine alone got support to 71%. The rest was not a growth problem at all: the crest
+decks were authored at a fixed `x` of ∓36 while the canyon's floor edge moves with the
+seed by more than fifty units, and each charter's colony moves with it. On seed 0 Helion
+spans [−126, −66] and its deck sat at −36 — thirty units clear of the entire colony, on
+ground no growth rule could ever have reached, because it was not Helion's ground.
+
+`xFromWall: 'east' | 'west'` resolves a deck to `floorEdgeAt(0, side)` at load, the same
+way a shaft deck resolves off its bore. It is the rule the codebase already states —
+prefer deriving a dimension over authoring one when a constraint fixes it — applied to
+the one number that had no business being typed. **Support went to 100% of 208
+deck-missions across eight seeds**, and `ColonyBalance.test.ts` holds it there.
+
+### The budget must always move when the campaign does
+
+`FIRST_MISSION_CELLS` held a corp's *own debut* at three cells, and `colonyBudget` was
+being used on missions 6 and 7 as a floor to get stack under a crest deck. Between them
+they froze the middle of the campaign: a charter jumped to 30 on its first mission,
+dropped to 3 on its second, and because growth never removes cells it simply sat at 30
+until the formula caught up eight missions later. Helion did not move from mission 6 to
+20; Kessler from 7 to 19. Total cells across all three corps went 92 at mission 8 and 91
+at mission 20 — while mission 8's brief tells the player, in so many words, that "the gap
+you fly closes a little more each mission."
+
+Two corrections. The opening floor is the *campaign's* first mission, not each corp's —
+its whole purpose is that the first canyon the player ever sees reads as unclaimed, which
+is not the situation a charter arriving at mission 6 is in. And `colonyBudget` is a cap
+only; one field meaning both "hold this down" and "prop this up" is what let a
+deck-support patch silently cost thirteen missions of pacing. Deck support is not a budget
+problem and is not solved there any more.
+
 ### Sideways branches
 
 Support is a bounded **reach**, not a binary: a cell may cantilever up to `MAX_CANTILEVER`

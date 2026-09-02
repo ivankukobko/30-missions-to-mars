@@ -2,10 +2,15 @@
 
 ## Colony as Difficulty Curve
 
-Caves, gantries, towers and platforms are **authored props, not terrain**. That is the
-trick that makes overhangs possible: a heightfield has one Y per (x, z) and can never
-express a ceiling, but a structure the colonists *built* can. Excavations do modify the
-terrain, but only downward — the roof that turns a pit into a cave is a separate prop.
+Colony structures and cave roofs are **props, not terrain**. That is the trick that makes
+overhangs possible: a heightfield has one Y per (x, z) and can never express a ceiling,
+but a structure the colonists *built* can. Excavations do modify the terrain, but only
+downward — the roof that turns a pit into a cave is a separate prop.
+
+Of those props only `caveRoof`, `pad`, `radar` and `relay` are still authored. The
+`tower`/`gantry`/`mast`/`platform` kinds this section used to name are gone: every
+structure in the canyon is now grown by `ColonyPlan.planColonies` from the charter's own
+mission history and the player's own scores.
 
 The world for mission N is every addition from missions 1…N. The invariant that has to
 hold is that the world is a pure function of *where you are in the campaign*: retrying
@@ -66,6 +71,20 @@ See `docs/plans/mycelial_colony_growth.md` for how growth consumes this.
 
 The campaign runs in six phases: the descent, the corporations arriving, the corridor
 closing, the digging, the abyss opening, and the gauntlet.
+
+### Nothing the player lands on is floating
+
+An elevated deck is drawn as a deck, corner posts, rings and a light — **no legs and no
+tower**. So a raised pad with nothing under it is a slab in mid-air, and for most of the
+campaign's life that is what the two crest decks were: measured over 208 deck-missions on
+eight seeds, 61% had no structure of their own charter anywhere near them.
+
+Two mechanisms hold them up now, and they fix different halves of it. `spine` makes a
+charter build a supported column to its own deck before spending budget elsewhere;
+`xFromWall` stops the deck being authored somewhere its charter never builds, by deriving
+its x from that charter's own canyon wall instead of a fixed number the seed moves the
+canyon out from under. Together they are at 100%, and `ColonyBalance.test.ts` fails if
+that slips.
 
 ## Landmarks
 

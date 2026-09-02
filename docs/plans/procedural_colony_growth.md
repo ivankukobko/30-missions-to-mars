@@ -2,16 +2,17 @@
 
 ## Status
 
-**Live in the campaign.** `Missions.synthesizeColonies` appends one grown colony per
-active corp to every mission's world — Ixion centre-rooted from mission 1, Helion and
-Kessler wall-rooted from their own first missions, growing toward the centre per the
-lore. Maturity comes from how far into its own mission sequence a corp is; density
-("quality") from the player's best-rank record (`Progress.ranks`) — fly better for a
-corp and its colony visibly builds better, rooms over scaffold. All of it is a pure
-function of `(campaign position, mastX/Y, ranks, seed)`, so a retry rebuilds an
-identical world; `Missions.test.ts` asserts the purity, the per-corp placement, the
-rank→density monotonicity, and — campaign-wide, every mission × every mast position —
-that no colony ever violates a pad's layout rules.
+**Superseded, and kept as a record.** The voxel/WFC-lite model this describes is gone;
+`docs/plans/mycelial_colony_growth.md` is the live one. Nothing below is true of the
+running game any more — `Missions.synthesizeColonies` does not exist (growth is
+`ColonyPlan.planColonies`), density no longer comes from `Progress.ranks` (it comes from
+`Progress.points`, which is continuous where a rank is four buckets), and the mission-19
+decommission it cites is mission 18.
+
+It is worth keeping for the argument rather than the mechanism: the shrink behaviour
+below is the problem the mycelial model had to solve too, and the answer it arrived at —
+a colony may only lose ground to a route that did not exist last mission — was written
+against exactly this failure.
 
 One behaviour worth knowing about rather than discovering: a colony can *shrink*
 between missions when a newly built pad reserves a corridor through cells it had grown

@@ -13,44 +13,15 @@ Instant death on contact, which raises the bar on fairness considerably:
 - Pads sit slightly *above* the terrain, so touchdown resolves against exactly one
   collider rather than racing a coincident ground segment.
 
-### Moving Structures
+### Structures that move
 
-Platforms and gantries take an optional `motion` — a travelling deck, a gantry on a rail —
-and the collision world has a second tier for them. No mission uses one yet; the
-capability exists and the level design does not.
-
-The split is about indexing, not about what the geometry is. Static colliders are
-bucketed on x once at insertion, because there are thousands of them and they never move.
-Moving colliders live in a flat list that is scanned in full, because there are only ever a
-handful and the bucket key is derived from x — anything travelling horizontally would
-invalidate its own index every frame.
-
-Three things make this cheap rather than the beginning of a physics engine:
-
-- **Nothing is dynamic.** Bodies follow an authored path and are unmoved by what they hit.
-  Contact is terminal, so a moving hazard only ever has to be *detected*, never resolved —
-  no impulses, no friction, no resting contact, none of the machinery that is actually hard.
-- **Motion is a pure function of mission time**, and mission time is the fixed-step count
-  since the mission loaded. Nothing reads a wall clock. A crane phased off `performance.now()`
-  would break the campaign's foundation silently and in the one direction a player cannot
-  argue with: fail a run, retry, find the hazard somewhere else.
-- **Within a substep a moving segment is stationary**, which keeps the query identical to
-  the static one. That is sound below a stated bound — a surface travelling more than the
-  hull *diameter* between two poses leaves a band the vehicle could occupy at both instants
-  without overlapping it, and flies clean through. At 120 Hz and a 0.62 hull that is about
-  149 u/s, faster than the lander's own entry velocity. `KinematicWorld.unsafeAt` reports
-  anything over it at mission load rather than clamping, because a structure quietly running
-  slower than authored is a level-design change made behind the author's back.
-
-The layout rules judge a moving prop by the airspace it **sweeps**, not where it rests.
-Without that a gantry authored clear of a pad, whose stroke carries it through that pad's
-approach corridor, passes every check — and the mission becomes unflyable with nothing in
-the source connecting the two. A travelling span that does intrude is *reported* rather
-than trimmed or slid, like a tower: its span is a machine's stroke on a rail, and reshaping
-it would be the resolver redesigning working hardware to satisfy a rule.
-
-Rotation is not modelled. A swinging jib needs a rotational sweep to be collided honestly;
-translation covers the structures the colony would plausibly build.
+There are none, and there is no machinery for them any more. `Kinematics.ts` and the
+`PhysicsWorld` moving tier were removed once it was clear nothing could ever populate
+them: no `Prop` kind carried a `motion`, so `addMoving` was only ever called from the
+module that defined it, and the flat list it scanned was empty on every frame the game
+has ever run. `PhysicsWorld`'s own header records the shape it had, for whoever wants it
+back — a scanned list rather than a bucketed one, posed from `missionTime` so a retry
+replays it, and bounded by hull diameter per substep so nothing tunnels through.
 
 ### Rendering between steps
 
@@ -188,14 +159,21 @@ Two other things came out of that profiling:
 | `src/world/AntFarm.ts` | Those cells as one indexed mesh on a shared vertex lattice |
 | `src/world/Shaft.ts` | Bore direction and mount, all that is left of the tube model |
 | `src/world/Colony.ts` | Authored props, their colliders and the backdrop settlement |
-| `src/physics/PhysicsWorld.ts` | Bucketed static world plus a scanned moving tier, swept-circle queries |
-| `src/physics/Kinematics.ts` | Structures that move, posed from the mission clock |
-| `src/entities/Airframe.ts` | The two vehicles as data: flight model and engine layout |
+| `src/physics/PhysicsWorld.ts` | Bucketed static world, swept-circle queries |
+| `src/entities/Airframe.ts` | The four airframes as data: flight model and engine layout |
 | `src/entities/LanderBody.ts` | Integration, thrust, mass, contact resolution — no renderer |
 | `src/entities/Lander.ts` | The vehicle you can see, wrapped around the one that flies |
 | `src/entities/Effects.ts` | Pooled dust and smoke |
-| `src/campaign/Missions.ts` | The 30-mission table and the colony ledger |
+| `src/campaign/Missions.ts` | The 29-mission table (parsed from `missions.yaml`) and the authored ledger |
 | `src/campaign/Layout.ts` | The rules a pad imposes on everything built after it |
+| `src/campaign/ColonyPlan.ts` | Composition root for growth: campaign facts in, colony props out |
+| `src/campaign/ColonyChannels.ts` | Every live pad's flight route to the rim, as reserved airspace |
+| `src/campaign/TerrainDigs.ts` | Resolving wall-anchored excavations and deck attachments against real terrain |
+| `src/world/ColonyOrganism.ts` | The growth simulation itself — filaments, support, budget |
+| `src/world/ColonyLattice.ts` | The one place a column becomes a coordinate |
+| `src/world/ColonySubstrate.ts` | What each cell is made of, sampled from the rock |
+| `src/world/ColonyRender.ts` | Grown cells as vessels, frames and cages |
+| `src/testing/canyonFixture.ts` | Built canyons shared between tests, cached on the dig signature |
 | `src/campaign/Progress.ts` | Seed, unlocks, ranks, landing score |
 | `src/core/CameraDirector.ts` | The rim transition, framed rather than guessed |
 | `src/core/InputManager.ts` | Keyboard and multi-touch, normalised to one state |
@@ -205,10 +183,22 @@ Two other things came out of that profiling:
 
 ## Tests
 
-307 tests, run with `docker compose exec app npm test`. They cover the simulation rather
-than the rendering, which is the line the modules are drawn along: `Noise`,
-`PhysicsWorld`, `Layout`, `Missions`, `Progress` and `LanderBody` import no renderer and
-test in plain Node.
+526 tests, run in the container:
+
+```bash
+docker compose run --rm --no-deps app sh -c "npm run typecheck && npm test"
+```
+
+They cover the simulation rather than the rendering, which is the line the modules are
+drawn along: `Noise`, `PhysicsWorld`, `Layout`, `Missions`, `Progress`, `LanderBody` and
+the colony's own model import no renderer and test in plain Node.
+
+The suite runs test *files* in parallel by default, so its wall time is whatever its
+slowest file is rather than the sum. Two files dominate and both are terrain-bound; a
+canyon build is about 450 ms and used to be repeated for every case that needed one.
+`canyonFixture` caches builds on the **dig signature** rather than the mission id — the
+campaign only ever reaches five distinct dig states, so twenty-nine ids collapse onto five
+builds — which took the suite from 32 s to 12 s without dropping a single case.
 
 What they are actually for:
 
@@ -216,14 +206,22 @@ What they are actually for:
   the lander falling through the world and the mission ending for no visible reason. The
   sweep is tested against steps far larger than the hull, at every descent rate from 10 to
   400 u/s.
-- **The campaign ledger.** `checkLayout(worldAt(id, mastX))` is asserted clean for all
-  twenty-nine missions across ten radar positions. This check already existed but only as a
-  `console.warn` behind the DEV flag, which is exactly why a live violation sat unnoticed
-  in it — see the radar note in [Colony Documentation](colony.md).
+- **The campaign ledger.** `checkLayout` is asserted clean for every mission across
+  several seeds, against the *real* pipeline — terrain, resolved digs, grown colonies and
+  their colliders — rather than against the authored ledger alone. Two faults lived in
+  that gap and both had to be found by flying the game.
+- **Campaign pacing, not just legality.** `ColonyBalance.test.ts` asserts the things a
+  legality check cannot see: that the canyon closes in across every stretch of the
+  campaign, that a charter builds on its own missions, that flying well buys visible
+  cells, and that nothing the player lands on is floating. Every one of those was wrong at
+  some point while every legality test stayed green. `npm run colony:report` prints the
+  tables behind them, which is the tuning loop.
+- **The briefs.** Who speaks, what they call you, where an interruption lands, and that
+  Helion's mass allowance still equals the ceiling minus everything consigned. Prose
+  drifts, and these are the rules no reader can check by eye.
 - **Frame-rate independence.** `damp` is asserted to land in the same place whether the
   time is taken in one step or a thousand, and a 30 Hz and a 144 Hz budget are compared
-  directly. Frame-rate-dependent damping is the classic way for a lander to play
-  differently on different machines.
+  directly.
 - **Terrain stability.** `heightAt` is pinned to a golden sample for a fixed seed, so the
   landscape cannot change by accident. Continuity is asserted across both axes: every
   discontinuity this generator has shipped was a crease along an axis, and each was
