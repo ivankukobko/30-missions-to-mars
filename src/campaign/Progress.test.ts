@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { Progress, scoreLanding, type ProgressStore, type Rank } from './Progress.ts';
+import { Progress, scoreLanding, summarise, type ProgressStore, type Rank } from './Progress.ts';
 
 /** In-memory stand-in for localStorage. */
 function memoryStore(seed?: string): ProgressStore & { raw(): string | null } {
@@ -307,5 +307,42 @@ describe('scoreLanding', () => {
     expect(score.fuelPct).toBeCloseTo(0.5, 6);
     expect(score.touchdownSpeed).toBe(1.25);
     expect(score.offset).toBe(3.5);
+  });
+});
+
+describe('summarise', () => {
+  function flown(entries: Array<[number, Rank, number]>): Progress {
+    const progress = new Progress(memoryStore());
+    for (const [id, rank, points] of entries) progress.complete(id, rank, points);
+    return progress;
+  }
+
+  it('folds the campaign into the figures the closing card shows', () => {
+    const summary = summarise(flown([[1, 'S', 90], [2, 'B', 50], [3, 'A', 70]]), 30);
+
+    expect(summary.delivered).toBe(3);
+    expect(summary.ofTotal).toBe(30);
+    expect(summary.totalPoints).toBe(210);
+    expect(summary.averagePoints).toBeCloseTo(70, 5);
+    expect(summary.tally).toEqual({ S: 1, A: 1, B: 1, C: 0 });
+    expect(summary.best).toEqual({ id: 1, points: 90 });
+    expect(summary.worst).toEqual({ id: 2, points: 50 });
+  });
+
+  /** Two runs on the same score must not report a different "best" between two openings
+   *  of the same card — the fold is over an object, whose order is not a guarantee. */
+  it('breaks a tie on mission id, so the same card reports the same run twice', () => {
+    const a = summarise(flown([[5, 'A', 70], [2, 'A', 70]]), 30);
+    const b = summarise(flown([[2, 'A', 70], [5, 'A', 70]]), 30);
+    expect(a.best).toEqual({ id: 2, points: 70 });
+    expect(b.best).toEqual(a.best);
+  });
+
+  it('reports an untouched campaign without dividing by zero', () => {
+    const summary = summarise(new Progress(memoryStore()), 30);
+    expect(summary.delivered).toBe(0);
+    expect(summary.averagePoints).toBe(0);
+    expect(summary.best).toBeNull();
+    expect(summary.worst).toBeNull();
   });
 });

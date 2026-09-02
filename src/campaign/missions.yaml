@@ -102,8 +102,6 @@ missions:
         - kind: pad
           corp: outpost
           id: outpost-main
-          col: 18
-          row: 0
           x: -14
           width: 16
 
@@ -162,14 +160,6 @@ missions:
     start: { x: -7, y: 1250 }
     target: helion-crest
     failDepth: -60
-    # A charter's first mission normally gets FIRST_MISSION_CELLS — three cells, so the
-    # canyon the player first sees reads as unclaimed. That is right for mission 1 and
-    # wrong the moment a corp's *first* mission also raises a deck: the crest sits six
-    # rows up and three cells cannot reach it, so the platform this brief calls "live"
-    # hung in mid-air with a 56-unit gap beneath it. Thirty is what mission 7 grants
-    # anyway, and at that budget the stack closes to within a deck's own thickness.
-    colonyBudget:
-      helion: 30
     messages:
       - sender: HELION EXTRACTION
         content: >-
@@ -182,9 +172,10 @@ missions:
         - kind: pad
           corp: helion
           id: helion-crest
-          col: 14
-          row: 12
+          # Placeholder. `xFromWall` resolves this to Helion's own wall, which moves with
+          # the seed — see the field's own comment in Colony.ts.
           x: -34
+          xFromWall: west
           y: 73
           width: 14
 
@@ -198,10 +189,6 @@ missions:
     start: { x: 7, y: 1250 }
     target: kessler-crest
     failDepth: -60
-    # Kessler's own first mission raises its own deck — the same case as mission 5, and it
-    # was floating on every seed measured. See the note there.
-    colonyBudget:
-      kessler: 30
     messages:
       - sender: KESSLER DEEP
         content: >-
@@ -220,9 +207,9 @@ missions:
         - kind: pad
           corp: kessler
           id: kessler-crest
-          col: 27
-          row: 12
+          # Placeholder — resolved to Kessler's own wall. See `helion-crest`.
           x: 40
+          xFromWall: east
           y: 73
           width: 14
 
@@ -399,6 +386,30 @@ missions:
   - id: 15
     sol: 215
     client: kessler
+    # TODO — depth is no longer stated in metres anywhere the shaft sinks (this brief, 19,
+    # 20 and 24), and that is groundwork rather than tidying.
+    #
+    # The figures had drifted from the drawing they describe: mission 19 promised "another
+    # hundred and thirty metres" against a dig that goes 58 → 172, which is 114, and
+    # mission 20 measured its new floor "under the rim" while 15 and 24 measured theirs
+    # under the floor. Three numbers, three different ways of being not-quite-right, none
+    # of them checkable by a player and all of them checkable by anyone reading the YAML.
+    #
+    # The reason to remove rather than correct them: **the intention is to bind shaft depth
+    # to the colony budget**, so a campaign flown well digs deeper than one scraped through.
+    # The moment depth is earned rather than authored, every metre figure in a brief is a
+    # claim the campaign cannot keep. Kessler measures in felt time rather than tally
+    # anyway — see `sol`'s comment in Missions.ts — so "a long way further" is his register
+    # more than "a hundred and thirty metres" ever was.
+    #
+    # One number is left: mission 29's "three hundred metres of— / —of hole", which is the
+    # campaign's last line and carries a beat rather than a measurement. It wants an
+    # author, not a find-and-replace.
+    #
+    # Binding depth also has to answer: `failDepth` is authored per mission and bounds the
+    # abyss, and `attachToDig` decks resolve off the bore's real floor. Both would have to
+    # be derived from the resulting geometry rather than typed, or a deeper shaft on a good
+    # campaign puts its own deck below the depth the relay can reach.
     payload:
       name: Shaft Lighting
       mass: 0.6
@@ -409,7 +420,7 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Pad is in at the shaft floor. Fifty-eight metres under the canyon, walls close on both sides.
+          Pad is in at the shaft floor, well under the canyon now, and the walls are close on both sides.
       - sender: KESSLER DEEP
         content: >-
           Light load on purpose today, tin can. I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Take it down the shaft. Deliver to SHAFT HEAD.
@@ -418,8 +429,6 @@ missions:
         - kind: pad
           corp: kessler
           id: shaft-head
-          col: 30
-          row: -9
           x: 60
           y: -58
           width: 12
@@ -503,8 +512,6 @@ missions:
         - kind: pad
           corp: helion
           id: shaft-gallery
-          col: 12
-          row: -2
           x: -48
           y: -12
           width: 12
@@ -526,7 +533,7 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          We take the main shaft down tonight — another hundred and thirty metres. The seam we are on is worked out. The good rock is below us now.
+          We take the main shaft down tonight, a long way further. The seam we are on is worked out. The good rock is below us now.
       - sender: KESSLER DEEP
         content: >-
           The pylons anchor the new lining, tin can. If they are not seated square, everything we hang under them comes back up the fast way.<br/><br/><b>OBJECTIVE</b> Deliver the pylons to SHAFT HEAD.
@@ -544,14 +551,14 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          The pylons held. We sank the shaft overnight and relaid the deck on the new floor, a hundred and seventy metres under the rim.
+          The pylons held. We sank the shaft overnight and relaid the deck on the new floor, further under the canyon than anything you have flown to yet.
       - sender: KESSLER DEEP
         content: >-
           The bore is barely wider than your gear now and there is no room to fix a bad line once you are in it. Get it right above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver the cable to SHAFT LEDGE.
     adds:
       # The sinking mission 19's pylons paid for, carved *after* that delivery rather than
-      # before it — which is what its own brief says ("goes down another hundred and thirty
-      # metres tonight") and what the decks need. `shaft-head`'s deck is `attachToDig`,
+      # before it — which is what its own brief says ("we take the main shaft down tonight")
+      # and what the decks need. `shaft-head`'s deck is `attachToDig`,
       # so carving this a mission early dropped the working deck to -169 for mission 19 and
       # then stood the next one back up at -45: a 124-unit climb in the one direction this
       # shaft is only ever supposed to go.
@@ -598,8 +605,6 @@ missions:
         - kind: pad
           corp: kessler
           id: shaft-ledge
-          col: 30
-          row: -7
           x: 60
           # Placeholder. `attachToDig` resolves both from the bore's real floor — see
           # mission 15's deck, authored the same way.
@@ -662,6 +667,19 @@ missions:
   - id: 23
     sol: 436
     client: outpost
+    # TODO — proof-read "Ten years of contracts, every one auto-filed".
+    #
+    # It does not survive the calendar if it is about this canyon. Helion made orbit on
+    # sol 48 and filed its first contract on sol 14 (4471-C, the notice of interest); this
+    # brief is sol 436, so the whole Helion presence here is a bit over a Mars year and one
+    # contract number. Ixion's own eleven years on this floor (missions 3 and 4) is the
+    # figure that *is* eleven, which is a likely source of the drift.
+    #
+    # It reads fine if it is about Helion's dealings *before* the canyon — a charter Ixion
+    # has watched auto-file for a decade elsewhere — and the line does not actually say
+    # which. Left standing rather than patched, because deciding that is a lore call: it is
+    # either a small slip or a deliberate widening of Helion's history, and only the author
+    # knows which was meant. See docs/lore.md.
     payload:
       name: Evacuation Order
       mass: 0.2
@@ -693,7 +711,7 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          We broke into the chasm and the shaft dropped with it. Three hundred metres down now, deck and all. Below the old ledge the walls squeeze in and the fog goes black.
+          We broke into the chasm and the shaft went down with it, deck and all. Below the old ledge the walls squeeze in and the fog goes black.
       - sender: KESSLER DEEP
         content: >-
           Down there the optical feed and the altimeter will not agree. Trust the altimeter. It is the one that is right.<br/><br/><b>OBJECTIVE</b> Deliver the lighting rig to SHAFT DEEP.
@@ -754,8 +772,6 @@ missions:
         - kind: pad
           corp: kessler
           id: shaft-deep
-          col: 30
-          row: -23
           x: 60
           # Placeholder — `attachToDig` resolves it to the new floor.
           y: -300
@@ -859,10 +875,16 @@ missions:
     # the reason: mission 2's opening line comes back verbatim over a channel nobody is
     # left to transmit on.
     #
-    # **Kessler describes a charge a third of the weight of the one you are carrying.** He
-    # says six hundred kilos and the manifest says 1.8 — the heaviest thing anybody has
+    # **Kessler describes a charge well under half the weight of the one you are carrying.**
+    # He says seven hundred kilos and the manifest says 1.8 — the heaviest thing anybody has
     # flown here except the containment shell — and nothing in the campaign ever reconciles
     # the two numbers.
+    #
+    # The figure is the cutting charges' own mass, and it has to stay that way: the line
+    # points at a payload the player has actually flown (mission 12), so the number is
+    # checkable against the manifest of a run they remember. It read "six hundred" for a
+    # while against a 0.7 t payload, which made the one number in the campaign that is
+    # *supposed* to be wrong wrong for the wrong reason.
     #
     # The discovery is meant to happen in the player's hands, not on a card. After
     # twenty-eight deliveries they know what a light load feels like, and this one will not
@@ -879,7 +901,7 @@ missions:
     # charter who has no way to know the story is about to end.
     #
     # **"navigator" is caused here, and that is a deliberate trade.** An earlier cut had the
-    # name arrive uncaused — the one deviation in eleven runs, never explained. It is
+    # name arrive uncaused — the one deviation in ten runs, never explained. It is
     # motivated now: Kessler breaks the charter reticence he kept at mission 26 ("not
     # something I have the time to chase") and says plainly what the quiet on the outpost
     # channel meant. Speaking of the crew as people — once — is what costs him the category
@@ -899,7 +921,7 @@ missions:
           Going on a year down this mouth and it still is not done with us. Down the hole the outpost started, and every metre under that first stretch you put there yourself.
       - sender: KESSLER DEEP
         content: >-
-          Six hundred kilos, same as the cutting charges — you have flown this one before. Nobody else is on the canyon now.
+          Seven hundred kilos, same as the cutting charges — you have flown this one before. Nobody else is on the canyon now.
       - sender: KESSLER DEEP
         content: >-
           The outpost did not pull out, navigator. Nobody pulls out of here. I heard their channel go quiet — one at a time, until there was nobody left keying it. So it is you, me, and three hundred metres of—

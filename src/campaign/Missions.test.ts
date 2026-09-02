@@ -129,8 +129,13 @@ function resolvedWorldAt(id: number, mastX: number | null = null): { props: Prop
  * as a machine rather than as a terse person — and re-deriving them later would be worse
  * than repairing them.
  *
- * **Un-skip when the campaign settles**, in one pass against the final text. Grep `it.skip`
- * in this file to find them.
+ * **Re-armed**, in one pass against the final text now that all twenty-nine briefs and the
+ * epilogue are authored. Eleven of the twelve passed unchanged; the twelfth was failing on
+ * a stale *assertion* rather than stale prose — `[3, 15, 19, 30]` from the numbering that
+ * had the prologue at id 0 and the campaign running to 30, against the `[3, 14, 18, 29]`
+ * the campaign has actually had since. That is the argument for turning them back on
+ * rather than deleting them: the rules held across a full authoring pass, and the only
+ * thing that had rotted was a hand-typed list of mission ids.
  *
  * Everything still running is one of two things: a layout constraint the UI actually
  * breaks on (the 240-character card cap, an objective that has to be on the last card
@@ -262,7 +267,7 @@ describe('getMission', () => {
 describe('worldAt accumulation', () => {
   it('builds nothing but the ledger up to the given mission', () => {
     // Mission 1's own `adds` are empty, and — unlike before colony generation moved to
-    // `ColonyGeneration.ts` — nothing else fills the gap: `worldAt` no longer bakes in
+    // `ColonyPlan.ts` — nothing else fills the gap: `worldAt` no longer bakes in
     // Ixion's colony (or any corp's) at all. See docs/plans/procedural_colony_growth.md.
     //
     // The dead relays are excluded rather than counted. They are not ledger: nothing
@@ -279,7 +284,7 @@ describe('worldAt accumulation', () => {
     // allowed to fall by exactly that pad. Colonies are no longer part of this count at
     // all — `worldAt` doesn't produce them any more — so the fluctuation a grown
     // colony's own territory contention can cause isn't this test's concern any more
-    // either; that's `ColonyGeneration.test.ts` now.
+    // either; that's `ColonyPlan.test.ts` now.
     let previous = 0;
     for (const id of IDS) {
       const count = worldAt(id, 0).props.length;
@@ -428,14 +433,14 @@ describe('who the briefs are talking to', () => {
    * prose drifts, so the vocabulary that would quietly reintroduce a human pilot is
    * asserted against rather than left to whoever writes the next mission.
    */
-  it.skip('never addresses a human pilot', () => {
+  it('never addresses a human pilot', () => {
     const human = /\b(pilots?|stick|cockpit|panel|by hand|your (eyes|hands|gut))\b/i;
     for (const b of briefs) {
       expect(`M${b.id}: ${b.text}`).not.toMatch(human);
     }
   });
 
-  it.skip('lets Ixion name you, and only after you have earned it', () => {
+  it('lets Ixion name you, and only after you have earned it', () => {
     const ixion = briefs.filter((b) => b.client === 'outpost' && b.id !== PROLOGUE.id);
     const first = ixion[0];
 
@@ -447,7 +452,7 @@ describe('who the briefs are talking to', () => {
     for (const b of ixion.slice(1)) expect(b.text).toMatch(/navigator/i);
   });
 
-  it.skip('has Kessler use the same name throughout, and drop it when it matters', () => {
+  it('has Kessler use the same name throughout, and drop it when it matters', () => {
     const kessler = briefs.filter((b) => b.client === 'kessler');
     const named = kessler.filter((b) => /tin can/i.test(b.text));
 
@@ -460,12 +465,12 @@ describe('who the briefs are talking to', () => {
     }
   });
 
-  it.skip('gives the last word in the campaign to the name Ixion gave you', () => {
+  it('gives the last word in the campaign to the name Ixion gave you', () => {
     const last = briefs[briefs.length - 1];
 
     expect(last.id).toBe(29);
     expect(last.client).toBe('kessler');
-    // The single deviation in eleven runs, two missions after Ixion goes off the air.
+    // The single deviation in ten runs, two missions after Ixion goes off the air.
     expect(last.text).toMatch(/navigator/i);
     expect(last.text).not.toMatch(/tin can/i);
     const others = briefs.filter((b) => b.client === 'kessler' && b.id !== 29);
@@ -782,7 +787,7 @@ describe('brief cards', () => {
     }
   });
 
-  it.skip('interrupts a contract four times, and never lets the interruption end it', () => {
+  it('interrupts a contract four times, and never lets the interruption end it', () => {
     // 3 is Helion noticing the outpost exist, 15 is Kessler opening the floor, 19 is
     // Helion abandoning the surface, and 30 is the one nobody can be sending.
     //
@@ -795,7 +800,7 @@ describe('brief cards', () => {
       );
 
     const cutIn = MISSIONS.filter((m) => outsiders(m).length > 0);
-    expect(cutIn.map((m) => m.id)).toEqual([3, 15, 19, 30]);
+    expect(cutIn.map((m) => m.id)).toEqual([3, 14, 18, 29]);
 
     for (const m of cutIn) {
       // Never the last word: the client resumes, and the address is still theirs to give.
@@ -807,7 +812,7 @@ describe('brief cards', () => {
     }
   });
 
-  it.skip('interrupts the outpost once, at the start, and lets them do it three times at the end', () => {
+  it('interrupts the outpost once, at the start, and lets them do it three times at the end', () => {
     // The campaign's shape in one assertion. Mission 3 is the only time Ixion is cut into
     // — a machine that has heard their assay and is not addressing them about it — and
     // every interruption after it is Ixion doing the cutting.
@@ -829,7 +834,7 @@ describe('brief cards', () => {
     expect(ixionCutting.map((m) => m.id)).toEqual([14, 18, 29]);
   });
 
-  it.skip('gives mission 1 the last word, in mission 29, unchanged', () => {
+  it('gives mission 1 the last word, in mission 29, unchanged', () => {
     // The first sentence the player ever read, returning as the last — verbatim, because
     // a paraphrase is a reference and the same string is a recurrence. It carries no
     // name, which is what keeps Kessler's "navigator" three cards later his own choice
@@ -848,7 +853,7 @@ describe('brief cards', () => {
     expect(card.body).not.toMatch(/navigator/i);
   });
 
-  it.skip('repeats a person across their cards, and lets a document change heading', () => {
+  it('repeats a person across their cards, and lets a document change heading', () => {
     // A charter with somebody behind it is the same somebody on card three, so the
     // eyebrow repeats. That is also what will make a *changed* sender legible on the day
     // a rival cuts in mid-brief: the name is on every card, so a different one is a
@@ -906,7 +911,7 @@ describe('brief cards', () => {
 describe('the Helion contract form', () => {
   const helion = MISSIONS.filter((m) => m.client === 'helion');
 
-  it.skip('never speaks to anyone', () => {
+  it('never speaks to anyone', () => {
     // The other two charters address you; that is the whole point of what they call you.
     // Helion's absence of a second person is the same device with nothing behind it, and
     // one stray "you" is all it takes to put a person on the other end of the link.
@@ -946,7 +951,7 @@ describe('the Helion contract form', () => {
     }
   });
 
-  it.skip('gives no word more weight than any other', () => {
+  it('gives no word more weight than any other', () => {
     // Everything sits at one weight, including the line about whether the airframe is
     // expected back. Emphasis would mean somebody chose what mattered.
     for (const m of helion) {
@@ -1023,7 +1028,7 @@ describe('the epilogue', () => {
     expect(EPILOGUE.filter((m) => m.sender === 'KESSLER DEEP')).toHaveLength(1);
   });
 
-  it.skip('holds Helion to its own rules to the last line', () => {
+  it('holds Helion to its own rules to the last line', () => {
     const helion = body('HELION EXTRACTION');
     expect(helion).not.toMatch(/\b(you|your|yours|we|us|our|ours)\b/i);
     expect(helion).not.toContain('<b>');
@@ -1433,7 +1438,7 @@ describe('the final charge', () => {
      * 0.6 and the flight is ordinary, change the line and the flight is unexplained.
      */
     expect(last.payload.mass).toBe(1.8);
-    expect(transmission(last)).toContain('Six hundred kilos');
+    expect(transmission(last)).toContain('Seven hundred kilos');
   });
 
   it('quotes a mass the player has genuinely flown before', () => {

@@ -142,6 +142,28 @@ export interface PlacedCell {
   reach: number;
 }
 
+/** One candidate column of cells that would hold a deck up, ordered bottom-up. */
+export type SpineColumn = Array<{ col: number; row: number }>;
+
+/**
+ * One raised deck and the ways a colony could get under it.
+ *
+ * Alternatives rather than a single column because the obvious column is routinely
+ * unavailable and giving up on it leaves the deck in the sky. Measured on the first
+ * implementation, which tried only the deck's own column: Helion's ran straight into a
+ * flight channel along the canyon floor, and Kessler's hit an Ixion cell one row up.
+ * Neither is a reason the deck cannot be held up — both are a reason to stand the column
+ * a cell to one side and reach back.
+ */
+export interface SpineTarget {
+  /** The column directly under the deck — where the bracket is trying to get to. */
+  centre: number;
+  /** The highest row support may occupy: one below the deck's own, which is `forbidden`. */
+  top: number;
+  /** Candidate columns, nearest the deck's axis first. */
+  columns: SpineColumn[];
+}
+
 export interface Spore {
   corp: CorpId;
   col: number;
@@ -204,6 +226,24 @@ export interface GrowthInput {
    * That is the one way a colony can lose ground, and it is meant to be visible.
    */
   existing?: Map<number, OrganismCell>;
+  /**
+   * Cells a corp builds **before** anything else, bottom-up and charged to its budget:
+   * the column under each of its own decks that stands in open air.
+   *
+   * A raised deck is the one structure a charter cannot grow toward at its leisure — it
+   * is load-bearing from the mission it appears, and until something reaches it the deck
+   * is a slab hanging in the sky. `apex` already leaned growth that way and it was not
+   * enough by a wide margin: measured over 208 deck-missions on eight seeds, 63% had no
+   * cell of the deck's own charter beneath it and only 3% touched it from below, with the
+   * nearest own cell a median of 20 units from the deck edge. A weight cannot guarantee
+   * arrival; an ordered placement can.
+   *
+   * Ordered bottom-up so every cell rests on the one below it or on rock, which is why
+   * these can be claimed at reach 0 without consulting `reachOf` — the same footing the
+   * spore path relies on. `ColonyPlan` derives the column, because it is the only thing
+   * that knows where the decks and the terrain are.
+   */
+  spine?: Partial<Record<CorpId, SpineTarget[]>>;
 }
 
 const DIRS = [
@@ -339,7 +379,7 @@ function layerSurface(layer: number): number {
  * an engineer would actually build, and it is enough for an arm to leave a strand, find
  * ground or another arm, and become a loop.
  */
-const MAX_CANTILEVER = 2;
+export const MAX_CANTILEVER = 2;
 
 /**
  * A tip stops rather than taking the least-bad move available.
@@ -436,6 +476,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     shape = {},
     seed,
     existing,
+    spine = {},
   } = input;
   const cells = new Map<number, OrganismCell>();
   const tips = new Map<CorpId, Tip[]>();
@@ -821,6 +862,117 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     for (const corp of built.keys()) {
       corps.push(corp);
       tips.set(corp, budTips(corp, 0, RESUME_TIPS));
+    }
+  }
+
+  /**
+   * The support under each raised deck, built before the corp spends anything on itself.
+   *
+   * A raised deck is the one structure a charter cannot reach at its leisure — it is
+   * load-bearing from the mission it appears, and until something gets under it the deck
+   * is a slab hanging in the sky.
+   *
+   * **Best-effort, not all-or-nothing.** Every candidate column is simulated first and the
+   * one that climbs highest wins; ties go to the column nearest the deck's own axis, then
+   * to the cheaper one. An earlier version demanded a candidate be clear end to end and
+   * rejected it otherwise, which threw away columns that were blocked only at the very top
+   * and left the deck with nothing at all — worse than a column that gets most of the way.
+   *
+   * Rock is stepped over rather than treated as an obstacle: it carries load, so the cell
+   * above it stands on it. The corp's own structure from an earlier mission does the same.
+   * A channel or a rival's module ends that column, and the next candidate is tried.
+   *
+   * Placement goes through `reachOf` rather than assuming reach 0, because a column
+   * standing over a floor-level channel has nothing beneath its lowest cell and the
+   * no-floating rule has to catch that here exactly as it would anywhere else.
+   */
+  for (const corp of Object.keys(spine).sort() as CorpId[]) {
+    for (const target of spine[corp] ?? []) {
+      const remaining = () => budget[corp] - (built.get(corp) ?? 0);
+      if (remaining() <= 0) break;
+
+      /** How far up a candidate would actually get, and what it would cost to get there. */
+      const simulate = (column: SpineColumn) => {
+        let reached = -Infinity;
+        let cost = 0;
+        for (const cell of column) {
+          if (!lattice.inBounds(cell.col, cell.row)) break;
+          if (substrate.isSolid(cell.col, cell.row, 0)) continue;
+          const standing = at(cell.col, cell.row, 0);
+          if (standing) {
+            if (standing.corp !== corp) break;
+            reached = cell.row;
+            continue;
+          }
+          if (forbidden(cell.col, cell.row)) break;
+          cost++;
+          reached = cell.row;
+        }
+        return { reached, cost };
+      };
+
+      let best: { column: SpineColumn; reached: number; cost: number } | null = null;
+      for (const column of target.columns) {
+        const { reached, cost } = simulate(column);
+        if (reached === -Infinity || cost > remaining()) continue;
+        if (
+          !best ||
+          reached > best.reached ||
+          (reached === best.reached && cost < best.cost)
+        ) {
+          best = { column, reached, cost };
+        }
+      }
+      if (!best) continue;
+
+      let placedTop: { col: number; row: number } | null = null;
+      for (const cell of best.column) {
+        if (remaining() <= 0) break;
+        if (cell.row > best.reached) break;
+        if (substrate.isSolid(cell.col, cell.row, 0)) continue;
+        const standing = at(cell.col, cell.row, 0);
+        if (standing) { placedTop = cell; continue; }
+        const cellReach = reachOf(corp, cell.col, cell.row, 0);
+        // Nothing carries this one. Stop rather than hang a cell in the air; whatever
+        // stands below it is still real support, and a later mission tries again.
+        if (cellReach === null) break;
+        claim(corp, cell.col, cell.row, 0, cellReach);
+        placedTop = cell;
+      }
+      if (!placedTop) continue;
+
+      /**
+       * The bracket: a run along the top row back to under the deck, so an offset column
+       * still reads as the thing holding it up rather than as a separate tower nearby.
+       * Each step costs one of `MAX_CANTILEVER`, which is exactly why the caller never
+       * offers a column further out than that.
+       */
+      if (placedTop.row === target.top && placedTop.col !== target.centre) {
+        const stride = placedTop.col < target.centre ? 1 : -1;
+        for (let col = placedTop.col + stride; ; col += stride) {
+          if (remaining() <= 0) break;
+          if (!lattice.inBounds(col, target.top)) break;
+          if (substrate.isSolid(col, target.top, 0)) { placedTop = { col, row: target.top }; }
+          else {
+            const standing = at(col, target.top, 0);
+            if (standing && standing.corp !== corp) break;
+            if (!standing) {
+              if (forbidden(col, target.top)) break;
+              const cellReach = reachOf(corp, col, target.top, 0);
+              if (cellReach === null) break;
+              claim(corp, col, target.top, 0, cellReach);
+            }
+            placedTop = { col, row: target.top };
+          }
+          if (col === target.centre) break;
+        }
+      }
+
+      tips.set(corp, [
+        ...(tips.get(corp) ?? []),
+        { col: placedTop.col, row: placedTop.row, layer: 0, corp, life: TIP_LIFE, lastDir: 0, depth: false },
+      ]);
+      if (!corps.includes(corp)) corps.push(corp);
     }
   }
 

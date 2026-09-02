@@ -105,7 +105,7 @@ export class Inspector {
         <button id="dbg-prev" title="previous mission">&lt;</button>
         <button id="dbg-next" title="next mission">&gt;</button>
         <button id="dbg-prologue" title="mission zero: the UL-5 relay">prologue</button>
-        <button id="dbg-epilogue" title="what arrives after the thirtieth delivery">epilogue</button>
+        <button id="dbg-epilogue" title="what arrives after the twenty-ninth delivery">epilogue</button>
         <label>seed <input id="dbg-seed" type="number" /></label>
         <button id="dbg-apply">Apply</button>
         <button id="dbg-random" title="random seed">Roll</button>

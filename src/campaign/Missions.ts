@@ -303,6 +303,7 @@ export function pad(
   attachToDig?: string,
   xFromDig?: string,
   atCell?: { col: number; row: number },
+  xFromWall?: 'east' | 'west',
 ): Prop {
   return {
     kind: 'pad',
@@ -313,7 +314,10 @@ export function pad(
     // drift and stops the pad's own keep-out straddling two columns; see `snapToColumn`.
     // A pad whose x comes from a dig is snapped at resolution instead (`TerrainDigs`), so
     // that it stays on the bore's axis rather than being moved off it here.
-    x: attachToDig === undefined && xFromDig === undefined ? snapToColumn(x) : x,
+    x:
+      attachToDig === undefined && xFromDig === undefined && xFromWall === undefined
+        ? snapToColumn(x)
+        : x,
     width: padWidth(width),
     ...(y === undefined ? {} : { y }),
     ...(attachToDig === undefined ? {} : { attachToDig }),
@@ -323,6 +327,7 @@ export function pad(
     // between the YAML and the canyon — which is how `atCell` first shipped doing nothing
     // at all while every test passed.
     ...(atCell === undefined ? {} : { atCell }),
+    ...(xFromWall === undefined ? {} : { xFromWall }),
   };
 }
 
@@ -367,7 +372,7 @@ export const MISSIONS: Mission[] = parsed.missions.map((m) => {
   if (m.adds?.props) {
     m.adds.props = m.adds.props.map((p) => {
       if (p.kind === 'pad') {
-        return pad(p.corp, p.id, p.x, p.width, p.y, p.attachToDig, p.xFromDig, p.atCell);
+        return pad(p.corp, p.id, p.x, p.width, p.y, p.attachToDig, p.xFromDig, p.atCell, p.xFromWall);
       }
       return p;
     });
@@ -377,12 +382,32 @@ export const MISSIONS: Mission[] = parsed.missions.map((m) => {
 
 export const MISSION_COUNT = MISSIONS.length;
 
+/**
+ * The epilogue's id, one past the last mission.
+ *
+ * It is not a mission and `getMission` deliberately does not know it — no client, no
+ * payload, no score — but it *is* a flight, and the player can be sent on it the same way
+ * they are sent on any other: `Game.loadMission(EPILOGUE_ID)` finds no mission and runs
+ * the ending. Naming it stops that being an off-by-one nobody can read.
+ */
+export const EPILOGUE_ID = MISSION_COUNT + 1;
+
+/**
+ * How many flights the campaign holds: twenty-nine deliveries and the ending.
+ *
+ * The number the player is shown, everywhere they are shown one. `MISSION_COUNT` is the
+ * number of runs that can be *ranked*, which is a different question and not one the
+ * interface ever asks — the menu used to count to 29 and the victory card to 30, which is
+ * the same campaign disagreeing with itself on two adjacent screens.
+ */
+export const CAMPAIGN_FLIGHTS = MISSION_COUNT + 1;
+
 /** The sol the campaign ends on — the denominator for anything that varies across it,
  *  so the season and the light are read off the calendar rather than off mission ids. */
 export const LAST_SOL = MISSIONS[MISSIONS.length - 1].sol;
 
 /**
- * What arrives after the thirtieth delivery.
+ * What arrives after the twenty-ninth delivery.
  *
  * The same shape as a brief and shown on the same cards, because the campaign opens with
  * a transmission and should close with one rather than with a results screen. It is not a
@@ -427,10 +452,10 @@ function decommission(props: Prop[], padId: string): void {
 /**
  * The authored ledger up to mission `id` — pads, cave roofs, digs, decommissions,
  * the radar — nothing colony-grown. Deliberately pure: no `seed` or `ranks` parameter,
- * no terrain, no `synthesizeColonies` call. Colony growth used to run in here (reading
+ * no terrain, no colony growth. Growth used to run in here (reading
  * `ranks` to derive density), before any terrain existed for the mission being loaded
  * (`Game.loadMission` calls `canyon.build` *after* this) — it now runs separately, from
- * `ColonyGeneration.synthesizeColonies`, once real terrain does, and takes `ranks`
+ * `ColonyPlan.planColonies`, once real terrain does, and takes the points record
  * directly rather than through here. See `docs/plans/procedural_colony_growth.md`.
  *
  * `digs` can still contain unresolved `WallAnchoredDig` entries (`TerrainDigs.ts`) —

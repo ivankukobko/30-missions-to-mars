@@ -7,21 +7,17 @@
  * whenever the step exceeds the hull radius, which silently turns a crash into a
  * fall through the world. Everything here exists to make that impossible.
  *
- * The world has two tiers, and the split is about how each is indexed rather than
- * about what either one is:
+ * Every collider is static and bucketed on x once at insertion — terrain, shaft
+ * linings, and every structure bolted to the rock. There are hundreds to thousands of
+ * them and none of them move, so an index earns its keep and nothing has to keep it
+ * in sync.
  *
- *   - **Static** geometry — terrain, shaft linings, and every structure bolted to the
- *     rock — is bucketed on x once at insertion. There are hundreds to thousands of
- *     these and they never move, so an index earns its keep.
- *   - **Moving** geometry — cranes, travelling gantries, flying decks — is held in a
- *     flat list and scanned in full. There are only ever a handful, and a linear scan
- *     of twenty beats a hash lookup plus the cost of reindexing them every step. The
- *     bucket key is derived from x, so anything moving horizontally would invalidate
- *     its own index on every frame.
- *
- * Moving segments are treated as stationary *within* a substep — see `Kinematics.ts`
- * for the speed bound that makes that sound, and for the clock that keeps their motion
- * a pure function of mission time.
+ * A second tier for geometry that moves lived here for a long time, scanned rather
+ * than bucketed because a horizontally travelling segment invalidates a key derived
+ * from its own x. It is gone: no `Prop` kind ever carried a `motion`, so the list was
+ * empty on every frame the game has ever run. Restoring it is a known shape rather
+ * than a design problem — a flat scanned list, posed from `missionTime` so a retry
+ * replays it, and bounded by hull diameter per substep so nothing tunnels through.
  */
 
 export type SurfaceKind = 'rock' | 'pad' | 'structure';
@@ -54,7 +50,6 @@ const BUCKET_SIZE = 8;
 export class PhysicsWorld {
   gravity: number;
   private buckets = new Map<number, Segment[]>();
-  private moving: Segment[] = [];
 
   constructor(gravity: number) {
     this.gravity = gravity;
@@ -62,10 +57,9 @@ export class PhysicsWorld {
 
   clear(): void {
     this.buckets.clear();
-    this.moving.length = 0;
   }
 
-  /** Static geometry. Bucketed on x at insertion, so it must never move afterwards. */
+  /** Bucketed on x at insertion, so a segment must never move afterwards. */
   add(segment: Segment): void {
     const lo = Math.floor(Math.min(segment.x1, segment.x2) / BUCKET_SIZE);
     const hi = Math.floor(Math.max(segment.x1, segment.x2) / BUCKET_SIZE);
@@ -77,20 +71,6 @@ export class PhysicsWorld {
       }
       list.push(segment);
     }
-  }
-
-  /**
-   * Geometry that moves. Returns the stored segment so its owner can rewrite the
-   * endpoints in place each step — there is no index to keep in sync.
-   */
-  addMoving(segment: Segment): Segment {
-    this.moving.push(segment);
-    return segment;
-  }
-
-  /** How many moving segments are live. The pass-through bound is checked against this. */
-  get movingCount(): number {
-    return this.moving.length;
   }
 
   /** Adds a connected run of points as a chain of segments. */
@@ -119,8 +99,8 @@ export class PhysicsWorld {
   }
 
   /**
-   * Visits every segment that could be within `radius` of x: the buckets spanning that
-   * range, then all moving geometry.
+   * Visits every segment that could be within `radius` of x — the buckets spanning
+   * that range.
    *
    * Walked in place rather than gathered into an array. The old version returned the
    * bucket's own array by reference whenever a query fell inside one bucket, which is a
@@ -135,10 +115,9 @@ export class PhysicsWorld {
       const list = this.buckets.get(k);
       if (list) for (const s of list) visit(s);
     }
-    for (const s of this.moving) visit(s);
   }
 
-  /** Circle-vs-segment test at one position, against static and moving geometry alike. */
+  /** Circle-vs-segment test at one position. */
   private probe(x: number, y: number, radius: number): Hit | null {
     let best: Hit | null = null;
     let bestDist = radius;
@@ -199,9 +178,6 @@ export class PhysicsWorld {
 
   /**
    * Ground height directly below a point, for placement and HUD readouts.
-   *
-   * Moving geometry counts. A deck passing underneath really is the nearest surface,
-   * and the gear deploying for it is the honest reading rather than a glitch.
    */
   groundBelow(x: number, fromY: number): number | null {
     let best: number | null = null;

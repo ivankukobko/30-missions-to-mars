@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CORPS } from '../world/CanyonSpec.ts';
 import type { PadInfo } from '../world/Colony.ts';
 import { missionGoal, type Mission } from '../campaign/Missions.ts';
-import type { LandingScore, Rank } from '../campaign/Progress.ts';
+import type { LandingScore, PlaythroughSummary, Rank } from '../campaign/Progress.ts';
 import type { Airframe } from '../entities/Airframe.ts';
 import { LANDER } from '../entities/Lander.ts';
 import { audio } from '../audio/AudioManager.ts';
@@ -475,21 +475,51 @@ export class Interface {
    * mission and there has never been a way back to a bad one — a thirty-mission campaign
    * that records a C and then never lets you answer it.
    */
+  /**
+   * The campaign as a grid, with the ending as its last cell.
+   *
+   * `epilogueId` is one past the last *ranked* mission and is drawn differently on
+   * purpose: it has no rank to show and never will, because nothing scores it. Showing it
+   * as a numbered cell with a dash would say "flown, scored nothing", which is what an
+   * unflown mission says — hence its own glyph and its own class.
+   *
+   * It carries no watched/unwatched state, because it cannot be unlocked without having
+   * been reached: landing mission 29 both unlocks this cell and runs the ending.
+   */
   showMissions(
     unlocked: number,
     rankFor: (id: number) => Rank | null,
     total: number,
     onPick: (id: number) => void,
     onBack: () => void,
+    epilogueId?: number,
   ): void {
     const card = el('div', 'card card-sys card-menu');
     card.append(el('div', 'card-eyebrow', 'MISSIONS'));
 
     const grid = el('div', 'mission-grid');
     for (let id = 1; id <= total; id++) {
+      const isEpilogue = epilogueId !== undefined && id === epilogueId;
       const locked = id > unlocked;
       const rank = rankFor(id);
       const cell = el('button', 'mission-cell');
+      if (isEpilogue) {
+        cell.classList.add('mission-epilogue');
+        cell.append(el('span', 'mission-no', String(id).padStart(2, '0')));
+        cell.append(el('span', 'mission-rank', locked ? '' : '\u25c6'));
+        cell.title = 'The epilogue';
+        cell.classList.toggle('locked', locked);
+        cell.disabled = locked;
+        if (!locked) {
+          cell.addEventListener('click', () => {
+            audio.init();
+            audio.playUiBeep(760, 'square', 0.03);
+            onPick(id);
+          });
+        }
+        grid.append(cell);
+        continue;
+      }
       cell.append(el('span', 'mission-no', String(id).padStart(2, '0')));
       // A flown mission shows what it was worth; an unflown but reachable one shows a
       // dash, and a locked one shows nothing at all. Three states, three glyphs — a
@@ -647,7 +677,7 @@ export class Interface {
   }
 
   /**
-   * What arrives after the thirtieth delivery, before the campaign screen.
+   * What arrives after the twenty-ninth delivery, before the campaign screen.
    *
    * On the brief's own cards, because the ending is the same kind of event as everything
    * that led to it — somebody sending you something — and a bespoke ending screen would
@@ -657,26 +687,79 @@ export class Interface {
     buildEpilogue({ showPanel: (content) => this.showPanel(content) }, onDone);
   }
 
-  showVictory(onRestart: () => void): void {
-    const card = el('div', 'card');
+  /**
+   * The closing card.
+   *
+   * **The primary action returns to the menu.** It used to be `ROLL A NEW CANYON`, alone,
+   * with no confirmation and no other way off the screen — Escape does nothing in
+   * `VICTORY` — so a player who had just finished twenty-nine missions was offered
+   * exactly one button and it discarded every rank they had earned. The menu's own
+   * `NEW CANYON` has always confirmed; the one place a campaign was actually finished
+   * did not.
+   *
+   * Rolling a new canyon is still here, as the secondary, and now goes through the same
+   * confirmation as everywhere else.
+   */
+  showVictory(summary: PlaythroughSummary, onMenu: () => void, onNewCanyon: () => void): void {
+    const card = el('div', 'card card-sys card-menu');
     card.append(
       el('div', 'card-eyebrow', 'CAMPAIGN COMPLETE'),
-      el('div', 'fail-title', '30 / 30'),
+      el('div', 'fail-title', `${summary.delivered + 1} / ${summary.ofTotal}`),
       el(
         'div',
         'card-body',
-        'Every structure between the west wall and the chasm floor was placed by something you carried down here.<br/><br/>A new canyon can be rolled at any time.',
+        'Every structure between the west wall and the chasm floor was placed by something you carried down here.',
       ),
     );
-    const button = el('button', 'primary', 'ROLL A NEW CANYON');
-    button.addEventListener('click', () => {
+
+    const rows = el('div', 'summary-block');
+    const row = (label: string, value: string) => {
+      const line = el('div', 'summary-row');
+      line.append(el('span', 'summary-label', label), el('span', 'summary-value', value));
+      rows.append(line);
+    };
+    row('DELIVERED', `${summary.delivered} / ${summary.ofTotal - 1}`);
+    row('TOTAL SCORE', String(summary.totalPoints));
+    row('AVERAGE', summary.averagePoints.toFixed(1));
+    // Ranks in descending order, and the zeroes are kept: "S 0" is information, and a row
+    // that vanishes when it reaches zero makes the tally a different shape every campaign.
+    row('RANKS', (['S', 'A', 'B', 'C'] as const).map((r) => `${r} ${summary.tally[r]}`).join('   '));
+    if (summary.best) row('BEST RUN', `MISSION ${String(summary.best.id).padStart(2, '0')} · ${summary.best.points}`);
+    if (summary.worst) row('WEAKEST', `MISSION ${String(summary.worst.id).padStart(2, '0')} · ${summary.worst.points}`);
+    row('CANYON SEED', String(summary.seed));
+    card.append(rows);
+
+    /**
+     * A colophon rather than a credits roll. It names what the campaign generated for
+     * this player, which is the only thing here that is actually about them.
+     *
+     * TODO — names. There is nowhere in the game that credits anyone, and inventing a
+     * list is worse than having none; this is the place for it when there is one.
+     */
+    card.append(
+      el(
+        'div',
+        'card-body card-colophon',
+        'This canyon was rolled for you, and no other campaign has flown it.<br/>' +
+          'Every deck, shaft and structure in it followed from a delivery you made.',
+      ),
+    );
+
+    const menu = el('button', 'primary', 'MAIN MENU');
+    menu.addEventListener('click', () => {
       audio.init();
       audio.playUiBeep();
-      onRestart();
+      onMenu();
     });
-    card.append(button);
+    const roll = el('button', 'secondary', 'ROLL A NEW CANYON');
+    roll.addEventListener('click', () => {
+      audio.init();
+      audio.playUiBeep();
+      onNewCanyon();
+    });
+    card.append(menu, roll);
     this.showPanel(card);
-    button.focus();
+    menu.focus();
   }
 
   // --------------------------------------------------------------------- HUD

@@ -88,6 +88,21 @@ export class CameraDirector {
   groundAt: ((x: number, z: number) => number) | null = null;
 
   phase: Phase = 'sky';
+  /**
+   * Whether the vehicle is genuinely under grade — down a bore or inside an excavation —
+   * as opposed to merely close to something.
+   *
+   * Kept apart from `phase` because the two answer different questions and only one of
+   * them is about the world. `'shaft'` is a *framing*: near lens, wide angle, rock either
+   * side legible, and it is chosen for close quarters of any kind, including the last
+   * twenty units of an ordinary touchdown on an open pad. Whether there is rock overhead
+   * is a fact about where the vehicle is.
+   *
+   * `Game.updateAtmosphere` conflated them and read `phase === 'shaft'` as "in a hole",
+   * which put the abyss fog — nearly three times the density and a colour 92% of the way
+   * to black — over the end of *every* landing in the game, on open ground in daylight.
+   */
+  underGrade = false;
   private now: Framing;
   private yaw = 0;
   private shakeAmount = 0;
@@ -288,7 +303,9 @@ export class CameraDirector {
   /** Places the camera immediately, without easing. Used when a mission loads. */
   snapTo(x: number, y: number): void {
     this.smoothedSpeed = FULL_SPEED;
-    this.phase = this.phaseFor(y, Infinity, this.belowLocalFloor(x, y));
+    const dropSnap = this.belowLocalFloor(x, y);
+    this.phase = this.phaseFor(y, Infinity, dropSnap);
+    this.underGrade = dropSnap > SHAFT_MOUTH;
     this.now = this.framingFor(this.phase, 1);
     this.yaw = 0;
     this.camera.position.set(this.clampX(x), y + this.now.offsetY, this.now.distance);
@@ -339,7 +356,9 @@ export class CameraDirector {
     this.smoothedSpeed = damp(this.smoothedSpeed, Math.hypot(vx, vy), 0.9, dt);
     const pace = clamp01(this.smoothedSpeed / FULL_SPEED);
 
-    this.phase = this.phaseFor(targetY, heightAboveGround, this.belowLocalFloor(targetX, targetY));
+    const drop = this.belowLocalFloor(targetX, targetY);
+    this.phase = this.phaseFor(targetY, heightAboveGround, drop);
+    this.underGrade = drop > SHAFT_MOUTH;
     const want = this.framingFor(this.phase, pace);
 
     /**

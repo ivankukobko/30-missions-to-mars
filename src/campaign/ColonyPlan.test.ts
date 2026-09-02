@@ -1,13 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import * as THREE from 'three';
 import { MISSIONS } from './Missions.ts';
-import { planColonies, missionWorlds, campaignPadSites } from './ColonyPlan.ts';
+import { planColonies } from './ColonyPlan.ts';
 import { CHANNEL_HALF } from './ColonyChannels.ts';
 import { COLONY_CELL_SIZE, COLONY_LAYER_SPACING } from '../world/ColonyLattice.ts';
 import { LANE, TRAIT } from '../world/ColonyOrganism.ts';
 import { checkLayout } from './Layout.ts';
-import { CanyonGenerator } from '../world/CanyonGenerator.ts';
-import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
+import { builtCanyon } from '../testing/canyonFixture.ts';
 import { CANYON } from '../world/CanyonSpec.ts';
 
 /**
@@ -30,11 +28,8 @@ const SEEDS = [0, 12345];
  * the pad as capping a dig mouth that, in the real game, it never caps.
  */
 function plan(id: number, seed: number) {
-  const canyon = new CanyonGenerator(new THREE.Scene(), new PhysicsWorld(-6), seed);
-  const worlds = missionWorlds(0, null, canyon);
-  const current = worlds(id);
-  canyon.build(current.digs, campaignPadSites(worlds));
-  return { ...planColonies(id, worlds, {}, seed, canyon), props: current.props, digs: current.digs };
+  const { canyon, worlds, world } = builtCanyon(seed, id);
+  return { ...planColonies(id, worlds, {}, seed, canyon), props: world.props, digs: world.digs };
 }
 
 describe('growth against real terrain', () => {
@@ -273,9 +268,7 @@ describe('a colony only loses ground to a route', () => {
 describe('demolition is lawful on every mission pair', () => {
   for (const seed of [1, 7, 12345]) {
     it(`seed ${seed}: no cell disappears without a channel in it`, { timeout: 120000 }, () => {
-      const canyon = new CanyonGenerator(new THREE.Scene(), new PhysicsWorld(-6), seed);
-      const worlds = missionWorlds(0, null, canyon);
-      canyon.build(worlds(MISSIONS.length).digs, campaignPadSites(worlds));
+      const { canyon, worlds } = builtCanyon(seed, MISSIONS.length);
 
       const seen = new Map<string, Set<string>>();
       for (const m of MISSIONS) {
@@ -321,9 +314,7 @@ describe('demolition is lawful on every mission pair', () => {
 describe('a replayed mission replays its demolitions', () => {
   for (const seed of [1, 12345]) {
     it(`seed ${seed}: planning the same mission twice is identical`, { timeout: 120000 }, () => {
-      const canyon = new CanyonGenerator(new THREE.Scene(), new PhysicsWorld(-6), seed);
-      const worlds = missionWorlds(0, null, canyon);
-      canyon.build(worlds(MISSIONS.length).digs, campaignPadSites(worlds));
+      const { canyon, worlds } = builtCanyon(seed, MISSIONS.length);
 
       for (const id of [19, 20, 30]) {
         const a = planColonies(id, worlds, {}, seed, canyon).colonies;

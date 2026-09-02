@@ -223,7 +223,7 @@ describe('resolveLayout', () => {
   });
 
   it('reports rather than moves an intruding colony — there is no cheap way to slide a grown structure', () => {
-    // Not a scenario `Missions.synthesizeColonies` should ever produce (colonies are
+    // Not a scenario `ColonyPlan.planColonies` should ever produce (colonies are
     // generated safe-by-construction against exactly this test), but the contract
     // still has to hold for whatever a colony prop happens to be: nothing moves it.
     const c = colony(-20, 2, 1);

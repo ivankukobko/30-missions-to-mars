@@ -10,9 +10,19 @@ import {
   type LatticeTerrain,
 } from '../world/ColonyLattice.ts';
 import { buildSubstrate, type SubstrateField, type SubstrateTerrain } from '../world/ColonySubstrate.ts';
-import { growColony, TRAIT, type OrganismCell, type PlacedCell, type Spore } from '../world/ColonyOrganism.ts';
+import {
+  growColony,
+  TRAIT,
+  type OrganismCell,
+  type PlacedCell,
+  type Spore,
+  type SpineColumn,
+  type SpineTarget,
+  MAX_CANTILEVER,
+} from '../world/ColonyOrganism.ts';
 import { buildChannels, type ChannelNetwork, type ChannelTerrain } from './ColonyChannels.ts';
 import { MISSIONS, worldAt } from './Missions.ts';
+import { snapToColumn } from '../world/ColonyLattice.ts';
 import { resolveTerrainAnchoredDigs, applyDigAttachments } from './TerrainDigs.ts';
 
 /**
@@ -34,8 +44,8 @@ type ColonyProp = Extract<Prop, { kind: 'colony' }>;
  * so a later mission runs the same sequence further and a colony can only ever be
  * *older*, never a different shape. That is the entire maturity model.
  */
-function cellBudget(flown: number, points: number, isFirstMission: boolean): number {
-  if (isFirstMission) return FIRST_MISSION_CELLS;
+function cellBudget(flown: number, points: number, isOpeningMission: boolean): number {
+  if (isOpeningMission) return FIRST_MISSION_CELLS;
   const ramped = Math.min(flown, RAMP_MISSIONS);
   const full = Math.max(0, flown - RAMP_MISSIONS);
   return Math.round(
@@ -107,8 +117,23 @@ const RAMP_MISSIONS = 5;
  */
 const PER_POINT_CELLS = 0.03;
 
-/** Mission 1 is the outpost's first landing and there is nothing there yet. Held at three
- *  cells so the canyon the player first sees is empty enough to read as unclaimed. */
+/**
+ * Mission 1 is the outpost's first landing and there is nothing there yet. Held at three
+ * cells so the canyon the player first sees is empty enough to read as unclaimed.
+ *
+ * **The campaign's opening mission, not each corp's own debut**, and the difference cost
+ * the middle of the campaign its pacing. The floor exists to make the *first canyon the
+ * player ever sees* read as unclaimed; a charter arriving at mission 6, into a canyon that
+ * already has an outpost in it, is not that situation and gets the ordinary formula.
+ *
+ * Read as a per-corp debut it produced a cliff: Helion was granted 30 by mission 6's
+ * `colonyBudget`, then dropped to this 3 on its very next mission, and `cellBudget` did not
+ * climb back past 30 until the corp's *eighth* run. Growth never removes cells, so the
+ * colony simply sat at 30 — Helion from mission 6 to 20, Kessler from 7 to 19. Measured
+ * across all three corps at C-rank play: 92 cells at mission 8 and 91 at mission 20, a net
+ * of −1 across thirteen missions, while mission 8's brief promises the player that "the gap
+ * you fly closes a little more each mission."
+ */
 const FIRST_MISSION_CELLS = 3;
 
 /** How much of a colony's own growing edge reads as bare scaffold rather than built
@@ -423,6 +448,24 @@ export interface MissionWorld {
  * makes that reuse exact rather than merely likely — the caller and the campaign walk get
  * the same object, not two resolutions that agree.
  */
+/**
+ * Pads whose x is taken from their own charter's canyon wall — see `xFromWall`.
+ *
+ * Resolved here rather than in `worldAt` for the reason every other terrain-derived
+ * position is: `worldAt` is deliberately pure and has no canyon to ask. `floorEdgeAt` is a
+ * function of the seed alone and is safe to call before `build()`, exactly like the wall
+ * anchoring in `TerrainDigs`, so this can run at the front of the pipeline where every
+ * later stage — the mouth-clearance list, the channels, growth, the layout check — sees
+ * one resolved position rather than each resolving its own.
+ */
+function resolveWallAnchoredPads(props: Prop[], terrain: PlanTerrain): Prop[] {
+  return props.map((p) => {
+    if (p.kind !== 'pad' || p.xFromWall === undefined) return p;
+    const side = p.xFromWall === 'east' ? 1 : -1;
+    return { ...p, x: snapToColumn(terrain.floorEdgeAt(0, side)) };
+  });
+}
+
 export function missionWorlds(
   mastX: number | null,
   mastY: number | null,
@@ -456,7 +499,7 @@ export function missionWorlds(
   const decksOutsideBores = (() => {
     const seen = new Map<string, { x: number; halfWidth: number; onGround: boolean }>();
     for (let m = 1; m <= MISSIONS.length; m++) {
-      for (const p of worldAt(m, mastX, mastY, relay).props) {
+      for (const p of resolveWallAnchoredPads(worldAt(m, mastX, mastY, relay).props, terrain)) {
         if (p.kind !== 'pad' || p.attachToDig !== undefined) continue;
         // A deck with no `y` rests on the ground and is graded a bench; one with a `y`
         // stands on a tower and denies only the air it occupies.
@@ -472,7 +515,7 @@ export function missionWorlds(
     const world = worldAt(missionId, mastX, mastY, relay);
     const resolved = resolveTerrainAnchoredDigs(world.digs, terrain, decksOutsideBores);
     const out: MissionWorld = {
-      props: applyDigAttachments(world.props, resolved.endpoints),
+      props: applyDigAttachments(resolveWallAnchoredPads(world.props, terrain), resolved.endpoints),
       digs: resolved.digs,
     };
     cache.set(missionId, out);
@@ -616,15 +659,64 @@ export function planColonies(
      * face reads as solid substrate here, and neither rooting a colony at rock nor pulling
      * one toward it is any use.
      */
-    const midAir: Partial<Record<CorpId, Array<{ x: number; y: number }>>> = {};
+    const midAir: Partial<Record<CorpId, Array<{ x: number; y: number; halfWidth: number }>>> = {};
     for (const corp of Object.keys(CORPS) as CorpId[]) {
       midAir[corp] = world.props.flatMap((p) => {
         if (p.kind !== 'pad' || p.corp !== corp || p.y === undefined) return [];
         const row = lattice.rowAt(p.y);
         if (row < 1 || row >= lattice.rows) return [];
         if (substrate.isSolid(lattice.colAt(p.x), row)) return [];
-        return [{ x: p.x, y: p.y }];
+        return [{ x: p.x, y: p.y, halfWidth: p.width / 2 }];
       });
+    }
+
+    /**
+     * The columns each corp may raise under its own mid-air deck, bottom-up.
+     *
+     * `midAir` names the decks; this turns each one into the cells that could hold it up.
+     * Derived rather than authored, for the reason a deck's own height should be: the
+     * column runs from the terrain directly under the deck to the deck's own row, so
+     * moving a deck cannot leave its support behind.
+     *
+     * **Several candidate columns per deck, not one.** The deck's own column is tried
+     * first and is routinely unavailable — a flight channel along the floor, or a rival
+     * standing in it — so the search widens a cell at a time to either side, staying
+     * within the deck's own footprint and one cell beyond it. Anything further out stops
+     * reading as the thing holding the deck up.
+     *
+     * The bottom is the first row above the ground at that column rather than row 0: the
+     * canyon floor wanders, and starting at the lattice base would ask for cells inside
+     * rock on every seed where the deck stands over high ground.
+     */
+    const spine: Partial<Record<CorpId, SpineTarget[]>> = {};
+    for (const corp of Object.keys(CORPS) as CorpId[]) {
+      const targets: SpineTarget[] = [];
+      for (const deck of midAir[corp] ?? []) {
+        const centre = lattice.colAt(deck.x);
+        /**
+         * One row **below** the deck, not the deck's own row. A deck is folded into
+         * `blocked` along with the channels, so a column reaching its own row is a column
+         * whose last cell can never be placed.
+         */
+        const top = lattice.rowAt(deck.y) - 1;
+        /**
+         * How far the search may stand a column off the deck's axis: the cantilever the
+         * no-floating rule already allows, and not a cell further. That bound is what
+         * makes an offset column worth having — it finishes with a horizontal bracket
+         * back to under the deck, and each cell of that run costs one step of reach.
+         */
+        const columns: SpineColumn[] = [];
+        for (let step = 0; step <= MAX_CANTILEVER; step++) {
+          for (const col of step === 0 ? [centre] : [centre - step, centre + step]) {
+            const ground = Math.max(0, lattice.rowAt(terrain.heightAt(lattice.worldX(col), 0, true)));
+            const column: SpineColumn = [];
+            for (let row = ground; row <= top; row++) column.push({ col, row });
+            if (column.length > 0) columns.push(column);
+          }
+        }
+        if (columns.length > 0) targets.push({ centre, top, columns });
+      }
+      if (targets.length > 0) spine[corp] = targets;
     }
 
     for (const corp of Object.keys(CORPS) as CorpId[]) {
@@ -646,8 +738,16 @@ export function planColonies(
       const earnedPoints = elapsed.reduce((sum, x) => sum + (scores[String(x.id)] ?? 0), 0);
 
       const currentMission = MISSIONS.find((x) => x.id === m);
-      const overrideBudget = currentMission?.colonyBudget?.[corp];
-      const earned = overrideBudget ?? cellBudget(elapsed.length, earnedPoints, elapsed.length === 1);
+      /**
+       * A **cap**, not a floor. The one mission that sets it is mission 2, holding Ixion
+       * at three cells so the canyon still reads unclaimed on the run that plants the
+       * radar. Missions 6 and 7 used to set it the other way — as a floor, to get enough
+       * stack under a crest deck — and a single field meaning both things is what let a
+       * deck-support patch silently freeze twelve missions of growth. Deck support is not
+       * a budget problem and is no longer solved here; see `missions.yaml`.
+       */
+      const cap = currentMission?.colonyBudget?.[corp];
+      const earned = cap ?? cellBudget(elapsed.length, earnedPoints, m === 1);
       /**
        * What the campaign has earned this corp, capped by what it can actually build on.
        *
@@ -759,6 +859,7 @@ export function planColonies(
       shape: { outpost: { lateral: 0.2, height: 0.4 } },
       seed,
       existing: cells,
+      spine,
     });
   }
 

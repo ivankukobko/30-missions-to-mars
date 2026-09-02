@@ -3,7 +3,6 @@ import { InputManager, type InputState } from './InputManager.ts';
 import { CameraDirector } from './CameraDirector.ts';
 import { Inspector } from './Inspector.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
-import { maxSafeSpeed } from '../physics/Kinematics.ts';
 import { CanyonGenerator, type Excavation } from '../world/CanyonGenerator.ts';
 import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
 import { Colony, type PadInfo } from '../world/Colony.ts';
@@ -13,7 +12,7 @@ import { Lander, LANDER } from '../entities/Lander.ts';
 import { Effects } from '../entities/Effects.ts';
 import { Interface, type GameSettings } from '../ui/Interface.ts';
 import type { HudCommon, HudData } from '../ui/HudData.ts';
-import { Progress, scoreLanding } from '../campaign/Progress.ts';
+import { Progress, scoreLanding, summarise } from '../campaign/Progress.ts';
 import {
   getMission,
   airframeFor,
@@ -22,6 +21,8 @@ import {
   RIM_SITES,
   musicTrackFor,
   MISSION_COUNT,
+  CAMPAIGN_FLIGHTS,
+  EPILOGUE_ID,
   ENTRY_VELOCITY,
   type Mission,
 } from '../campaign/Missions.ts';
@@ -298,6 +299,8 @@ export class Game {
     // Mission first: the inspector reads the loaded mission to build its readout, so
     // constructing it earlier hands it an undefined mission. Loaded without its brief —
     // the world is what the menu stands on, and the menu goes over the top.
+    // Clamped to a real mission: the menu needs a *world* behind it, and `EPILOGUE_ID`
+    // has none — loading it here would run the ending under the main menu.
     this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT), false);
     this.openMenu();
     this.setupDebug();
@@ -427,18 +430,6 @@ export class Game {
       ? allProps.filter((p) => p.kind === 'colony' || p.kind === 'pad')
       : allProps;
     this.colony.build(shown, this.canyon, plan);
-
-    // A structure fast enough to cross the hull inside one substep can be passed clean
-    // through, and the symptom is nothing happening — which looks exactly like nothing
-    // being there. Reported rather than clamped: slowing a structure quietly would be a
-    // level-design change made behind the author's back.
-    const unsafe = this.colony.kinematics.unsafeAt(LANDER.RADIUS, FIXED_DT);
-    if (unsafe.length > 0) {
-      console.warn(
-        `Mission ${id}: ${unsafe.length} moving structure(s) exceed ` +
-          `${maxSafeSpeed(LANDER.RADIUS, FIXED_DT).toFixed(0)} u/s and may be flown through`,
-      );
-    }
 
     this.targetPad = mission.target
       ? (this.colony.pads.find((p) => p.id === mission.target) ?? null)
@@ -745,7 +736,28 @@ export class Game {
     // The ambience goes with the picture. Everything the player has been hearing for
     // thirty missions arrives over the same link that just stopped answering.
     audio.stopAmbient();
-    this.ui.showVictory(() => this.newCanyon());
+    this.ui.showVictory(
+      summarise(this.progress, CAMPAIGN_FLIGHTS),
+      () => this.returnToMenuFromEnding(),
+      () => this.confirmNewCanyon(),
+    );
+  }
+
+  /**
+   * Back to the menu after the ending, over a canyon that is standing again.
+   *
+   * `Colony.collapse` is a post-pass over the built scene — a fifth of it struck, the rest
+   * leaning, every light out — and nothing puts it back. `openMenu` only re-aims the
+   * camera, so returning directly left the main menu sitting over the player's own ruined
+   * settlement in the dark, and it stayed that way until the page was reloaded. Gameplay
+   * was never affected (`loadMission` rebuilds the world from scratch on the way into any
+   * mission), which is exactly why it would have gone unnoticed.
+   *
+   * Rebuilt at the last *mission*, not at `EPILOGUE_ID`, which has no world of its own.
+   */
+  private returnToMenuFromEnding(): void {
+    this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT), false);
+    this.openMenu();
   }
 
   /**
@@ -1001,12 +1013,7 @@ export class Game {
       this.accumulator -= FIXED_DT;
       steps++;
 
-      // Moving structures are posed before the lander is integrated, and once per
-      // substep rather than once per frame. Advanced per frame, a machine taking eight
-      // substeps at once would hold a crane still for seven of them and then jump it
-      // — the exact tunnelling the fixed timestep exists to prevent.
       this.missionTime += FIXED_DT;
-      this.colony.kinematics.update(this.missionTime);
 
       const contact = lander.step(FIXED_DT, input, this.physics);
 
@@ -1283,9 +1290,22 @@ export class Game {
    * distance anyway, and above the rim the density stays thin so the horizon survives.
    */
   private updateAtmosphere(dt: number): void {
-    // While inspecting, key the fog off the camera. Otherwise flying down into the
-    // colony shows it in the thin air of wherever the parked lander happens to be.
-    const y = this.inspecting
+    /**
+     * Key the fog off whatever the player is actually looking through.
+     *
+     * That is the lander while they are flying it, and the **camera** whenever the camera
+     * is somewhere else — the free-cam inspector, and the menu, which parks its shot on
+     * the canyon while the vehicle sits hidden wherever it was left.
+     *
+     * The menu case was missing and it showed after the ending: the epilogue's vehicle
+     * ends its fall near the canyon floor, so returning to the menu drew the whole canyon
+     * in shaft-bottom murk at nearly four times the fog density a fresh boot gives it
+     * (0.0059 against 0.0016, measured on the same seed and the same camera). The world
+     * behind the menu had been rebuilt correctly; it was the air in front of it that
+     * belonged to a vehicle nobody could see.
+     */
+    const throughCamera = this.inspecting || this.state === 'MENU' || this.state === 'VICTORY';
+    const y = throughCamera
       ? this.director.camera.position.y
       : (this.lander?.y ?? CANYON.FLOOR_Y);
     // Below the rim the air is in shadow; below the floor, in the shaft, it is black.
@@ -1298,15 +1318,21 @@ export class Game {
      * floor gets, not the "abyss" the comment above promises. That thinness is what let a
      * seam in the rock read as *background showing through* instead of murk — the fog
      * wasn't thick enough to make the far side illegible even where the geometry was
-     * right. `director.phase` already answers the question this was approximating: it is
-     * `'shaft'` exactly when the camera is over a locally-measured excavation (see
-     * `CameraDirector.belowLocalFloor`), independent of how deep that excavation happens
-     * to be. Snapping `inShaft` to 1 on that phase, rather than waiting for it to be
-     * earned by depth, means every excavation gets the same "you should not be able to
-     * see past this" treatment the deep ones already had — `damp` below still rolls it in
-     * over its usual ~0.45s rather than cutting hard on the phase edge.
+     * right. What answers it is `director.underGrade` — the vehicle measured against the
+     * real, un-carved terrain at its own column — so every excavation gets the same "you
+     * should not be able to see past this" treatment the deep ones already had,
+     * independent of how deep it happens to be. `damp` below still rolls it in over its
+     * usual ~0.45s rather than cutting hard on the edge.
+     *
+     * **This read `director.phase === 'shaft'` and that was wrong**, on the stated grounds
+     * that the phase is "'shaft' exactly when the camera is over a locally-measured
+     * excavation". It is not: `phaseFor` also returns `'shaft'` within `SHAFT_CLOSE` of
+     * *whatever* is underneath, because the framing is wanted for close quarters of any
+     * kind. So the abyss treatment — density 0.0052 → 0.014, colour 92% of the way to
+     * black — arrived over the last twenty units of every landing in the game, including
+     * an open pad on the canyon floor in daylight. A framing is not a place.
      */
-    const inShaft = this.director.phase === 'shaft' ? 1 : clamp01((CANYON.FLOOR_Y - y) / 180);
+    const inShaft = this.director.underGrade ? 1 : clamp01((CANYON.FLOOR_Y - y) / 180);
 
     const targetDensity = lerp(lerp(0.0011, 0.0052, belowRim), 0.014, inShaft);
     this.fog.density = damp(this.fog.density, targetDensity, 2.2, dt);
@@ -1460,21 +1486,50 @@ export class Game {
     if (this.lander) this.lander.group.visible = false;
     this.frameCanyon();
 
-    const next = Math.min(this.progress.highestUnlocked, MISSION_COUNT);
+    /**
+     * Where CONTINUE goes, and what it is called.
+     *
+     * Once all twenty-nine deliveries are flown there is still one flight left, so this
+     * points at the ending rather than parking on mission 29 for the rest of the save's
+     * life. It stays there afterwards: the epilogue is replayable, and a finished campaign
+     * offering CONTINUE → MISSION 29 reads as though something is still owed.
+     */
+    const done = this.campaignDone();
+    const next = done ? EPILOGUE_ID : this.progress.highestUnlocked;
     this.ui.showMenu([
       {
         label: 'CONTINUE',
-        detail: `MISSION ${String(next).padStart(2, '0')}`,
+        detail: done ? 'EPILOGUE' : `MISSION ${String(next).padStart(2, '0')}`,
         onSelect: () => this.enterMission(next),
       },
-      { label: 'MISSIONS', detail: `${this.flownCount()} / ${MISSION_COUNT}`, onSelect: () => this.openMissions() },
+      { label: 'MISSIONS', detail: `${this.flownCount()} / ${CAMPAIGN_FLIGHTS}`, onSelect: () => this.openMissions() },
       { label: 'SETTINGS', onSelect: () => this.openSettings() },
       { label: 'NEW CANYON', danger: true, onSelect: () => this.confirmNewCanyon() },
     ]);
   }
 
+  /**
+   * Flights behind the player, out of `CAMPAIGN_FLIGHTS`.
+   *
+   * The ending counts as one, and it is **derived** rather than recorded. Landing mission
+   * 29 is what unlocks it, and the result card's ordinary `NEXT MISSION` is what runs it —
+   * the ending is reached the same way every other flight is — so `highestUnlocked` past
+   * the last mission already says the campaign is done. A stored "was it watched" flag was
+   * tried and removed: it earns its keep only for a player who closes the tab between the
+   * result card and the end of the ending, which is not worth a field in a save format
+   * that has never lost anybody's data.
+   *
+   * Counting ranked missions alone left the menu reporting 29/30 forever on a finished
+   * save — the one number a player checks to know whether they are done, permanently one
+   * short.
+   */
   private flownCount(): number {
-    return Object.keys(this.progress.ranks).length;
+    return Object.keys(this.progress.ranks).length + (this.campaignDone() ? 1 : 0);
+  }
+
+  /** All twenty-nine deliveries flown, so the ending is unlocked. */
+  private campaignDone(): boolean {
+    return this.progress.highestUnlocked > MISSION_COUNT;
   }
 
   /** Depth into the menu, so Escape can step back one screen rather than toggling. */
@@ -1483,11 +1538,12 @@ export class Game {
   private openMissions(): void {
     this.menuDepth = 1;
     this.ui.showMissions(
-      Math.min(this.progress.highestUnlocked, MISSION_COUNT),
+      Math.min(this.progress.highestUnlocked, CAMPAIGN_FLIGHTS),
       (id) => this.progress.rankFor(id),
-      MISSION_COUNT,
+      CAMPAIGN_FLIGHTS,
       (id) => this.enterMission(id),
       () => this.openMenu(),
+      EPILOGUE_ID,
     );
   }
 

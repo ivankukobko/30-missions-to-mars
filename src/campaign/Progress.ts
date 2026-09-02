@@ -359,6 +359,47 @@ export class Progress {
   }
 }
 
+/** What a finished campaign looked like, for the closing card. */
+export interface PlaythroughSummary {
+  seed: number;
+  delivered: number;
+  ofTotal: number;
+  totalPoints: number;
+  averagePoints: number;
+  tally: Record<Rank, number>;
+  best: { id: number; points: number } | null;
+  worst: { id: number; points: number } | null;
+}
+
+/**
+ * The campaign as a set of figures, read off what `Progress` already stores.
+ *
+ * A free function rather than a method because it derives and stores nothing — every
+ * number here is a fold over `ranks` and `points`. Keeping it out of the class is what
+ * lets the closing card be tested without a browser or a save.
+ */
+export function summarise(progress: Progress, ofTotal: number): PlaythroughSummary {
+  const tally: Record<Rank, number> = { S: 0, A: 0, B: 0, C: 0 };
+  for (const rank of Object.values(progress.ranks)) tally[rank]++;
+
+  const scored = Object.entries(progress.points).map(([id, points]) => ({ id: Number(id), points }));
+  const totalPoints = scored.reduce((sum, m) => sum + m.points, 0);
+  // Sorted by points, then by mission id, so a tie reports the same run every time
+  // rather than whichever one the object happened to enumerate first.
+  const ordered = [...scored].sort((a, b) => b.points - a.points || a.id - b.id);
+
+  return {
+    seed: progress.seed,
+    delivered: scored.length,
+    ofTotal,
+    totalPoints,
+    averagePoints: scored.length > 0 ? totalPoints / scored.length : 0,
+    tally,
+    best: ordered[0] ?? null,
+    worst: ordered[ordered.length - 1] ?? null,
+  };
+}
+
 /**
  * Scores a touchdown. Fuel economy dominates, because that is the skill the game
  * actually teaches: a clean line burns less than a corrected one.

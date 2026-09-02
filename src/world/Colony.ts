@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
-import { KinematicWorld } from '../physics/Kinematics.ts';
 import { CORPS, STRUCTURE, type CorpId } from './CanyonSpec.ts';
 import { hash01 } from './Noise.ts';
 import { buildRubble, type RubbleSite } from './Rubble.ts';
@@ -23,8 +22,8 @@ import type { ColonyDebug } from './ColonyRender.ts';
  * `tower`/`gantry`/`mast`/`platform` used to live here too: hand-authored corporate
  * structures, one line per mission, standing for the rest of the campaign. They are
  * gone — every mission's structure now comes from `colony`, grown from that corp's own
- * history rather than typed in by hand (see `ColonyGeneration.synthesizeColonies` and
- * docs/plans/procedural_colony_growth.md) — and nothing in the ledger authors one any
+ * history rather than typed in by hand (see `ColonyPlan.planColonies` and
+ * docs/plans/mycelial_colony_growth.md) — and nothing in the ledger authors one any
  * more. `caveRoof` is the one holdover: turning a pit into a roofed cave still wants
  * real terrain geometry no grid cell can express, and that generation hasn't moved into
  * the colony system yet.
@@ -92,6 +91,19 @@ export type Prop =
       y?: number;
       attachToDig?: string;
       xFromDig?: string;
+      /**
+       * A deck whose x comes from its charter's own canyon wall rather than from a number
+       * somebody typed — `west` for Helion, `east` for Kessler.
+       *
+       * The crest decks were authored at a fixed x = ∓36 and could not work, because the
+       * floor edge moves with the seed by more than fifty units and each charter's colony
+       * moves with it. Measured over eight seeds, the west edge ranges −49 to −97 while
+       * Helion's own footprint ranges [−126,−66] to [−78,−18]: a deck at −36 sits thirty
+       * units clear of Helion's entire colony on seed 0, and no growth rule can reach a
+       * deck standing on another charter's ground. Anchored to the wall instead, the deck
+       * lands inside its own charter's footprint on every seed measured.
+       */
+      xFromWall?: 'east' | 'west';
       /**
        * Which cell of `attachToDig`'s drawing this deck rests in, in the drawing's own
        * coordinates — see `parseCells`.
@@ -548,18 +560,6 @@ export class Colony {
   gizmos = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('gizmos');
 
   pads: PadInfo[] = [];
-  /**
-   * Every moving structure in the mission. Advanced by `Game` inside the fixed-step
-   * loop, not here — a crane's pose is simulation state, and stepping it on the render
-   * clock would make it stutter with the frame rate and drift out of determinism.
-   *
-   * Always empty today: `gantry` and `platform`, the only prop kinds that ever carried
-   * a `motion`, are gone (see the `Prop` doc comment). Kept rather than torn out —
-   * `Game.ts` still steps it every frame and it is a real, tested primitive
-   * (`Kinematics.ts`) a future moving colony part would reach for again, not
-   * old-system debris.
-   */
-  readonly kinematics = new KinematicWorld();
   private rings: LandingRing[] = [];
   private radar: Radar | null = null;
 
@@ -1507,7 +1507,5 @@ export class Colony {
     this.latticeCursor = 0;
     this.radar = null;
     this.relays = [];
-    // The colliders themselves belong to the physics world, which the caller clears.
-    this.kinematics.clear();
   }
 }

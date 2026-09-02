@@ -34,7 +34,7 @@ if (typeof globalThis.document === 'undefined') {
 /**
  * The real pipeline, end to end, against real terrain — `Game.loadMission`'s own
  * sequence, exercised outside the renderer. Everything in `Missions.test.ts` and
- * `ColonyGeneration.test.ts` deliberately stays terrain-free or fakes it for speed;
+ * `ColonyOrganism.test.ts` deliberately stays terrain-free or fakes it for speed;
  * this is the one place that has to build an actual canyon per case to be worth
  * anything, so it stays deliberately small — a handful of mission ids spanning the
  * campaign's real terrain milestones (pre-dig, first floor dig, Helion's gallery inside
@@ -53,7 +53,26 @@ const IDS = [1, 14, 18, 19, 24, 29];
  */
 const SEEDS = [0, 12345, 631729407];
 
-function runPipeline(
+/**
+ * Memoised on `(id, seed)`, which is everything it reads. Nine of the twenty-seven calls
+ * in this file ask for a pair another test has already built — mission 19 on seed 0 alone
+ * is asked for three times — and a pipeline run is a canyon build plus a colony build, at
+ * roughly half a second each. Safe because every caller only ever probes what comes back:
+ * nothing here adds a collider, clears the physics world or disposes the generator.
+ */
+const pipelines = new Map<string, ReturnType<typeof buildPipeline>>();
+
+function runPipeline(id: number, seed: number): ReturnType<typeof buildPipeline> {
+  const key = `${id}:${seed}`;
+  let hit = pipelines.get(key);
+  if (!hit) {
+    hit = buildPipeline(id, seed);
+    pipelines.set(key, hit);
+  }
+  return hit;
+}
+
+function buildPipeline(
   id: number,
   seed: number,
 ): {

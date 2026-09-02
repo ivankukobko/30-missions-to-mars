@@ -1438,6 +1438,55 @@ body {
   cursor: default;
 }
 
+/* The ending's own cell. Dashed rather than solid because it is not a delivery: nothing
+   scores it, and it must not read as a mission that was flown and ranked nothing. The
+   glyph carries the state — hollow for unwatched, filled once seen. */
+.mission-epilogue {
+  border-style: dashed;
+  grid-column: span 2;
+}
+
+.mission-epilogue .mission-rank {
+  color: inherit;
+}
+
+/* ------------------------------------------------- playthrough summary */
+
+.summary-block {
+  margin: 16px 0 4px;
+  border-top: 1px solid color-mix(in srgb, var(--sys) 22%, transparent);
+  padding-top: 12px;
+}
+
+.summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+}
+
+.summary-label {
+  color: color-mix(in srgb, var(--sys) 62%, transparent);
+}
+
+/* Tabular figures so the column of numbers lines up rather than shimmering row to row. */
+.summary-value {
+  color: var(--sys);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.card-colophon {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--sys) 22%, transparent);
+  font-size: 12px;
+  color: color-mix(in srgb, var(--sys) 66%, transparent);
+}
+
 /* ------------------------------------------------------- secondary button */
 
 button.secondary {
