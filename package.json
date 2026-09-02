@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "colony:report": "COLONY_REPORT=1 vitest run src/campaign/ColonyBalance.test.ts --reporter=basic"
+    "colony:report": "COLONY_REPORT=1 vitest run src/campaign/ColonyBalance.test.ts --reporter=basic",
+    "fuel:report": "COLONY_REPORT=1 vitest run src/campaign/FuelBudget.test.ts --reporter=basic"
   },
   "devDependencies": {
     "@types/three": "^0.185.4",

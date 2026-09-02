@@ -184,11 +184,12 @@ Two other things came out of that profiling:
 | `src/core/Atmosphere.ts` | How thick and how dark the air is, from where you are looking |
 | `src/core/EpilogueFall.ts` | The ending's timing: the stalled handshake, the beacon, the cut |
 | `src/campaign/SaveData.ts` | Preferences, save slots and playthrough history |
+| `src/campaign/FuelBudget.ts` | What a mission's fuel is unavoidably spent on |
 | `src/ui/Interface.ts` | HUD, briefs, results, target marker |
 
 ## Tests
 
-571 tests, run in the container:
+575 tests, run in the container:
 
 ```bash
 docker compose run --rm --no-deps app sh -c "npm run typecheck && npm test"
@@ -215,6 +216,12 @@ What they are actually for:
   several seeds, against the *real* pipeline — terrain, resolved digs, grown colonies and
   their colliders — rather than against the authored ledger alone. Two faults lived in
   that gap and both had to be found by flying the game.
+- **Fuel margins.** Fuel is 60-70 of the 100 points a landing is scored on, so the size
+  of a tank against what the run unavoidably costs is very nearly the rank.
+  `FuelBudget.ts` computes that floor — the optimal brake and the crossing — and
+  `npm run fuel:report` prints it per mission. The spread is 27 points today (15% of the
+  tank on mission 2, 42% on mission 13), which means the same flying does not score the
+  same everywhere; the test ratchets it so it cannot widen while that is decided.
 - **Campaign pacing, not just legality.** `ColonyBalance.test.ts` asserts the things a
   legality check cannot see: that the canyon closes in across every stretch of the
   campaign, that a charter builds on its own missions, that flying well buys visible
