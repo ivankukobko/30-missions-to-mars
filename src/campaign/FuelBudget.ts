@@ -54,6 +54,8 @@ export interface FuelBudget {
   unavoidable: number;
   /** Seconds of hovering the rest of the tank buys — how much slack the pilot really has. */
   hoverSeconds: number;
+  /** The deck's half-width, or null for a delivery with no address. Feeds the centring term. */
+  padHalfWidth: number | null;
 }
 
 /** Fuel per second with everything lit, which differs by how a frame makes lift. */
@@ -109,7 +111,12 @@ export function lateralBurnOf(frame: Airframe, accel: number): number {
  * Substituting and collecting gives `2da = v₀² + 2gh`, so the brake distance falls out in
  * closed form and does not depend on `g` except through the height already fallen.
  */
-export function budgetFor(mission: Mission, targetY: number, targetX: number): FuelBudget {
+export function budgetFor(
+  mission: Mission,
+  targetY: number,
+  targetX: number,
+  padHalfWidth: number | null = null,
+): FuelBudget {
   const frame = AIRFRAMES[airframeFor(mission)];
   const capacity = Math.round(mission.fuel * frame.fuelScale);
   const mass = LANDER.DRY_MASS + mission.payload.mass * LANDER.PAYLOAD_MASS_FACTOR;
@@ -146,5 +153,6 @@ export function budgetFor(mission: Mission, targetY: number, targetX: number): F
     minimumFuel,
     unavoidable: minimumFuel / capacity,
     hoverSeconds: (capacity - minimumFuel) / hoverBurn,
+    padHalfWidth,
   };
 }

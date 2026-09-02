@@ -37,7 +37,21 @@ interface Common {
   name: string;
   /** Total thrust with every engine lit. Divided by mass to get acceleration. */
   thrust: number;
-  /** Multiplier on the mission's authored fuel budget. */
+  /**
+   * Multiplier on the mission's authored fuel budget.
+   *
+   * **Set against the frame's own burn rate, not as a difficulty knob.** It was being
+   * used as one, and it compounded with a difference nobody had measured: the hauler
+   * burns `11/cos 30°` = 12.70 a second against the lander's 11 for *identical* lift,
+   * because only `cos cant` of a canted engine's output goes up. Per authored fuel unit
+   * it therefore got 78% of the lander's burn time — and then carried a further 0.9 on
+   * top, charging it twice for the same geometry.
+   *
+   * The measured cost of that: S was arithmetically unreachable on fourteen of the
+   * twenty-eight scored missions, on a flight with no mistakes in it at all, and every
+   * hauler mission but one was among them. Cancelling the burn ratio here recovered
+   * eight of the fourteen without touching a single authored number.
+   */
   fuelScale: number;
   engines: Engine[];
   /**
@@ -135,7 +149,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     hasConsole: true,
     scheme: 'differential',
     thrust: 36,
-    fuelScale: 0.9,
+    fuelScale: 1.1547,
     engines: [
       { x: -0.24, cant: -HAULER_CANT },
       { x: 0.24, cant: HAULER_CANT },
@@ -157,7 +171,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     scheme: 'translation',
     thrust: 36,
     sideThrust: 18,
-    fuelScale: 0.92,
+    fuelScale: 1,
     engines: [
       { x: 0, cant: 0 },
       { x: -0.44, cant: -Math.PI / 2 },

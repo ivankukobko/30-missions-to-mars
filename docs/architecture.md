@@ -191,7 +191,7 @@ Two other things came out of that profiling:
 
 ## Tests
 
-578 tests, run in the container:
+580 tests, run in the container:
 
 ```bash
 docker compose run --rm --no-deps app sh -c "npm run typecheck && npm test"
@@ -221,14 +221,15 @@ What they are actually for:
 - **Fuel margins.** Fuel is 60-70 of the 100 points a landing is scored on, so the size
   of a tank against what the run unavoidably costs is very nearly the rank.
   `FuelBudget.ts` computes that floor — the optimal brake and the crossing — and
-  `npm run fuel:report` prints it per mission. The spread is 27 points today (15% of the
-  tank on mission 2, 42% on mission 13), which means the same flying does not score the
-  same everywhere; the test ratchets it so it cannot widen while that is decided.
+  `npm run fuel:report` prints it per mission. It also asserts the **ceiling**: a flawless
+  arrival banks 40 points from softness and centring, so an S needs 70% of the tank left,
+  which needs the unavoidable cost under 30%. That failed on fourteen of twenty-eight
+  missions — every hauler run but one — so S was not merely hard there, it did not exist.
 - **What a run actually scores.** `FuelBudget` bounds what a mission costs; the
   reference pilot in `src/testing/` flies it. One controller, the same on every mission,
   on the real `LanderBody` against the real `PhysicsWorld` with the colony built into it —
   so any difference between two missions is a difference in the missions. It lands 20 of
-  29 and scores **64 to 78 points**, a spread that straddles the A/B boundary at 66. The
+  29 and scores **67 to 78 points** — an eleven-point spread, all of it above the A cut. The
   nine it cannot fly are the deliveries whose approach is not vertical, which need a path
   follower rather than a descend-and-translate profile. `npm run pilot:report`.
 - **Campaign pacing, not just legality.** `ColonyBalance.test.ts` asserts the things a

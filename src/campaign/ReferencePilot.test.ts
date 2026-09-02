@@ -65,13 +65,15 @@ describe('a consistent pilot flying the whole campaign', () => {
   });
 
   /**
-   * **The finding this exists for.** The same flying scores 64 to 78 across the campaign —
-   * a fourteen-point spread straddling the A/B boundary at 66, so which mission you are on
-   * moves you across a rank by itself.
+   * **The finding this exists for.** The same flying used to score 64 to 78 — a
+   * fourteen-point spread straddling the A/B boundary at 66, so which mission you were on
+   * moved you across a rank by itself, with the deep hauler runs at the bottom exactly as
+   * `FuelBudget` predicted from the unavoidable share.
    *
-   * Pinned as a ratchet rather than an endorsement, like the fuel-margin spread it
-   * corroborates: the deep hauler runs sit at the bottom and the light lander runs at the
-   * top, which is exactly what `FuelBudget` predicted from the unavoidable share.
+   * Correcting `fuelScale` and raising sixteen tanks closed it to 67-78: eleven points,
+   * entirely above the A cut, and what is left of it is mostly the pilot rather than the
+   * mission — mission 27 scores lowest on 76% fuel because it arrives at 1.46 u/s and 2.1
+   * off centre, which is the score working correctly.
    */
   it('does not let the score spread between missions widen', () => {
     /**
@@ -90,7 +92,7 @@ describe('a consistent pilot flying the whole campaign', () => {
           `spread ${spread} across ${points.length} missions`,
       );
     }
-    expect(spread).toBeLessThanOrEqual(16);
+    expect(spread).toBeLessThanOrEqual(13);
   });
 
   /** Nobody should be able to make a delivery unflyable without this going red. */

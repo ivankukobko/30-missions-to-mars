@@ -111,7 +111,7 @@ missions:
     payload:
       name: Water Reclaimer
       mass: 0.8
-    fuel: 370
+    fuel: 385
     start: { x: 4, y: 1230 }
     target: outpost-main
     failDepth: -60
@@ -156,7 +156,7 @@ missions:
     payload:
       name: Drill Head
       mass: 1.2
-    fuel: 380
+    fuel: 420
     start: { x: -7, y: 1250 }
     target: helion-crest
     failDepth: -60
@@ -185,7 +185,7 @@ missions:
     payload:
       name: Seismic Array
       mass: 0.9
-    fuel: 385
+    fuel: 395
     start: { x: 7, y: 1250 }
     target: kessler-crest
     failDepth: -60
@@ -243,7 +243,7 @@ missions:
     payload:
       name: Pipeline Segment
       mass: 1.6
-    fuel: 405
+    fuel: 475
     start: { x: -13, y: 1230 }
     target: helion-crest
     failDepth: -60
@@ -262,7 +262,7 @@ missions:
     payload:
       name: Winch Assembly
       mass: 1.3
-    fuel: 390
+    fuel: 440
     start: { x: 13, y: 1210 }
     target: kessler-crest
     failDepth: -60
@@ -280,7 +280,7 @@ missions:
     payload:
       name: Atmosphere Scrubber
       mass: 1.4
-    fuel: 385
+    fuel: 395
     start: { x: -8, y: 1170 }
     target: outpost-main
     failDepth: -60
@@ -316,7 +316,7 @@ missions:
     payload:
       name: Shaft Liner
       mass: 1.7
-    fuel: 405
+    fuel: 510
     start: { x: 0, y: 1170 }
     target: kessler-crest
     failDepth: -60
@@ -337,7 +337,7 @@ missions:
     payload:
       name: Excavator Core
       mass: 1.5
-    fuel: 405
+    fuel: 470
     start: { x: 5, y: 1150 }
     target: kessler-crest
     failDepth: -95
@@ -441,7 +441,7 @@ missions:
     payload:
       name: Lateral Bore Rig
       mass: 1.8
-    fuel: 420
+    fuel: 500
     start: { x: -14, y: 1150 }
     target: helion-crest
     failDepth: -95
@@ -475,7 +475,7 @@ missions:
     payload:
       name: Roof Bracing
       mass: 1.2
-    fuel: 405
+    fuel: 410
     start: { x: -2, y: 1130 }
     target: helion-crest
     failDepth: -95
@@ -493,7 +493,7 @@ missions:
     payload:
       name: Ore Processor
       mass: 1.6
-    fuel: 430
+    fuel: 490
     start: { x: 4, y: 1130 }
     target: shaft-gallery
     failDepth: -95
@@ -526,7 +526,7 @@ missions:
     payload:
       name: Anchor Pylons
       mass: 1.5
-    fuel: 420
+    fuel: 445
     start: { x: 0, y: 1130 }
     target: shaft-head
     failDepth: -190
@@ -790,7 +790,7 @@ missions:
     payload:
       name: Seam Charges
       mass: 1.4
-    fuel: 420
+    fuel: 460
     start: { x: 19, y: 1090 }
     target: shaft-gallery
     failDepth: -320
@@ -811,7 +811,7 @@ missions:
     payload:
       name: Containment Shell
       mass: 1.9
-    fuel: 460
+    fuel: 545
     start: { x: -11, y: 1090 }
     target: shaft-deep
     failDepth: -320
@@ -832,7 +832,7 @@ missions:
     payload:
       name: Core Archive
       mass: 1.0
-    fuel: 390
+    fuel: 450
     start: { x: 20, y: 1070 }
     target: outpost-main
     failDepth: -320
@@ -911,7 +911,7 @@ missions:
     payload:
       name: Final Charge
       mass: 1.8
-    fuel: 445
+    fuel: 535
     start: { x: -18, y: 1070 }
     target: shaft-deep
     failDepth: -320

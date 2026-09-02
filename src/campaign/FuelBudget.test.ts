@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MISSIONS, airframeFor, PROLOGUE } from './Missions.ts';
+import { scoreLanding } from './Progress.ts';
 import { budgetFor, type FuelBudget } from './FuelBudget.ts';
 import { builtCanyon } from '../testing/canyonFixture.ts';
 
@@ -47,7 +48,12 @@ function computeWorstCase(missionId: number): FuelBudget {
         ? (pad.y ?? canyon.heightAt(pad.x, 0, true) + 1.3)
         : canyon.heightAt(mission.start.x, 0, true);
     const targetX = pad && pad.kind === 'pad' ? pad.x : mission.start.x;
-    const budget = budgetFor(mission, targetY, targetX);
+    const budget = budgetFor(
+      mission,
+      targetY,
+      targetX,
+      pad && pad.kind === 'pad' ? pad.width / 2 : null,
+    );
     if (!worst || budget.minimumFuel > worst.minimumFuel) worst = budget;
   }
   return worst!;
@@ -91,16 +97,67 @@ describe('every mission can actually be flown', () => {
   });
 });
 
+describe('every rank is arithmetically reachable', () => {
+  /**
+   * **The ceiling of a mission, which is not the same question as its cost.**
+   *
+   * A flawless arrival — the optimal brake, the optimal crossing, a 0.6 u/s kiss dead
+   * centre — banks the whole 25 for softness and the whole 15 for centring. So an S at 82
+   * needs `fuelPct` of at least 0.70, which means the mission's unavoidable cost has to
+   * come in under 30% of the tank. If it does not, no pilot reaches S there. Ever.
+   *
+   * Measured before this was fixed: **S was unreachable on fourteen of the twenty-eight
+   * scored missions**, and they were precisely the manoeuvre-heavy charter runs — every
+   * hauler mission but one among them. Most of it was `fuelScale` charging the hauler
+   * twice for its canted engines; the rest was sixteen tanks that were simply too small
+   * for what the run costs.
+   *
+   * This is the invariant that stops it coming back. It is deliberately about what is
+   * *possible* rather than what is likely: whether an S is hard is a tuning question for
+   * playtests, but whether it exists at all is arithmetic, and arithmetic can be asserted.
+   */
+  function ceilingFor(missionId: number) {
+    const mission = MISSIONS.find((m) => m.id === missionId)!;
+    const budget = worstCase(missionId);
+    // The pad this mission delivers to, for the centring term's denominator.
+    const half = mission.target === null ? null : budget.padHalfWidth;
+    return scoreLanding(budget.capacity - budget.minimumFuel, budget.capacity, 0.6, 0, half);
+  }
+
+  it('leaves an S on the table for a flawless flight, on every mission', () => {
+    for (const mission of SCORED) {
+      const ceiling = ceilingFor(mission.id);
+      if (REPORT) {
+        console.log(
+          `m${String(mission.id).padStart(2)} ${airframeFor(mission).padEnd(7)} ceiling ` +
+            `${String(ceiling.points).padStart(3)} pts ${ceiling.rank}`,
+        );
+      }
+      expect(
+        ceiling.rank,
+        `mission ${mission.id} tops out at ${ceiling.points} points — an S is not reachable there at all`,
+      ).toBe('S');
+    }
+  });
+
+  /** And an A should be comfortable, not a ceiling anybody is scraping. */
+  it('leaves an A well clear of the ceiling everywhere', () => {
+    for (const mission of SCORED) {
+      expect(ceilingFor(mission.id).points, `mission ${mission.id}`).toBeGreaterThan(66 + 10);
+    }
+  });
+});
+
 describe('the same flying should score the same on every mission', () => {
   /**
-   * **A ratchet, not an endorsement.** The spread is about 30 points today — 15% of the
-   * tank unavoidable on mission 2 against 45% on mission 13 — and that is too wide: waste
-   * the same *share* of your discretionary fuel on both and you land with 50% in one tank
-   * and 30% in the other, which is a rank boundary for identical piloting.
+   * **A ratchet.** It was 27 points — 15% of the tank unavoidable on mission 2 against
+   * 42% on mission 13 — which meant wasting the same *share* of your discretionary fuel
+   * on both left you with 50% in one tank and 30% in the other: a rank boundary, for
+   * identical piloting.
    *
-   * This is pinned at slightly above where it stands so that it cannot quietly get worse
-   * while the real fix is decided. The fix is a decision about what the margin curve
-   * across the campaign should be, which is a design question and not this test's to make.
+   * Correcting `fuelScale` against each frame's burn rate and raising sixteen tanks
+   * brought it to 11. Pinned just above that so it cannot quietly widen again. Closing it
+   * further is a tuning question for playtests rather than an arithmetic one.
    */
   it('does not let the margin spread widen further', () => {
     const shares = SCORED.map((m) => worstCase(m.id).unavoidable);
@@ -112,7 +169,7 @@ describe('the same flying should score the same on every mission', () => {
           `spread ${(spread * 100).toFixed(0)} points`,
       );
     }
-    expect(spread).toBeLessThan(0.32);
+    expect(spread).toBeLessThan(0.14);
   });
 
   /**
