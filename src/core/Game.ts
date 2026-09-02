@@ -13,14 +13,9 @@ import { Effects } from '../entities/Effects.ts';
 import { Interface, type GameSettings } from '../ui/Interface.ts';
 import type { HudCommon, HudData } from '../ui/HudData.ts';
 import { Progress, scoreLanding, summarise } from '../campaign/Progress.ts';
-import {
-  activeSlot,
-  defaultStore,
-  readHistory,
-  readSlots,
-  setActiveSlot,
-  SLOT_COUNT,
-} from '../campaign/SaveData.ts';
+import { MenuController, type MenuHost } from './MenuController.ts';
+import { describeCrash } from './CrashReport.ts';
+import { activeSlot, defaultStore } from '../campaign/SaveData.ts';
 import {
   getMission,
   airframeFor,
@@ -30,7 +25,6 @@ import {
   musicTrackFor,
   MISSION_COUNT,
   CAMPAIGN_FLIGHTS,
-  EPILOGUE_ID,
   ENTRY_VELOCITY,
   type Mission,
 } from '../campaign/Missions.ts';
@@ -153,7 +147,7 @@ interface Blast {
   age: number;
 }
 
-export class Game {
+export class Game implements MenuHost {
   private container: HTMLElement;
   private scene = new THREE.Scene();
   private renderer: THREE.WebGLRenderer;
@@ -162,13 +156,14 @@ export class Game {
   private physics = new PhysicsWorld(GRAVITY);
   private canyon: CanyonGenerator;
   private colony: Colony;
-  private ui: Interface;
+  readonly ui: Interface;
   /**
    * The one store every save key is read through, held so the slot and history screens
    * read the same storage the campaign was loaded from rather than resolving their own.
    */
-  private store = defaultStore();
-  private progress = new Progress(this.store, activeSlot(this.store));
+  readonly store = defaultStore();
+  progress = new Progress(this.store, activeSlot(this.store));
+  private menu = new MenuController(this);
 
   private fog: THREE.FogExp2;
   private volumetricFog: VolumetricFog;
@@ -1118,27 +1113,7 @@ export class Game {
   }
 
   private describeCrash(kind: string, lander: Lander): void {
-    const speed = lander.speed;
-    const tilt = Math.abs(lander.tilt);
-
-    let title = 'LANDER DESTROYED';
-    let detail = 'Contact with terrain at speed. There is no such thing as a gentle rock here.';
-
-    if (kind === 'structure') {
-      title = 'STRUCTURAL COLLISION';
-      detail =
-        'You hit colony hardware. Every beam in this canyon was flown down here by a pilot doing your job.';
-    } else if (kind === 'pad' && tilt > LANDER.MAX_LANDING_TILT) {
-      title = 'TIPPED ON TOUCHDOWN';
-      detail = `You reached the pad at ${((tilt * 180) / Math.PI).toFixed(0)}° of tilt. The tolerance is ${((LANDER.MAX_LANDING_TILT * 180) / Math.PI).toFixed(0)}°.`;
-    } else if (kind === 'pad') {
-      title = 'HARD LANDING';
-      detail = `Touchdown at ${speed.toFixed(1)} u/s. The gear takes ${LANDER.MAX_LANDING_SPEED.toFixed(1)} u/s and not a fraction more.`;
-    } else if (speed > 8) {
-      title = 'IMPACT';
-      detail = `Ground contact at ${speed.toFixed(1)} u/s. Start braking higher.`;
-    }
-
+    const { title, detail } = describeCrash(kind, lander.speed, lander.tilt);
     this.crash(lander.x, lander.y, title, detail);
   }
 
@@ -1422,193 +1397,47 @@ export class Game {
    * contributes nothing but a speck, and a lander frozen mid-sky behind a menu reads as
    * a stuck game.
    */
-  private openMenu(): void {
+  /** Depth into the menu, so Escape can step back one screen rather than toggling. */
+  menuDepth = 0;
+
+  /** Into a mission from anywhere in the menu: always via the brief. */
+  enterMission(id: number): void {
+    if (this.lander) this.lander.group.visible = true;
+    this.loadMission(id);
+  }
+
+  /**
+   * Menu state: the camera on the canyon, the vehicle and the console out of sight.
+   *
+   * The vehicle is hidden rather than moved. It is parked at entry altitude a thousand
+   * units up, so it contributes nothing but a speck — and a lander frozen mid-sky behind
+   * a menu reads as a stuck game.
+   */
+  presentBackdrop(): void {
     this.state = 'MENU';
-    this.menuDepth = 0;
     this.ui.setHudVisible(false);
     if (this.lander) this.lander.group.visible = false;
     this.frameCanyon();
-
-    /**
-     * Where CONTINUE goes, and what it is called.
-     *
-     * Once all twenty-nine deliveries are flown there is still one flight left, so this
-     * points at the ending rather than parking on mission 29 for the rest of the save's
-     * life. It stays there afterwards: the epilogue is replayable, and a finished campaign
-     * offering CONTINUE → MISSION 29 reads as though something is still owed.
-     */
-    const done = this.campaignDone();
-    const next = done ? EPILOGUE_ID : this.progress.highestUnlocked;
-    this.ui.showMenu([
-      {
-        label: 'CONTINUE',
-        detail: done ? 'EPILOGUE' : `MISSION ${String(next).padStart(2, '0')}`,
-        onSelect: () => this.enterMission(next),
-      },
-      { label: 'MISSIONS', detail: `${this.flownCount()} / ${CAMPAIGN_FLIGHTS}`, onSelect: () => this.openMissions() },
-      {
-        label: 'CANYONS',
-        detail: `${this.progress.slot + 1} OF ${SLOT_COUNT}`,
-        onSelect: () => this.openSlots(),
-      },
-      { label: 'HISTORY', detail: this.historyDetail(), onSelect: () => this.openHistory() },
-      { label: 'SETTINGS', onSelect: () => this.openSettings() },
-      { label: 'NEW CANYON', danger: true, onSelect: () => this.confirmNewCanyon() },
-    ]);
   }
 
-  /**
-   * Flights behind the player, out of `CAMPAIGN_FLIGHTS`.
-   *
-   * The ending counts as one, and it is **derived** rather than recorded. Landing mission
-   * 29 is what unlocks it, and the result card's ordinary `NEXT MISSION` is what runs it —
-   * the ending is reached the same way every other flight is — so `highestUnlocked` past
-   * the last mission already says the campaign is done. A stored "was it watched" flag was
-   * tried and removed: it earns its keep only for a player who closes the tab between the
-   * result card and the end of the ending, which is not worth a field in a save format
-   * that has never lost anybody's data.
-   *
-   * Counting ranked missions alone left the menu reporting 29/30 forever on a finished
-   * save — the one number a player checks to know whether they are done, permanently one
-   * short.
-   */
-  private flownCount(): number {
-    return Object.keys(this.progress.ranks).length + (this.campaignDone() ? 1 : 0);
+  /** Builds a mission's world without presenting its brief — what the menu sits over. */
+  loadWorld(id: number): void {
+    this.loadMission(id, false);
   }
 
-  /** All twenty-nine deliveries flown, so the ending is unlocked. */
-  private campaignDone(): boolean {
-    return this.progress.highestUnlocked > MISSION_COUNT;
-  }
-
-  /** Depth into the menu, so Escape can step back one screen rather than toggling. */
-  private menuDepth = 0;
-
-  private openMissions(): void {
-    this.menuDepth = 1;
-    this.ui.showMissions(
-      Math.min(this.progress.highestUnlocked, CAMPAIGN_FLIGHTS),
-      (id) => this.progress.rankFor(id),
-      CAMPAIGN_FLIGHTS,
-      (id) => this.enterMission(id),
-      () => this.openMenu(),
-      EPILOGUE_ID,
-    );
-  }
-
-  private historyDetail(): string {
-    const runs = readHistory(this.store).length;
-    return runs === 0 ? 'NONE' : `${runs} RUN${runs === 1 ? '' : 'S'}`;
-  }
-
-  /**
-   * The player's campaigns, one canyon each.
-   *
-   * A slot is a canyon rather than a save file, which is why the row reports the seed:
-   * it is the only thing that distinguishes one from another before you are in it, and
-   * it is the number the player has been looking at on the closing card and the debug bar
-   * all along.
-   */
-  private openSlots(): void {
-    this.menuDepth = 1;
-    const rows = readSlots(this.store).map((slot) => {
-      const here = slot.slot === this.progress.slot;
-      const detail = !slot.occupied
-        ? 'EMPTY'
-        : `${slot.delivered} / ${MISSION_COUNT} · SEED ${slot.seed}`;
-      return {
-        label: `CANYON ${slot.slot + 1}`,
-        detail: here ? `${detail} · HERE` : detail,
-        current: here,
-        // The row you are already on does nothing. Reloading the active slot would
-        // rebuild the world for no change the player asked for.
-        onSelect: here ? undefined : () => this.switchSlot(slot.slot),
-      };
-    });
-    this.ui.showSlots(rows, () => this.openMenu());
-  }
-
-  /**
-   * Switches canyon: a different campaign, a different seed, a different world.
-   *
-   * The same in-place rebuild `newCanyon` uses — dispose the generator, repoint the
-   * director's ground probe, reload — rather than a page reload. Preferences are
-   * untouched because they never lived in the slot; see `SaveData.Preferences`.
-   */
-  private switchSlot(slot: number): void {
-    setActiveSlot(this.store, slot);
-    this.progress = new Progress(this.store, slot);
-    // No audio call here on purpose: preferences are unslotted, so switching canyons
-    // cannot change them. That is the whole point of them living outside the record.
+  /** Throws away the canyon generator and builds one for whatever seed is current. */
+  rebuildCanyon(): void {
     this.canyon.dispose();
     this.canyon = new CanyonGenerator(this.scene, this.physics, this.progress.seed);
     this.director.groundAt = (x, z) => this.canyon.heightAt(x, z);
-    this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT), false);
-    this.openMenu();
   }
 
-  /**
-   * Campaigns already behind the player.
-   *
-   * Reporting rows rather than selectable ones: a finished playthrough is a record, and
-   * there is nothing to go back to — the canyon it names was discarded when it ended.
-   * What it preserves is the part worth keeping, which is how it went.
-   */
-  private openHistory(): void {
-    this.menuDepth = 1;
-    const runs = readHistory(this.store);
-    const rows =
-      runs.length === 0
-        ? [{ label: 'NOTHING FILED YET', detail: '' }]
-        : runs.map((run) => ({
-            // The seed is the canyon's only name, and the one the closing card and the
-            // debug bar already use. The rank tally is deliberately not here: it does not
-            // fit beside a nine-digit seed at this card's width, and the figure that
-            // answers "how did that run go" is the score.
-            label: `${run.completed ? '\u25c6' : '\u25c7'} SEED ${run.seed}`,
-            detail: `${run.delivered} / ${MISSION_COUNT} · ${run.totalPoints} PTS`,
-            compact: true,
-          }));
-    this.ui.showHistory(rows, () => this.openMenu());
-  }
-
-  private openSettings(): void {
-    this.menuDepth = 1;
-    this.ui.showSettings(this.settings(), () => this.openMenu());
+  private openMenu(): void {
+    this.menu.open();
   }
 
   private confirmNewCanyon(): void {
-    this.menuDepth = 1;
-    this.ui.showConfirm(
-      'NEW CANYON',
-      'Rolls a new seed and starts the campaign at mission one. Every rank on this save is discarded, and the canyon you have been building in is gone.<br/><br/>Your sound and control settings are kept.',
-      'ROLL A NEW CANYON',
-      () => this.newCanyon(),
-      () => this.openMenu(),
-    );
-  }
-
-  /**
-   * Rolls a new campaign without reloading the page.
-   *
-   * The old route was `progress.newCanyon()` followed by `window.location.reload()`,
-   * which was a page reload standing in for a state transition because there was nowhere
-   * to transition *to*. `useSeed` already had the in-place rebuild — dispose the
-   * generator, repoint the director's ground probe, reload — and this is the same path.
-   */
-  private newCanyon(): void {
-    this.progress.newCanyon();
-    this.canyon.dispose();
-    this.canyon = new CanyonGenerator(this.scene, this.physics, this.progress.seed);
-    this.director.groundAt = (x, z) => this.canyon.heightAt(x, z);
-    this.loadMission(1, false);
-    this.openMenu();
-  }
-
-  /** Into a mission from anywhere in the menu: always via the brief. */
-  private enterMission(id: number): void {
-    if (this.lander) this.lander.group.visible = true;
-    this.loadMission(id);
+    this.menu.confirmNewCanyon();
   }
 
   /**
@@ -1674,7 +1503,7 @@ export class Game {
    * The settings block's view of the world, built fresh each time it is opened so it
    * always reflects what is actually stored rather than a snapshot from startup.
    */
-  private settings(): GameSettings {
+  settings(): GameSettings {
     const frame = this.lander?.airframe;
     return {
       mutedSfx: this.progress.audioPrefs.sfx,

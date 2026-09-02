@@ -178,7 +178,9 @@ Two other things came out of that profiling:
 | `src/core/CameraDirector.ts` | The rim transition, framed rather than guessed |
 | `src/core/InputManager.ts` | Keyboard and multi-touch, normalised to one state |
 | `src/core/Inspector.ts` | Map editor and generator readout, behind `?debug=1` |
-| `src/core/Game.ts` | Fixed-timestep loop, mission flow, menu |
+| `src/core/Game.ts` | Fixed-timestep loop, mission flow, world assembly |
+| `src/core/MenuController.ts` | Every screen reached without flying |
+| `src/core/CrashReport.ts` | What the failure card says, and the tolerances it quotes |
 | `src/core/Atmosphere.ts` | How thick and how dark the air is, from where you are looking |
 | `src/core/EpilogueFall.ts` | The ending's timing: the stalled handshake, the beacon, the cut |
 | `src/campaign/SaveData.ts` | Preferences, save slots and playthrough history |
@@ -186,7 +188,7 @@ Two other things came out of that profiling:
 
 ## Tests
 
-563 tests, run in the container:
+571 tests, run in the container:
 
 ```bash
 docker compose run --rm --no-deps app sh -c "npm run typecheck && npm test"
