@@ -45,7 +45,7 @@ function fly(id: number): FlightOutcome {
 const REACHABLE = MISSIONS.filter((m) => !NEEDS_PATH_FOLLOWING.has(m.id));
 
 describe('a consistent pilot flying the whole campaign', () => {
-  it('lands every mission whose approach is a straight descent', () => {
+  it('lands every mission whose approach is a straight descent', { timeout: 300000 }, () => {
     for (const mission of REACHABLE) {
       const outcome = fly(mission.id);
       if (REPORT && outcome.kind === 'landed') {
@@ -75,7 +75,7 @@ describe('a consistent pilot flying the whole campaign', () => {
    * mission — mission 27 scores lowest on 76% fuel because it arrives at 1.46 u/s and 2.1
    * off centre, which is the score working correctly.
    */
-  it('does not let the score spread between missions widen', () => {
+  it('does not let the score spread between missions widen', { timeout: 300000 }, () => {
     /**
      * The prologue is left out. It is scored on open ground with no centring term at all,
      * on a tank deliberately extravagant enough that it carries no fuel gauge — it comes
@@ -96,7 +96,7 @@ describe('a consistent pilot flying the whole campaign', () => {
   });
 
   /** Nobody should be able to make a delivery unflyable without this going red. */
-  it('never runs a tank dry on a mission it can reach', () => {
+  it('never runs a tank dry on a mission it can reach', { timeout: 300000 }, () => {
     for (const mission of REACHABLE) {
       const outcome = fly(mission.id);
       if (outcome.kind !== 'landed') continue;

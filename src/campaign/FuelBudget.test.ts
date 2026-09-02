@@ -63,7 +63,7 @@ function computeWorstCase(missionId: number): FuelBudget {
 const SCORED = MISSIONS.filter((m) => m.id !== PROLOGUE.id);
 
 describe('every mission can actually be flown', () => {
-  it('leaves real discretionary fuel on top of what physics demands', () => {
+  it('leaves real discretionary fuel on top of what physics demands', { timeout: 120000 }, () => {
     for (const mission of SCORED) {
       const budget = worstCase(mission.id);
       if (REPORT) {

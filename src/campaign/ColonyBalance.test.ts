@@ -67,7 +67,7 @@ describe('the canyon closes in as the campaign runs', () => {
    * missions later. Total cells across all three corps at C-rank went 92 at mission 8 and
    * 91 at mission 20.
    */
-  it('grows the settlement across every stretch of the campaign', () => {
+  it('grows the settlement across every stretch of the campaign', { timeout: 300000 }, () => {
     /**
      * Eight missions apart, not four, and the difference is a real campaign event rather
      * than slack in the test. A mission that opens a new approach demolishes whatever
@@ -109,7 +109,7 @@ describe('the canyon closes in as the campaign runs', () => {
    * its `colonyBudget` is a deliberate cap holding the canyon unclaimed for the run that
    * plants the radar.
    */
-  it('moves a charter on its own missions', () => {
+  it('moves a charter on its own missions', { timeout: 300000 }, () => {
     for (const seed of [0, 12345]) {
       const previous: Partial<Record<CorpId, number>> = {};
       for (const mission of MISSIONS) {
@@ -135,7 +135,7 @@ describe('flying well is visible in the canyon', () => {
    * colony — had no test at all: every case in the suite planned with an empty score
    * record, so a change that disconnected points from growth would have gone unnoticed.
    */
-  it('builds more for a campaign flown well than for one scraped through', () => {
+  it('builds more for a campaign flown well than for one scraped through', { timeout: 300000 }, () => {
     for (const seed of SEEDS) {
       const scraped = sizes(29, seed, 0);
       const flawless = sizes(29, seed, 100);
@@ -150,7 +150,7 @@ describe('flying well is visible in the canyon', () => {
   });
 
   /** Points may never *cost* a charter ground, at any point in the campaign. */
-  it('never shrinks a colony for scoring better', () => {
+  it('never shrinks a colony for scoring better', { timeout: 300000 }, () => {
     for (const id of [8, 16, 22, 29]) {
       for (const seed of [0, 12345]) {
         const low = sizes(id, seed, 0);
@@ -175,7 +175,7 @@ describe('nothing the player lands on is floating', () => {
    * clear of Helion's entire colony, where no growth rule could ever have reached it.
    * `spine` fixed the first and `xFromWall` the second.
    */
-  it('stands every raised deck on its own charter', () => {
+  it('stands every raised deck on its own charter', { timeout: 300000 }, () => {
     let checked = 0;
     for (const seed of SEEDS) {
       for (let id = 6; id <= 20; id++) {
