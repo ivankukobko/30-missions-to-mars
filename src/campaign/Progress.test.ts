@@ -1,17 +1,44 @@
 import { describe, it, expect } from 'vitest';
 import { Progress, scoreLanding, summarise, type ProgressStore, type Rank } from './Progress.ts';
+import {
+  activeSlot,
+  clearSlot,
+  Preferences,
+  readHistory,
+  readSlots,
+  setActiveSlot,
+  SLOT_COUNT,
+  slotKey,
+} from './SaveData.ts';
 
-/** In-memory stand-in for localStorage. */
+/**
+ * In-memory stand-in for localStorage.
+ *
+ * **Keyed**, which it did not used to be: it held one value and returned it for every
+ * key. That was harmless while the campaign was the only thing in storage, and became a
+ * trap the moment preferences and history moved to keys of their own — the campaign
+ * record would have been handed back as the preferences record, and every test would
+ * have passed while testing nothing.
+ *
+ * `seed` still seeds the campaign key, so an existing test that pre-loads a save reads
+ * the same way it always did.
+ */
 function memoryStore(seed?: string): ProgressStore & { raw(): string | null } {
-  let value: string | null = seed ?? null;
+  const values = new Map<string, string>();
+  if (seed !== undefined) values.set(CAMPAIGN_KEY, seed);
   return {
-    getItem: () => value,
-    setItem: (_key, next) => {
-      value = next;
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, next) => {
+      values.set(key, next);
     },
-    raw: () => value,
+    removeItem: (key) => {
+      values.delete(key);
+    },
+    raw: () => values.get(CAMPAIGN_KEY) ?? null,
   };
 }
+
+const CAMPAIGN_KEY = slotKey(0);
 
 /** A store that throws on every access, like Safari with storage blocked. */
 const hostileStore: ProgressStore = {
@@ -344,5 +371,176 @@ describe('summarise', () => {
     expect(summary.averagePoints).toBe(0);
     expect(summary.best).toBeNull();
     expect(summary.worst).toBeNull();
+  });
+});
+
+describe('preferences live outside the campaign', () => {
+  it('survives rolling a new canyon, which wipes everything else', () => {
+    const store = memoryStore();
+    const progress = new Progress(store);
+    progress.setMutedMusic(true);
+    progress.setInvertThrusters(true);
+    progress.complete(1, 'S', 90);
+    const seed = progress.seed;
+
+    progress.newCanyon();
+
+    expect(progress.audioPrefs.music).toBe(true);
+    expect(progress.invertThrusters).toBe(true);
+    expect(progress.rankFor(1)).toBeNull();
+    expect(progress.seed).not.toBe(seed);
+  });
+
+  it('is shared between slots, because it is a fact about the person', () => {
+    const store = memoryStore();
+    new Progress(store, 0).setMutedSfx(true);
+
+    expect(new Progress(store, 1).audioPrefs.sfx).toBe(true);
+  });
+
+  /**
+   * The migration that matters. Every save written before slots keeps these three inside
+   * the campaign record, and a returning player must not have their settings reset by an
+   * update.
+   */
+  it('lifts settings out of a save written before they moved', () => {
+    const store = memoryStore(
+      JSON.stringify({ seed: 5, mutedSfx: true, mutedMusic: true, invertThrusters: true }),
+    );
+
+    const progress = new Progress(store);
+    expect(progress.audioPrefs).toEqual({ sfx: true, music: true });
+    expect(progress.invertThrusters).toBe(true);
+  });
+
+  /** Copied, not moved: the old fields stay put so nothing is destroyed to migrate. */
+  it('leaves the legacy record intact while lifting from it', () => {
+    const store = memoryStore(JSON.stringify({ seed: 5, mutedMusic: true }));
+    new Preferences(store);
+
+    expect(JSON.parse(store.raw()!).mutedMusic).toBe(true);
+  });
+});
+
+describe('save slots', () => {
+  it('keeps slot 0 on the key the game has always used', () => {
+    expect(slotKey(0)).toBe('mtm.progress.v1');
+    expect(slotKey(1)).not.toBe(slotKey(0));
+  });
+
+  it('holds a separate campaign per slot', () => {
+    const store = memoryStore();
+    const a = new Progress(store, 0);
+    const b = new Progress(store, 1);
+    a.complete(1, 'S', 90);
+    b.complete(1, 'C', 20);
+
+    expect(new Progress(store, 0).rankFor(1)).toBe('S');
+    expect(new Progress(store, 1).rankFor(1)).toBe('C');
+    expect(a.seed).not.toBe(b.seed);
+  });
+
+  it('reports which slots are occupied, without loading them', () => {
+    const store = memoryStore();
+    new Progress(store, 1).complete(1, 'A', 70);
+
+    const slots = readSlots(store);
+    expect(slots).toHaveLength(SLOT_COUNT);
+    expect(slots[0].occupied).toBe(false);
+    expect(slots[1].occupied).toBe(true);
+    expect(slots[1].delivered).toBe(1);
+    expect(slots[1].totalPoints).toBe(70);
+    expect(slots[2].occupied).toBe(false);
+  });
+
+  it('remembers the live slot, and falls back to 0 when asked for nonsense', () => {
+    const store = memoryStore();
+    expect(activeSlot(store)).toBe(0);
+
+    setActiveSlot(store, 2);
+    expect(activeSlot(store)).toBe(2);
+
+    setActiveSlot(store, 99);
+    expect(activeSlot(store)).toBe(0);
+  });
+
+  it('discards a slot without touching its neighbours', () => {
+    const store = memoryStore();
+    new Progress(store, 0).complete(1, 'S', 90);
+    new Progress(store, 1).complete(1, 'B', 50);
+
+    clearSlot(store, 1);
+
+    expect(readSlots(store)[0].occupied).toBe(true);
+    expect(readSlots(store)[1].occupied).toBe(false);
+  });
+});
+
+describe('playthrough history', () => {
+  function played(store: ProgressStore, runs: number): Progress {
+    const progress = new Progress(store);
+    for (let id = 1; id <= runs; id++) progress.complete(id, 'A', 70);
+    return progress;
+  }
+
+  it('files a campaign when its canyon is rerolled', () => {
+    const store = memoryStore();
+    const progress = played(store, 3);
+    const seed = progress.seed;
+
+    progress.newCanyon();
+
+    const history = readHistory(store);
+    expect(history).toHaveLength(1);
+    expect(history[0].seed).toBe(seed);
+    expect(history[0].delivered).toBe(3);
+    expect(history[0].totalPoints).toBe(210);
+    expect(history[0].completed).toBe(false);
+    expect(history[0].tally).toEqual({ S: 0, A: 3, B: 0, C: 0 });
+  });
+
+  it('files a completed campaign as completed', () => {
+    const store = memoryStore();
+    played(store, 2).archive(true);
+
+    expect(readHistory(store)[0].completed).toBe(true);
+  });
+
+  /** A campaign completed and then rerolled is one run, not two. */
+  it('never files the same campaign twice', () => {
+    const store = memoryStore();
+    const progress = played(store, 2);
+    progress.archive(true);
+    progress.archive(true);
+    progress.newCanyon();
+
+    expect(readHistory(store)).toHaveLength(1);
+  });
+
+  it('does not file a canyon nobody flew', () => {
+    const store = memoryStore();
+    new Progress(store).newCanyon();
+
+    expect(readHistory(store)).toEqual([]);
+  });
+
+  it('keeps the newest first and survives a reroll after a reroll', () => {
+    const store = memoryStore();
+    const progress = played(store, 1);
+    progress.newCanyon();
+    progress.complete(1, 'S', 95);
+    progress.complete(2, 'S', 95);
+    progress.newCanyon();
+
+    const history = readHistory(store);
+    expect(history).toHaveLength(2);
+    expect(history[0].delivered).toBe(2);
+    expect(history[1].delivered).toBe(1);
+  });
+
+  it('reads as empty rather than throwing on a corrupt record', () => {
+    const store = memoryStore();
+    store.setItem('mtm.history.v1', '{ not json');
+    expect(readHistory(store)).toEqual([]);
   });
 });

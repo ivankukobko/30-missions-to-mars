@@ -1368,6 +1368,36 @@ body {
   opacity: 0.62;
 }
 
+/* A row carrying a seed and a score at once. The menu's ordinary 0.16em tracking is set
+   for four or five words; nine digits and a score need it back. */
+.menu-row.compact {
+  letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+.menu-row.compact .menu-detail {
+  letter-spacing: 0.04em;
+}
+
+/* A row that only reports something: the canyon you are already in, a run already filed.
+   It never inverts on hover, because nothing happens when you press it. */
+.menu-row.inert {
+  cursor: default;
+}
+
+.menu-row.inert:hover,
+.menu-row.inert:focus-visible {
+  color: var(--sys);
+  background: transparent;
+}
+
+/* Where the player already is. Marked with the same prompt glyph the menu title uses,
+   so "here" reads the same way in both places. */
+.menu-row.current .menu-label::before {
+  content: '> ';
+  opacity: 0.7;
+}
+
 /* Destructive rows are red on the same inverted treatment — `--danger` is never themed,
    here as everywhere else. */
 .menu-row.danger {

@@ -14,6 +14,14 @@ import { Interface, type GameSettings } from '../ui/Interface.ts';
 import type { HudCommon, HudData } from '../ui/HudData.ts';
 import { Progress, scoreLanding, summarise } from '../campaign/Progress.ts';
 import {
+  activeSlot,
+  defaultStore,
+  readHistory,
+  readSlots,
+  setActiveSlot,
+  SLOT_COUNT,
+} from '../campaign/SaveData.ts';
+import {
   getMission,
   airframeFor,
   PROLOGUE,
@@ -186,7 +194,12 @@ export class Game {
   private canyon: CanyonGenerator;
   private colony: Colony;
   private ui: Interface;
-  private progress = new Progress();
+  /**
+   * The one store every save key is read through, held so the slot and history screens
+   * read the same storage the campaign was loaded from rather than resolving their own.
+   */
+  private store = defaultStore();
+  private progress = new Progress(this.store, activeSlot(this.store));
 
   private fog: THREE.FogExp2;
   private volumetricFog: VolumetricFog;
@@ -736,6 +749,9 @@ export class Game {
     // The ambience goes with the picture. Everything the player has been hearing for
     // thirty missions arrives over the same link that just stopped answering.
     audio.stopAmbient();
+    // The campaign is over, so file it. Idempotent — `newCanyon` files the same run if
+    // the player rerolls instead, and only one of the two ever lands.
+    this.progress.archive(true);
     this.ui.showVictory(
       summarise(this.progress, CAMPAIGN_FLIGHTS),
       () => this.returnToMenuFromEnding(),
@@ -1503,6 +1519,12 @@ export class Game {
         onSelect: () => this.enterMission(next),
       },
       { label: 'MISSIONS', detail: `${this.flownCount()} / ${CAMPAIGN_FLIGHTS}`, onSelect: () => this.openMissions() },
+      {
+        label: 'CANYONS',
+        detail: `${this.progress.slot + 1} OF ${SLOT_COUNT}`,
+        onSelect: () => this.openSlots(),
+      },
+      { label: 'HISTORY', detail: this.historyDetail(), onSelect: () => this.openHistory() },
       { label: 'SETTINGS', onSelect: () => this.openSettings() },
       { label: 'NEW CANYON', danger: true, onSelect: () => this.confirmNewCanyon() },
     ]);
@@ -1545,6 +1567,82 @@ export class Game {
       () => this.openMenu(),
       EPILOGUE_ID,
     );
+  }
+
+  private historyDetail(): string {
+    const runs = readHistory(this.store).length;
+    return runs === 0 ? 'NONE' : `${runs} RUN${runs === 1 ? '' : 'S'}`;
+  }
+
+  /**
+   * The player's campaigns, one canyon each.
+   *
+   * A slot is a canyon rather than a save file, which is why the row reports the seed:
+   * it is the only thing that distinguishes one from another before you are in it, and
+   * it is the number the player has been looking at on the closing card and the debug bar
+   * all along.
+   */
+  private openSlots(): void {
+    this.menuDepth = 1;
+    const rows = readSlots(this.store).map((slot) => {
+      const here = slot.slot === this.progress.slot;
+      const detail = !slot.occupied
+        ? 'EMPTY'
+        : `${slot.delivered} / ${MISSION_COUNT} · SEED ${slot.seed}`;
+      return {
+        label: `CANYON ${slot.slot + 1}`,
+        detail: here ? `${detail} · HERE` : detail,
+        current: here,
+        // The row you are already on does nothing. Reloading the active slot would
+        // rebuild the world for no change the player asked for.
+        onSelect: here ? undefined : () => this.switchSlot(slot.slot),
+      };
+    });
+    this.ui.showSlots(rows, () => this.openMenu());
+  }
+
+  /**
+   * Switches canyon: a different campaign, a different seed, a different world.
+   *
+   * The same in-place rebuild `newCanyon` uses — dispose the generator, repoint the
+   * director's ground probe, reload — rather than a page reload. Preferences are
+   * untouched because they never lived in the slot; see `SaveData.Preferences`.
+   */
+  private switchSlot(slot: number): void {
+    setActiveSlot(this.store, slot);
+    this.progress = new Progress(this.store, slot);
+    // No audio call here on purpose: preferences are unslotted, so switching canyons
+    // cannot change them. That is the whole point of them living outside the record.
+    this.canyon.dispose();
+    this.canyon = new CanyonGenerator(this.scene, this.physics, this.progress.seed);
+    this.director.groundAt = (x, z) => this.canyon.heightAt(x, z);
+    this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT), false);
+    this.openMenu();
+  }
+
+  /**
+   * Campaigns already behind the player.
+   *
+   * Reporting rows rather than selectable ones: a finished playthrough is a record, and
+   * there is nothing to go back to — the canyon it names was discarded when it ended.
+   * What it preserves is the part worth keeping, which is how it went.
+   */
+  private openHistory(): void {
+    this.menuDepth = 1;
+    const runs = readHistory(this.store);
+    const rows =
+      runs.length === 0
+        ? [{ label: 'NOTHING FILED YET', detail: '' }]
+        : runs.map((run) => ({
+            // The seed is the canyon's only name, and the one the closing card and the
+            // debug bar already use. The rank tally is deliberately not here: it does not
+            // fit beside a nine-digit seed at this card's width, and the figure that
+            // answers "how did that run go" is the score.
+            label: `${run.completed ? '\u25c6' : '\u25c7'} SEED ${run.seed}`,
+            detail: `${run.delivered} / ${MISSION_COUNT} · ${run.totalPoints} PTS`,
+            compact: true,
+          }));
+    this.ui.showHistory(rows, () => this.openMenu());
   }
 
   private openSettings(): void {

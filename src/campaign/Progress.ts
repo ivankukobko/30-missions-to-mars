@@ -1,3 +1,15 @@
+import {
+  activeSlot,
+  appendHistory,
+  defaultStore,
+  Preferences,
+  slotKey,
+  type PlaythroughRecord,
+  type ProgressStore,
+} from './SaveData.ts';
+
+export type { ProgressStore };
+
 export type Rank = 'S' | 'A' | 'B' | 'C';
 
 export interface LandingScore {
@@ -78,38 +90,29 @@ interface Saved {
    * Preferences rather than campaign state, filed here for the reason `invertThrusters`
    * already gives: there is exactly one place that survives a reload.
    */
+  /**
+   * Carried for a save written before preferences moved out of the campaign record.
+   *
+   * Read once by `Preferences` and then left alone — never written, never cleared. They
+   * are dead weight in a new record and the only copy in an old one, and deleting them to
+   * tidy a migration is how a format loses data.
+   */
   mutedSfx: boolean;
   mutedMusic: boolean;
+  /** When this canyon was rolled, and when it was last flown. */
+  startedAt: number;
+  lastPlayed: number;
+  /**
+   * When this campaign was written into the playthrough history, or null.
+   *
+   * Guards against filing the same run twice — a campaign is archived both when it is
+   * completed and when it is discarded, and a completed campaign that is then discarded
+   * would otherwise appear in the history under both headings.
+   */
+  archivedAt: number | null;
 }
-
-const KEY = 'mtm.progress.v1';
 
 const RANK_ORDER: Record<Rank, number> = { C: 0, B: 1, A: 2, S: 3 };
-
-/**
- * The two methods this class needs from `localStorage`.
- *
- * Narrower than the DOM `Storage` type on purpose: what is wanted is a seam, not a
- * reimplementation of the whole interface. It makes the save format testable without a
- * browser, and leaves room for a backend that is not the local machine.
- */
-export interface ProgressStore {
-  getItem(key: string): string | null;
-  setItem(key: string, value: string): void;
-}
-
-/**
- * `localStorage` is not merely absent in a non-browser context — touching it can throw
- * outright (a sandboxed frame, or Safari with storage blocked). Resolving it behind a
- * try/catch means constructing `Progress` never throws, it only forgets.
- */
-function defaultStore(): ProgressStore | null {
-  try {
-    return typeof localStorage === 'undefined' ? null : localStorage;
-  } catch {
-    return null;
-  }
-}
 
 function fresh(): Saved {
   return {
@@ -124,6 +127,9 @@ function fresh(): Saved {
     invertThrusters: false,
     mutedSfx: false,
     mutedMusic: false,
+    startedAt: Date.now(),
+    lastPlayed: Date.now(),
+    archivedAt: null,
   };
 }
 
@@ -139,9 +145,21 @@ const RANK_FLOOR: Record<Rank, number> = { S: 82, A: 66, B: 45, C: 0 };
 export class Progress {
   private data: Saved;
   private store: ProgressStore | null;
+  /** Which slot this campaign is, and so which key it is written to. */
+  readonly slot: number;
+  /**
+   * The player's own settings, shared by every slot.
+   *
+   * Held rather than mixed in so that `Progress` can keep the accessors `Game` already
+   * calls while the values live outside the campaign record — switching canyons must not
+   * change the volume.
+   */
+  private prefs: Preferences;
 
-  constructor(store: ProgressStore | null = defaultStore()) {
+  constructor(store: ProgressStore | null = defaultStore(), slot: number = activeSlot(store)) {
     this.store = store;
+    this.slot = slot;
+    this.prefs = new Preferences(store);
     this.data = this.load();
     // Persist immediately. A freshly rolled seed was previously only written once the
     // player completed a mission, so reloading before the first landing handed them a
@@ -151,7 +169,7 @@ export class Progress {
 
   private load(): Saved {
     try {
-      const raw = this.store?.getItem(KEY);
+      const raw = this.store?.getItem(slotKey(this.slot));
       if (!raw) return fresh();
       const parsed = JSON.parse(raw) as Partial<Saved>;
       if (typeof parsed.seed !== 'number') return fresh();
@@ -184,6 +202,12 @@ export class Progress {
         // unmuted — which is what those players already had.
         mutedSfx: parsed.mutedSfx === true,
         mutedMusic: parsed.mutedMusic === true,
+        // Absent on every save written before slots. Dating those to now rather than to
+        // zero keeps a returning player's campaign at the top of the slot list, which is
+        // where it belongs — it is the one they were playing.
+        startedAt: typeof parsed.startedAt === 'number' ? parsed.startedAt : Date.now(),
+        lastPlayed: typeof parsed.lastPlayed === 'number' ? parsed.lastPlayed : Date.now(),
+        archivedAt: typeof parsed.archivedAt === 'number' ? parsed.archivedAt : null,
       };
     } catch {
       return fresh();
@@ -192,10 +216,15 @@ export class Progress {
 
   private save(): void {
     try {
-      this.store?.setItem(KEY, JSON.stringify(this.data));
+      this.store?.setItem(slotKey(this.slot), JSON.stringify(this.data));
     } catch {
       // Private browsing or a full quota. The campaign still plays, it just forgets.
     }
+  }
+
+  /** Stamps this campaign as the one most recently flown, for the slot list's ordering. */
+  private touch(): void {
+    this.data.lastPlayed = Date.now();
   }
 
   get seed(): number {
@@ -261,27 +290,24 @@ export class Progress {
    * nozzles mean the two are opposites.
    */
   get invertThrusters(): boolean {
-    return this.data.invertThrusters;
+    return this.prefs.invertThrusters;
   }
 
   setInvertThrusters(on: boolean): void {
-    this.data.invertThrusters = on;
-    this.save();
+    this.prefs.set({ invertThrusters: on });
   }
 
   /** What the pause menu's audio switches were left at. */
   get audioPrefs(): { sfx: boolean; music: boolean } {
-    return { sfx: this.data.mutedSfx, music: this.data.mutedMusic };
+    return { sfx: this.prefs.mutedSfx, music: this.prefs.mutedMusic };
   }
 
   setMutedSfx(muted: boolean): void {
-    this.data.mutedSfx = muted;
-    this.save();
+    this.prefs.set({ mutedSfx: muted });
   }
 
   setMutedMusic(muted: boolean): void {
-    this.data.mutedMusic = muted;
-    this.save();
+    this.prefs.set({ mutedMusic: muted });
   }
 
   rankFor(missionId: number): Rank | null {
@@ -318,33 +344,67 @@ export class Progress {
     if (missionId + 1 > this.data.highestUnlocked) {
       this.data.highestUnlocked = missionId + 1;
     }
+    this.touch();
     this.save();
   }
 
   /**
-   * Wipes the campaign — but not the player.
+   * Files this campaign in the playthrough history, once.
    *
-   * Audio and control preferences are carried across. They are facts about the person
-   * and the room they are sitting in, not about a run: someone who muted the music and
-   * then rolled a new canyon has said nothing about wanting it back, and having it start
-   * up again reads as a bug rather than a fresh start. The same argument retires the
-   * control mapping, which is a fact about how their hands work.
+   * Called on both the ways a campaign ends — reaching the last delivery, and being
+   * discarded for a new canyon — because both are runs the player made and only one of
+   * them is a completion. `archivedAt` is what keeps a campaign that is completed and
+   * *then* discarded from being filed under both headings.
    *
-   * This is the seam that save slots will widen — see docs/plans/main_menu.md, where the
-   * preferences move out of the slot record entirely for the same reason.
+   * `completed` is passed in rather than derived here: `Progress` deliberately knows
+   * nothing about how many missions the campaign holds, which is `MISSION_COUNT`'s
+   * business and would be a dependency on the mission table for one boolean.
    */
-  reset(): void {
-    const kept = {
-      invertThrusters: this.data.invertThrusters,
-      mutedSfx: this.data.mutedSfx,
-      mutedMusic: this.data.mutedMusic,
+  archive(completed: boolean): void {
+    if (this.data.archivedAt !== null) return;
+    // Nothing was flown. An untouched canyon is not a playthrough, and filing one would
+    // put a row in the history every time somebody looked at a fresh slot.
+    if (Object.keys(this.data.ranks).length === 0) return;
+
+    const tally: Record<Rank, number> = { S: 0, A: 0, B: 0, C: 0 };
+    for (const rank of Object.values(this.data.ranks)) tally[rank]++;
+
+    const record: PlaythroughRecord = {
+      seed: this.data.seed,
+      delivered: Object.keys(this.data.ranks).length,
+      totalPoints: Object.values(this.data.points).reduce((sum, p) => sum + p, 0),
+      tally,
+      completed,
+      startedAt: this.data.startedAt,
+      endedAt: Date.now(),
     };
-    this.data = { ...fresh(), ...kept };
+    appendHistory(this.store, record);
+    this.data.archivedAt = record.endedAt;
     this.save();
   }
 
-  /** Re-rolls the canyon and starts the campaign over. */
+  /**
+   * Wipes the campaign.
+   *
+   * Nothing is carried across any more. This used to hand-copy audio and control
+   * settings out of the record and back into a fresh one, on the grounds that they are
+   * facts about the person rather than about a run — a correct argument that the record's
+   * shape could not express. They now live in their own unslotted key (`Preferences`),
+   * so a wipe simply cannot reach them.
+   */
+  reset(): void {
+    this.data = fresh();
+    this.save();
+  }
+
+  /**
+   * Files the campaign being discarded, then rolls a new canyon in the same slot.
+   *
+   * Preferences no longer need carrying across: they live outside the campaign record
+   * entirely, which is what the hand-kept `kept` object here used to stand in for.
+   */
   newCanyon(): void {
+    this.archive(false);
     this.reset();
   }
 

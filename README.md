@@ -107,7 +107,7 @@ Detailed documentation is organized in the [`docs/`](docs/) directory:
 ### Feature & Narrative Plans
 
 - **[Airframe HUD](docs/plans/dedicated_airframe_hud.md)**: Shipped. A diegetic console per airframe in its charter's livery, an augmented layer on the vehicle that stays the player's own, and a system register for everything that is not the mission.
-- **[Main Menu & Save Slots](docs/plans/main_menu.md)**: Menu shipped — boots over the player's own canyon, with a mission grid for replaying ranks already earned. Save slots still proposed, under the constraint that the save format has never yet lost a player's data.
+- **[Main Menu & Save Slots](docs/plans/main_menu.md)**: Shipped. Boots over the player's own canyon, with a mission grid for replaying ranks already earned, three canyons alive at once, and a history of campaigns already finished. Slot 0 is the key the game has always used and preferences moved out of the campaign record entirely — the save format has never yet lost a player's data, and this change is a copy rather than a move.
 - **[Brief Cards](docs/plans/telemetry_dialogue_system.md)**: How a pre-mission brief is paged, what was cut from the original three-card plan and why, and the `messages` data model.
 - **[Mission Zero](docs/plans/mission_zero.md)**: Shipped as mission 1. A silent prologue that lands the uplink relay on the rim — one control, no console, no voice, because the thing being delivered is the channel every later brief arrives on. Also the four dark relays half-buried on the canyon floor, and why they are Ixion's rather than Kessler's.
 - **[Campaign Narrative Enhancements](docs/plans/campaign_narrative_enhancements.md)**: Ixion shutdown visual shifts, AI corridor diagnostics, and shaft acoustic audio effects.

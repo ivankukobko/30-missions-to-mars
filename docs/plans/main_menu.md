@@ -2,7 +2,11 @@
 
 ## Status
 
-**The menu is done. Save slots are not** — that section stands as the plan for them.
+**Done, slots included.** The menu shipped first; slots and playthrough history followed.
+
+Two things the slot plan below got wrong, both corrected in place and flagged
+**Corrected**: the index key it proposed is a cache nobody needs, and preferences had to
+move *before* slots rather than alongside them.
 
 Shipped: a `MENU` state entered on boot over the player's own canyon, the four entries
 below, a mission grid, `MAIN MENU` on the pause overlay, and an Escape stack replacing the
@@ -116,40 +120,51 @@ return to; once there is one, it is a state transition like any other.
 
 ---
 
-## Save slots (stretch)
+## Save slots
 
-`Progress` writes one record at one key:
+`Progress` wrote one record at one key. Slots mean keying by slot and choosing one
+before the campaign loads, and the shape was already close: `ProgressStore` is
+deliberately a two-method seam, and the constructor takes it injected, so a slot-aware
+store is a parameter rather than a rewrite.
 
-```ts
-const KEY = 'mtm.progress.v1';
-```
+What shipped:
 
-Slots mean keying by slot and choosing one before the campaign loads. The shape is
-already close: `ProgressStore` is deliberately a two-method seam ("a seam, not a
-reimplementation of the whole interface"), and the constructor takes it injected, so a
-slot-aware store is a wrapper rather than a rewrite.
+- **`mtm.progress.v1` is slot 0**, unsuffixed and unmoved, so every existing player's
+  campaign is already slot 0 and is neither relocated nor rewritten. A format change that
+  moves records is a format change that can lose them.
+- `mtm.progress.v1.<n>` for the rest, `mtm.active.v1` for which one is live.
+- **Preferences left the slot**, to `mtm.prefs.v1`. `Progress` keeps the accessors `Game`
+  already called and delegates them, so nothing above had to change.
+- `mtm.history.v1` for finished campaigns — see below.
 
-Sketch:
+> **Corrected — the index key is not worth having.** This plan proposed "an index key
+> listing which slots are occupied, so the menu can render empty ones without parsing
+> every record". That is a cache: three small `JSON.parse` calls cost nothing measurable,
+> and an index is a second copy of the truth that can disagree with it. The disagreement
+> would be a slot the menu calls empty over a campaign that is not. `readSlots` reads the
+> records.
 
-- `mtm.progress.v1` stays as **slot 0**, so existing players keep their campaign without a
-  migration step. This is the constraint that matters — the format has already been
-  extended twice by backfill rather than by discarding records, and slots should hold that
-  line.
-- `mtm.progress.v1.<n>` for the rest.
-- An index key listing which slots are occupied, so the menu can render empty ones without
-  parsing every record.
-- Each slot's summary needs: seed, `highestUnlocked`, total points, and a timestamp. The
-  first three exist; a `lastPlayed` field would be new.
+> **Corrected — preferences had to move first, not alongside.** The plan filed this under
+> "design slots before building them", but it is not a slot problem at all: `reset()`
+> already hand-copied three fields out of the record and back into a fresh one to stop a
+> reroll unmuting somebody's music. That workaround *was* the missing split, and doing it
+> properly deleted the workaround rather than adding to it.
 
-**Preferences do not belong in a slot.** Audio settings are a property of the person and
-their room, not of a campaign, so `mutedSfx` / `mutedMusic` should move to a separate
-unslotted key when slots land. `invertThrusters` is arguably the same. Leaving them inside
-the slot record means muting the music in one campaign and having it come back in another,
-which nobody would read as intentional.
+**The migration is a copy, not a move.** Every save written before this keeps its
+preferences inside the campaign record; `Preferences` lifts them out on first load and
+leaves the originals exactly where they were. Nothing is destroyed to complete a
+migration, so a build from before the change still finds what it expects.
 
-That last point is the reason to design slots before building them, and the reason this is
-a stretch goal rather than a quick follow-up: it is a save-format change, and this format
-has so far never lost a player's data.
+## Playthrough history
+
+A campaign is filed when it ends, either way it can end — completed, or discarded for a
+new canyon — and `archivedAt` on the record is what stops a campaign that is completed
+and *then* rerolled being filed under both. A canyon nobody flew is not filed at all.
+
+Kept per run: seed, deliveries, total points, the rank tally, whether it was completed,
+and when it started and ended. Bounded at `HISTORY_LIMIT`, newest first — it is the one
+key that would otherwise grow without limit, and localStorage fails writes rather than
+pruning.
 
 ---
 

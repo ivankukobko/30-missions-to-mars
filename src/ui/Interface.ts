@@ -48,7 +48,17 @@ export interface MenuEntry {
   detail?: string;
   /** Marks a row that destroys something. Colours it, and nothing else. */
   danger?: boolean;
-  onSelect: () => void;
+  /** Marks the row describing where the player already is. */
+  current?: boolean;
+  /** Tightens the row for content that carries a seed and a score at once. */
+  compact?: boolean;
+  /**
+   * Omitted for a row that only reports something — a finished playthrough, say.
+   *
+   * Rendered as a plain row rather than a disabled button, because a button that does
+   * nothing when pressed is worse than something that never looked pressable.
+   */
+  onSelect?: () => void;
 }
 
 /** Columns in the mission grid. Kept beside the CSS that lays it out — see
@@ -438,7 +448,7 @@ export class Interface {
    * same shape with different rows. Writing four cards would have meant four places for
    * the register to drift.
    */
-  private showList(title: string, entries: MenuEntry[]): void {
+  private showList(title: string, entries: MenuEntry[], onBack?: () => void): void {
     const card = el('div', 'card card-sys card-menu');
     card.append(el('div', 'card-eyebrow', title));
 
@@ -446,26 +456,54 @@ export class Interface {
     let first: HTMLButtonElement | null = null;
 
     for (const entry of entries) {
-      const row = el('button', 'menu-row');
+      const select = entry.onSelect;
+      const row = el(select ? 'button' : 'div', 'menu-row');
       row.append(el('span', 'menu-label', entry.label));
       if (entry.detail) row.append(el('span', 'menu-detail', entry.detail));
       if (entry.danger) row.classList.add('danger');
-      row.addEventListener('click', () => {
-        audio.init();
-        audio.playUiBeep(760, 'square', 0.03);
-        entry.onSelect();
-      });
+      if (entry.current) row.classList.add('current');
+      if (entry.compact) row.classList.add('compact');
+      if (!select) row.classList.add('inert');
+      if (select) {
+        row.addEventListener('click', () => {
+          audio.init();
+          audio.playUiBeep(760, 'square', 0.03);
+          select();
+        });
+        first ??= row as HTMLButtonElement;
+      }
       list.append(row);
-      first ??= row;
     }
 
     card.append(list);
+
+    let back: HTMLButtonElement | null = null;
+    if (onBack) {
+      back = el('button', 'primary', 'BACK');
+      back.addEventListener('click', () => {
+        audio.init();
+        audio.playUiBeep();
+        onBack();
+      });
+      card.append(back);
+    }
+
     this.showPanel(card);
-    first?.focus();
+    (first ?? back)?.focus();
   }
 
   showMenu(entries: MenuEntry[]): void {
     this.showList('30 MISSIONS TO MARS', entries);
+  }
+
+  /** The campaigns a player has going at once, one canyon each. */
+  showSlots(entries: MenuEntry[], onBack: () => void): void {
+    this.showList('CANYONS', entries, onBack);
+  }
+
+  /** Campaigns already finished or abandoned, newest first. */
+  showHistory(entries: MenuEntry[], onBack: () => void): void {
+    this.showList('HISTORY', entries, onBack);
   }
 
   /**
