@@ -35,7 +35,9 @@ import {
   type Mission,
 } from '../campaign/Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
-import { clamp01, damp, hash01, lerp } from '../world/Noise.ts';
+import { clamp01, damp, hash01 } from '../world/Noise.ts';
+import { airDepth, airTarget, AIR, viewpointY } from './Atmosphere.ts';
+import { cutReached, identReached, uplinkProgress } from './EpilogueFall.ts';
 import type { RubbleSite } from '../world/Rubble.ts';
 import { audio } from '../audio/AudioManager.ts';
 import { VolumetricFog } from '../world/VolumetricFog.ts';
@@ -99,47 +101,14 @@ const IDLE_INPUT: InputState = { left: false, right: false, main: false };
  * narration — and it is legible *in their hands*, which is the one place this game can
  * say something a text card cannot.
  *
- * The bar crawls rather than freezing. Frozen reads as a bug and invites a reload; an
- * asymptote reads as something still trying, and it is already visibly behind at the
- * three-second mark — 0.75 where every other mission is finished — so the wrongness
- * starts before the moment of expected handover rather than at it.
- */
-const FALL_STALL_AT = 0.88;
-const FALL_STALL_TAU = 1.6;
-
-/**
- * Where the beacon is picked up, and where the picture goes.
- *
- * Both are tested two ways and take **whichever comes first**, and that is not
- * belt-and-braces — either test alone is wrong somewhere on the map.
- *
- * Altitude alone is wrong because the ground is not at `FLOOR_Y`. Mission 29 enters at
- * x −18, where the terrain stands at y≈177 — up on the shoulder, sixty under the rim —
- * so a cut at `FLOOR_Y + 45` would drive the vehicle a hundred and thirty units into
- * rock. Colony size scales with the player's score too, so what is standing under that x
- * differs from save to save.
- *
- * A ground lookup alone is wrong because the ground can fall away. Over the shaft it
- * returns the shaft floor, three hundred metres lower, and the ending would become a
- * function of excavation geometry that is still being written.
- *
- * `FALL_SIGNAL_RUN` is what makes the beacon's airtime a fact rather than an estimate.
- * Detection and cut are measured the same two ways, offset by the same distance, so the
- * beacon leads the ending by exactly that fall however the ending is reached: about three
- * and a half seconds at entry speed, which is two clear strokes of the five-bar word and
- * a third cut off. One is inaudible as a pattern; four resolve into a loop the player can
- * dismiss as ambience.
- *
- * And **nothing may be allowed to land or crash here.** A touchdown would run the scoring
+ * **Nothing may be allowed to land or crash here.** A touchdown would run the scoring
  * path, a crash would raise a failure card with a retry button on it, and either would
  * turn the ending into a mission you could get wrong. You lose the picture before the
  * vehicle arrives, the same way you lost Kessler.
+ *
+ * Its timing lives in `EpilogueFall.ts` — see there for what the two height tests are
+ * for and why the bar crawls rather than freezing.
  */
-const FALL_CUT_Y = CANYON.FLOOR_Y + 45;
-const FALL_CUT_HEIGHT = 45;
-const FALL_SIGNAL_RUN = 375;
-const FALL_IDENT_Y = FALL_CUT_Y + FALL_SIGNAL_RUN;
-const FALL_IDENT_HEIGHT = FALL_CUT_HEIGHT + FALL_SIGNAL_RUN;
 
 /**
  * What the handshake says once the beacon is on it.
@@ -952,21 +921,16 @@ export class Game {
       // that ends it. See `FALL_STALL_AT`.
       this.stepSimulation(elapsed);
       this.ui.setUplink(
-        FALL_STALL_AT * (1 - Math.exp(-this.missionTime / FALL_STALL_TAU)),
+        uplinkProgress(this.missionTime),
         this.identSent ? FALL_IDENT_LINE : undefined,
       );
       const lander = this.lander;
-      if (
-        !this.identSent &&
-        lander &&
-        (lander.y < FALL_IDENT_Y || this.heightAboveGround < FALL_IDENT_HEIGHT)
-      ) {
+      const at = lander ? { y: lander.y, heightAboveGround: this.heightAboveGround } : null;
+      if (at && !this.identSent && identReached(at)) {
         this.identSent = true;
         audio.playDistantIdent();
       }
-      if (lander && (lander.y < FALL_CUT_Y || this.heightAboveGround < FALL_CUT_HEIGHT)) {
-        this.endEpilogueFall();
-      }
+      if (at && cutReached(at)) this.endEpilogueFall();
     } else if (this.state === 'SETTLING') {
       this.settleTimer -= elapsed;
       if (this.settleTimer <= 0) this.resolveSettle();
@@ -1306,56 +1270,19 @@ export class Game {
    * distance anyway, and above the rim the density stays thin so the horizon survives.
    */
   private updateAtmosphere(dt: number): void {
-    /**
-     * Key the fog off whatever the player is actually looking through.
-     *
-     * That is the lander while they are flying it, and the **camera** whenever the camera
-     * is somewhere else — the free-cam inspector, and the menu, which parks its shot on
-     * the canyon while the vehicle sits hidden wherever it was left.
-     *
-     * The menu case was missing and it showed after the ending: the epilogue's vehicle
-     * ends its fall near the canyon floor, so returning to the menu drew the whole canyon
-     * in shaft-bottom murk at nearly four times the fog density a fresh boot gives it
-     * (0.0059 against 0.0016, measured on the same seed and the same camera). The world
-     * behind the menu had been rebuilt correctly; it was the air in front of it that
-     * belonged to a vehicle nobody could see.
-     */
-    const throughCamera = this.inspecting || this.state === 'MENU' || this.state === 'VICTORY';
-    const y = throughCamera
-      ? this.director.camera.position.y
-      : (this.lander?.y ?? CANYON.FLOOR_Y);
-    // Below the rim the air is in shadow; below the floor, in the shaft, it is black.
-    const belowRim = clamp01((CANYON.RIM_Y - y) / CANYON.RIM_Y);
-    /**
-     * `y` measured against depth was the only signal here until a one-row gallery only
-     * 18–24 units under the floor (the shared shaft's Helion branch, `outpost-main`/seed
-     * 12345) landed `inShaft` at 0.10–0.13 — the 180-unit ramp is Kessler's own three
-     * hundred unit descent, so anything shallower stayed in the thin, dusty air the canyon
-     * floor gets, not the "abyss" the comment above promises. That thinness is what let a
-     * seam in the rock read as *background showing through* instead of murk — the fog
-     * wasn't thick enough to make the far side illegible even where the geometry was
-     * right. What answers it is `director.underGrade` — the vehicle measured against the
-     * real, un-carved terrain at its own column — so every excavation gets the same "you
-     * should not be able to see past this" treatment the deep ones already had,
-     * independent of how deep it happens to be. `damp` below still rolls it in over its
-     * usual ~0.45s rather than cutting hard on the edge.
-     *
-     * **This read `director.phase === 'shaft'` and that was wrong**, on the stated grounds
-     * that the phase is "'shaft' exactly when the camera is over a locally-measured
-     * excavation". It is not: `phaseFor` also returns `'shaft'` within `SHAFT_CLOSE` of
-     * *whatever* is underneath, because the framing is wanted for close quarters of any
-     * kind. So the abyss treatment — density 0.0052 → 0.014, colour 92% of the way to
-     * black — arrived over the last twenty units of every landing in the game, including
-     * an open pad on the canyon floor in daylight. A framing is not a place.
-     */
-    const inShaft = this.director.underGrade ? 1 : clamp01((CANYON.FLOOR_Y - y) / 180);
+    const y = viewpointY(
+      this.state,
+      this.inspecting,
+      this.director.camera.position.y,
+      this.lander?.y ?? null,
+    );
+    const target = airTarget(airDepth(y, this.director.underGrade));
 
-    const targetDensity = lerp(lerp(0.0011, 0.0052, belowRim), 0.014, inShaft);
-    this.fog.density = damp(this.fog.density, targetDensity, 2.2, dt);
+    this.fog.density = damp(this.fog.density, target.density, 2.2, dt);
 
-    const air = new THREE.Color(PALETTE.haze);
-    air.lerp(new THREE.Color(0x2e1409), belowRim * 0.82);
-    air.lerp(new THREE.Color(0x090503), inShaft * 0.92);
+    const air = new THREE.Color(target.color);
+    air.lerp(new THREE.Color(AIR.SHADOW_COLOR), target.shadowMix);
+    air.lerp(new THREE.Color(AIR.ABYSS_COLOR), target.abyssMix);
     this.fog.color.lerp(air, 1 - Math.exp(-2.2 * dt));
     // Clear colour, fog and sky dome all read from the same value, so distant terrain
     // fades into a horizon that is the same colour it is fading towards.
