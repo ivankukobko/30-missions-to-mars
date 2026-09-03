@@ -99,10 +99,37 @@ so it will not lift over a structure. At the old 30–52 unit standoff that rare
 at 10–14 it does, at every pad the colony has grown around — measured at the outpost pad
 with the camera 14 units *above* the terrain and still looking through a building.
 
-`LanderFade` has the same blind spot from the other side: it thins the canyon wall, the
-colony's **front** layer and (now) the shaft walls, but not the colony's other layers. Both
-want one thing — a query for structure height — which is the argument for fixing the cause
-rather than widening the framing again.
+`LanderFade` was recorded here as having the same blind spot from the other side — thinning
+the canyon wall, the colony's front layer and the shaft walls but not the colony's other
+layers. **That was overstated, and measuring it is what showed why.** `ColonyRender` splits
+cells on `cell.z > 0`, so *every* colony cell in front of the play plane is in the faded
+class by construction; the "other layers" are the ones at `z ≤ 0`, which sit at or behind
+the vehicle and cannot occlude it from a camera in front of it. Sweeping every mesh in a
+mission-29 world for opaque geometry that reaches in front of the play plane and is not
+faded turns up nothing larger than eight triangles, none of it reaching past z=3.4 — pad
+furniture, which can clip in front of a vehicle standing on that pad and is not the
+structure-sized hole the note implied.
+
+So the two halves are not one problem. `liftAboveGround` is genuinely unfixed and genuinely
+wants a structure-height query. The fade does not: what can hide the vehicle is already
+faded.
+
+### What the fade is actually for
+
+The near canyon wall is the reason the fade exists, and it turns out to earn that almost
+nowhere. Walking the camera→vehicle ray against the heightfield itself, across the full
+range of camera distances `CameraDirector` flies:
+
+```
+open canyon, camZ 10 / 14 / 25 / 40 / 60 / 82   →  0, 0, 1, 2, 2, 4  blocked of 375
+rim,         camZ 10 / 25 / 60                  →  8, 13, 24         blocked of 260
+```
+
+Under 1% in the canyon. The camera sits in the void and the terrain in front of it is
+below the sightline nearly always. What the fade is really carrying is the **colony**:
+on a grown canyon, four flight positions in five have faded colony geometry between the
+camera and the vehicle, which is why the effect cannot be gated to shafts and underground
+even though the terrain half of it could be.
 
 ### The hole is a cone, not a cylinder
 
