@@ -36,10 +36,45 @@ const WALL_RUN = 78;
 const BENCH = {
   /** Distance past the nominal rim to the bench centre. */
   SET_BACK: 30,
-  /** Level ground either side of centre. 54 units of flat, which is 87 hull widths. */
-  HALF_WIDTH: 27,
+  /**
+   * Level ground either side of centre — a patch about 20 units across.
+   *
+   * Small on purpose, and it took two goes to get there. The hull is 1.24 wide and enters
+   * at a fixed column with no lateral control, so the only hard requirement is covering
+   * the collider's own 6-unit chord wherever that chord falls: `buildProfile` samples at
+   * multiples of `CELL`, so the chord can straddle anything in `benchX ± CELL`, and ±10
+   * contains it with room to spare.
+   *
+   * It was 27 at first, which put a 54-wide causeway along the lip, and 15 after that,
+   * which made a promontory you could have landed an airliner on. What a lander needs is
+   * a patch of level rock, and what the landscape needs is for that patch not to be the
+   * most conspicuous thing in it.
+   */
+  HALF_WIDTH: 10,
   /** Eased back into the natural contour over this much, on both sides. */
-  SHOULDER: 14,
+  SHOULDER: 8,
+  /**
+   * Depth over which the patch is at full strength, either side of the play slice.
+   *
+   * The bench had none of this at first and was applied to **every** row, all 1700 units
+   * from `FRONT_Z` to the end of the canyon. Only z=0 carries colliders, so the other
+   * 1699 units were scenery paying for a guarantee they were not part of — and what they
+   * looked like was a graded road running to the horizon, which is the one thing this
+   * landscape must never look like.
+   */
+  RUN: 10,
+  /** And eased away to nothing over this much beyond `RUN`, so it is gone by |z| = 30. */
+  FADE: 20,
+  /**
+   * Radius of the pan forced around it, in x and z — see `pan`.
+   *
+   * Larger than the patch so the patch has flat ground to sit in rather than being a
+   * lozenge cut into a ridge, and small enough that the pan is one of the landscape's own
+   * rather than a clearing. This is the thing doing the blending; the patch itself only
+   * has to be level.
+   */
+  PAN_X: 42,
+  PAN_Z: 46,
 };
 
 /**

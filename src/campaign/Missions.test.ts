@@ -1124,24 +1124,57 @@ describe('the prologue', () => {
   });
 
   /**
-   * And a bench wide enough to be a place rather than a point.
+   * Level across the patch, and — just as much the point — **not** level beyond it.
    *
-   * The entry is straight down, so one landable chord would technically do — but the
-   * relay stands here for the rest of the campaign and is looked at from the canyon
-   * floor, and a landmark on a one-cell ledge reads as an accident.
+   * The upper bound is the assertion that matters. The first version of this bench was
+   * applied to every row of the canyon, all 1700 units of it, because only z=0 carries
+   * colliders and nothing was checking what the other 1699 looked like. What that built
+   * was a dead-flat causeway running to the horizon along the lip. It passed every test
+   * in the suite, including the one directly above it.
    */
-  it('grades a bench either side of the entry, not just the column itself', { timeout: 120000 }, () => {
+  it('levels a patch about twenty across, and stops', { timeout: 120000 }, () => {
     for (const seed of [0, 7, 42, 631729407]) {
       const { canyon } = freshCanyon(seed);
       canyon.build([], []);
       const x = entryX(PROLOGUE, canyon);
       const level = canyon.heightAt(x, 0);
 
-      // Across the flat the bench claims, nothing may depart from its level by more than
-      // the terracing would put back if the bench were not being applied last.
-      for (let d = -24; d <= 24; d += CANYON.CELL) {
-        expect(Math.abs(canyon.heightAt(x + d, 0) - level), `seed ${seed} at +${d}`)
-          .toBeLessThan(1);
+      // Flat over the patch, which has to contain the collider's own chord wherever the
+      // `CANYON.CELL` sampling happens to put it.
+      for (let d = -CANYON.BENCH.HALF_WIDTH; d <= CANYON.BENCH.HALF_WIDTH; d += 2) {
+        expect(Math.abs(canyon.heightAt(x + d, 0) - level), `seed ${seed} at ${d}`).toBeLessThan(1);
+      }
+
+      // And the landscape back again well before it could read as infrastructure. Sampled
+      // on both sides, because a patch that only ends downhill is a ramp.
+      const reach = CANYON.BENCH.HALF_WIDTH + CANYON.BENCH.SHOULDER;
+      const departs = (d: number) => Math.abs(canyon.heightAt(x + d, 0) - level);
+      expect(Math.max(departs(-3 * reach), departs(3 * reach)), `seed ${seed}`).toBeGreaterThan(1);
+    }
+  });
+
+  /**
+   * And gone a short way down the canyon, which is the same claim in the other axis.
+   *
+   * Only the play slice has colliders, so every row behind it is scenery — and scenery
+   * levelled for a guarantee it plays no part in is exactly what the causeway was.
+   */
+  it('does not carry the patch down the length of the canyon', { timeout: 120000 }, () => {
+    const past = CANYON.BENCH.RUN + CANYON.BENCH.FADE;
+
+    for (const seed of [0, 7, 42, 631729407]) {
+      const { canyon } = freshCanyon(seed);
+      canyon.build([], []);
+      const x = entryX(PROLOGUE, canyon);
+
+      // The bench contributes nothing at all beyond `RUN + FADE`, so any two slices past
+      // it differ only by the terrain's own relief — sampled where the patch would be.
+      for (const z of [-past - 30, -300, -900]) {
+        const withoutBench = canyon.heightAt(x, z);
+        const nudged = canyon.heightAt(x + 4, z);
+        // A landform, not a plane: if the patch were still running, these would be equal
+        // at every z down the canyon, which is precisely what the causeway looked like.
+        expect(Math.abs(nudged - withoutBench), `seed ${seed} at z=${z}`).toBeGreaterThan(0);
       }
     }
   });

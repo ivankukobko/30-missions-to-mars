@@ -182,6 +182,13 @@ interface Row {
   /** Centre of the rim bench on this slice — see `RIM_BENCH`. Moves with the centreline. */
   benchX: number;
   /**
+   * How much of the bench this slice gets: 1 across the play slice, 0 down the canyon.
+   *
+   * Zero is the common case — the bench spans 340 of the canyon's 1700 units — and a zero
+   * weight also skips the extra `heightIn` that resolving `benchLevel` costs.
+   */
+  benchWeight: number;
+  /**
    * Height the bench levels to, or null while it is being computed.
    *
    * Null is how the one-step recursion terminates: `row` needs the *un-benched* surface at
@@ -367,9 +374,21 @@ export class CanyonGenerator {
       phase: this.noise.fbm(z * 0.002, 97) * 0.4 * CANYON.TERRACE_HEIGHT,
       shelfLevel: this.shelves.map((s) => this.floorRelief(s.x, z)),
       benchX: centre + floorHalf + CANYON.WALL_RUN + RIM_BENCH.SET_BACK,
+      benchWeight: 1 - smoothstep((Math.abs(z) - RIM_BENCH.RUN) / RIM_BENCH.FADE),
       benchLevel: null,
     };
-    // One extra `heightIn` per slice, against ~500 columns that each need the row anyway.
+    if (base.benchWeight <= 0) return base;
+    /**
+     * One extra `heightIn`, on the minority of slices that carry any bench at all, and the
+     * surface's own height at that point used as the level rather than anything tidier.
+     *
+     * An earlier version snapped this to a terrace tread, on the reasoning that the pans
+     * around it are flat *because* they are treads and so can only sit at multiples of
+     * `TERRACE_HEIGHT`. That is true and it is the wrong trade at this size: the snap moves
+     * the level by up to half a band, and half a band is 15 units — a 15-unit step let out
+     * over an 8-unit shoulder, which is a cliff around a patch 20 across. Sitting at local
+     * ground level is what makes it blend; the pan around it is what makes it look placed.
+     */
     return { ...base, benchLevel: this.heightIn(base.benchX, base) };
   }
 
@@ -421,7 +440,8 @@ export class CanyonGenerator {
     if (past > 0) {
       const w = smoothstep(past / 110);
       const up = CANYON.RIM_Y + this.plateau(x, row.z);
-      const strength = lerp(CANYON.TERRACE_STRENGTH, 0.5, w);
+      // Ordinary mesa terracing, taken to a hard staircase inside a pan. See `pan`.
+      const strength = lerp(lerp(CANYON.TERRACE_STRENGTH, 0.5, w), 0.97, this.pan(x, row));
       y = lerp(y, this.terrace(up, row.phase, strength), w);
     }
 
@@ -439,8 +459,11 @@ export class CanyonGenerator {
     if (row.benchLevel !== null && x > row.centre) {
       const dd = Math.abs(x - row.benchX);
       if (dd < RIM_BENCH.HALF_WIDTH + RIM_BENCH.SHOULDER) {
-        const t = smoothstep(Math.max(0, dd - RIM_BENCH.HALF_WIDTH) / RIM_BENCH.SHOULDER);
-        y = lerp(row.benchLevel, y, t);
+        // Two ramps, and the z one folded into the x one rather than applied after it: at
+        // `benchWeight` 0 this has to leave `y` exactly as it found it, and lerping toward
+        // a partially-benched height would leave a trace of the bench on every slice.
+        const acrossX = smoothstep(Math.max(0, dd - RIM_BENCH.HALF_WIDTH) / RIM_BENCH.SHOULDER);
+        y = lerp(row.benchLevel, y, 1 - (1 - acrossX) * row.benchWeight);
       }
     }
 
@@ -481,6 +504,37 @@ export class CanyonGenerator {
       n.ridge(x * 0.026 + 2, z * 0.01 + 31) * 13 +
       n.fbm(x * 0.075, z * 0.075 + 79) * 4.5;
     return Math.max(relief, -38) + 12;
+  }
+
+  /**
+   * Where the upland lies in **pans**: broad flats scattered through the mesa country.
+   *
+   * The rim bench used to be the only level ground above the canyon, which is why it read
+   * as construction however carefully it was shaped — a single flat in a landscape with no
+   * other flats in it is a runway by elimination, not by appearance. So the flats come
+   * first and the bench is one of them.
+   *
+   * The mechanism is the terracing that already builds the walls, turned up. `terrace`
+   * snaps height toward multiples of `TERRACE_HEIGHT` with a smoothstep over 0.45 of a
+   * band, so at full strength roughly half of each band is a dead-flat tread and the rest
+   * is the riser between two. Applying that at full strength *everywhere* would be a
+   * staircase; applying it through a low-frequency mask puts the staircase in patches and
+   * leaves the rest of the upland the ridged noise it already was.
+   *
+   * The frequency is deliberately below the ridge fields it competes with — features about
+   * 260 units across, which is a few times the bench and a fraction of the visible upland,
+   * so a patch reads as a landform rather than as texture.
+   */
+  private pan(x: number, row: Row): number {
+    const field = smoothstep((this.noise.fbm(x * 0.0038 + 131, row.z * 0.0038 + 17) - 0.08) / 0.5);
+    /**
+     * And one pan is not left to chance. The bench has to be able to claim it is natural
+     * on **every** seed, not on the seeds where the mask happened to land there — so a pan
+     * is forced around it, wider than the bench in both axes, and the graded flat sits
+     * inside a flat that would have been there anyway.
+     */
+    const near = Math.hypot((x - row.benchX) / RIM_BENCH.PAN_X, row.z / RIM_BENCH.PAN_Z);
+    return Math.max(field, 1 - smoothstep(near));
   }
 
   /** Floor relief plus the colony's shelves and excavations. */

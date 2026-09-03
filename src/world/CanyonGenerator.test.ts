@@ -76,12 +76,18 @@ describe('heightAt is stable for a given seed', () => {
       for (let x = -1000; x <= 1000; x += 17) sum += canyon.heightAt(x, z);
     }
 
-    // Moved once, deliberately: 1181928.1747766074 → this, a shift of −121.8 over 1.18M
-    // when `RIM_BENCH` started actually cutting a bench into the east lip. A 54-unit flat
-    // on one rim of a 2000-wide grid is exactly the size of change that should be, and
-    // the fact that every point sample below except the bench's own held is the evidence
-    // that nothing else in the landscape moved with it.
-    expect(sum).toBeCloseTo(1181806.350061455, 6);
+    /**
+     * Moved once, deliberately: 1181928.1747766074 → this, −357 over 1.18M.
+     *
+     * Two changes in one landscape pass — the rim patch `RIM_BENCH` grades, and the pans
+     * that `pan` puts through the upland so that patch is not the only level ground above
+     * the canyon. The pans are the larger share of it, which is the right way round: a
+     * change that only moved the bench would mean the disguise was not doing anything.
+     *
+     * That every point sample below except the bench's own held is the evidence the two
+     * are localised rather than a general shift in the terrain.
+     */
+    expect(sum).toBeCloseTo(1181570.9976155343, 6);
   });
 
   it.each([
@@ -97,7 +103,7 @@ describe('heightAt is stable for a given seed', () => {
     [999, 200, 212.488759656],
     // On the rim bench itself, which is otherwise unsampled here and is the one stretch
     // of this landscape a mission is guaranteed to touch. See `RIM_BENCH`.
-    [162, 0, 245.81910479367193],
+    [162, 0, 244.9730587771891],
   ])('matches the recorded height at (%i, %i)', (x, z, expected) => {
     expect(canyon.heightAt(x, z)).toBeCloseTo(expected, 6);
   });
