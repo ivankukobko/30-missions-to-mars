@@ -31,10 +31,19 @@ import * as THREE from 'three';
 const FADE_OPACITY = 0.16;
 const FADE_RADIUS = 34;
 
+/**
+ * Distance from camera to the play plane assumed before a frame has reported one.
+ *
+ * Mid-range of what `CameraDirector` actually flies (20 to 82), so a mesh drawn between a
+ * rebuild and the first `setLanderFocus` is wrong by a factor rather than by an order.
+ */
+const ASSUMED_CAMERA_Z = 48;
+
 interface Patched {
   uniforms: {
     uFocus: { value: THREE.Vector2 };
     uFrontZ: { value: number };
+    uCameraZ: { value: number };
   };
 }
 
@@ -116,16 +125,35 @@ export function patchDepth(material: THREE.Material, opts: DepthEffects): void {
       shader.uniforms.uFrontZ = { value: frontZ };
       shader.uniforms.uFadeNear = { value: FADE_OPACITY };
       shader.uniforms.uFadeRadius = { value: FADE_RADIUS };
+      shader.uniforms.uCameraZ = { value: ASSUMED_CAMERA_Z };
       declarations.push(
         'uniform vec2 uFocus;',
         'uniform float uFrontZ;',
         'uniform float uFadeNear;',
         'uniform float uFadeRadius;',
+        'uniform float uCameraZ;',
       );
+      /**
+       * A cone from the camera, not a cylinder down the z axis.
+       *
+       * `uFadeRadius` is a screen-size decision — wide enough to clear the vehicle and its
+       * plume — and screen size is an angle, so holding it as a fixed *world* radius makes
+       * the hole grow on screen the closer the occluder is to the camera. A circle of
+       * radius R at distance D subtends the same angle as R·d/D at distance d, which is
+       * all this line is: the vehicle sits on the play plane at z=0, so `uCameraZ` is D and
+       * `uCameraZ - z` is d.
+       *
+       * Inside the canyon the difference is modest, which is why the cylinder survived so
+       * long. On the rim it is not: the prologue's camera stands above the lip with upland
+       * a few tens of units in front of it, where a 34-unit radius covered most of the
+       * frame — a grey sheet with the canyon's own facets showing through, opening under a
+       * vehicle it was not occluding in the first place.
+       */
       body +=
         '  if (vFadeWorld.z > uFrontZ) {\n' +
         '    float gap = length(vFadeWorld.xy - uFocus);\n' +
-        '    gl_FragColor.a *= mix(uFadeNear, 1.0, smoothstep(0.0, uFadeRadius, gap));\n' +
+        '    float reach = uFadeRadius * clamp((uCameraZ - vFadeWorld.z) / max(uCameraZ, 1.0), 0.0, 1.0);\n' +
+        '    gl_FragColor.a *= mix(uFadeNear, 1.0, smoothstep(0.0, max(reach, 0.001), gap));\n' +
         '  }\n';
     }
 
@@ -157,11 +185,20 @@ export function patchDepth(material: THREE.Material, opts: DepthEffects): void {
   if (frontZ !== null) faded.push(material);
 }
 
-/** Points every faded surface at the vehicle. Called once a frame. */
-export function setLanderFocus(x: number, y: number): void {
+/**
+ * Points every faded surface at the vehicle, and tells it where the camera is. Once a
+ * frame.
+ *
+ * The camera depth is not a detail: the hole is sized as an angle and resolved as a world
+ * radius, so the conversion between the two is exactly this number. Omitting it leaves
+ * `ASSUMED_CAMERA_Z` standing, which is the right order and the wrong value.
+ */
+export function setLanderFocus(x: number, y: number, cameraZ?: number): void {
   for (const material of faded) {
     const shader = material.userData.fade as Patched | undefined;
-    shader?.uniforms.uFocus.value.set(x, y);
+    if (!shader) continue;
+    shader.uniforms.uFocus.value.set(x, y);
+    if (cameraZ !== undefined) shader.uniforms.uCameraZ.value = cameraZ;
   }
 }
 

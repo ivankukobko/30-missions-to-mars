@@ -104,6 +104,24 @@ colony's **front** layer and (now) the shaft walls, but not the colony's other l
 want one thing — a query for structure height — which is the argument for fixing the cause
 rather than widening the framing again.
 
+### The hole is a cone, not a cylinder
+
+`FADE_RADIUS` is a screen-size decision — wide enough to clear the vehicle and its plume —
+and screen size is an angle. Holding it as a fixed *world* radius therefore makes the hole
+grow on screen the closer the occluder is to the camera, and by a lot: a circle of radius R
+at distance D subtends the same angle as R·d/D at distance d, so an occluder halfway to the
+vehicle got twice the hole it needed.
+
+Inside the canyon that is a modest over-widening, which is why it went unnoticed for a long
+time. In the prologue it is not. That camera stands above the rim with upland a few tens of
+units in front of it, so a 34-unit radius covered most of the frame — a translucent grey
+sheet with the canyon's own facets showing through, opened underneath a vehicle it was not
+occluding in the first place, and reading as a rendering fault rather than as an effect.
+
+Scaling the radius by `(uCameraZ − z) / uCameraZ` gives every occluder the same *screen*
+hole regardless of depth, which is what the constant was always meant to express. It needs
+the camera's own z as a uniform, so `setLanderFocus` carries it alongside the focus.
+
 ## Entry effects
 
 Above 60 u/s the vehicle is coming in through the top of the atmosphere, and one speed ramp
