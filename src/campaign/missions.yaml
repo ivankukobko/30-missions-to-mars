@@ -11,11 +11,16 @@ missions:
   # landing*.
   #
   # One control. `AIRFRAMES.relay` locks rotation and carries no lateral thruster, so the
-  # only input is when to burn and the only thing it decides is how hard you arrive. The
-  # entry is straight down over the shelf `RIM_SITES` grades on the rim — an earlier
-  # version drifted sideways so that one control decided two things, and it is unlandable:
-  # `resolveContact` tests total speed, and a vehicle that cannot rotate can never null a
-  # sideways velocity. See `PROLOGUE`'s note in Missions.ts.
+  # only input is when to burn and the only thing it decides is how hard you arrive. An
+  # earlier version drifted sideways so that one control decided two things, and it is
+  # unlandable: `resolveContact` tests total speed, and a vehicle that cannot rotate can
+  # never null a sideways velocity. See `PROLOGUE`'s note in Missions.ts.
+  #
+  # `start.x` below is nominal and is not what the vehicle enters at. Having no lateral
+  # control means the entry column *is* the landing site, so it is resolved against the
+  # canyon — `entryX` in Missions.ts, over the bench `RIM_BENCH` grades into the east lip.
+  # The rim stands anywhere from x=122 to x=183 depending on the seed, so an authored
+  # column is a coin toss, and it was losing about a third of the time.
   #
   # `target: null` because there is no address, because there is nobody to have given you
   # one. Any survivable touchdown completes it.

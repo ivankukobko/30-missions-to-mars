@@ -76,6 +76,40 @@ jitter, because independent draws clump: an earlier version put three of four sh
 within 26 units of each other, merging into one 60-unit plateau while half the canyon
 got none.
 
+### The Rim Bench
+
+Shelves are a floor feature — `heightIn` applies them inside `floorDetail`, scaled by
+`onFloor`, which is zero anywhere up the wall. The prologue lands on the **rim**, and it
+lands there on one control: `AIRFRAMES.relay` locks rotation and carries no lateral
+thruster, so the column it is dropped down is the only ground it will ever be offered,
+and `resolveContact` refuses bare rock steeper than `MAX_GROUND_LANDING_SLOPE`.
+
+The campaign carried a `RIM_SITES = [132, 150, 168]` that was meant to guarantee a flat
+there. It did nothing at all, for two independent reasons — and the two together are why
+the bench is now a landform in the generator rather than data in the campaign:
+
+- it was passed to `build` as ordinary shelves, so it was multiplied by `onFloor` and
+  vanished. Grading with those sites and grading with none produce heights identical to
+  three decimal places, on every seed measured;
+- the rim is not at a fixed x. It stands at `centre + floorHalf + WALL_RUN`, and the
+  centreline wanders ±38 while `floorHalf` swings ±42%, so the lip falls anywhere between
+  x=122 and x=234. On the worst seeds the authored sites were a quarter of the way *down
+  the wall* — the entry column stood at y=57 against a rim of 240.
+
+So `RIM_BENCH` is posed relative to the centreline, set back by its own half-width so the
+flat starts at the nominal rim and runs outward onto the upland — a bench centred on the
+lip reaches inward and notches the wall face. It is applied **last**, after the terracing
+and after the plateau handover, since a bench folded in earlier is re-corrugated by one
+and blended away by the other. The mission's entry column is `canyon.rimSiteX()` rather
+than an authored `start.x`, so the ground and the vehicle cannot drift apart.
+
+Widening the rim's reach then broke something quieter: on a high-centreline seed the
+bench stood at x=212 and the collider profile stopped at 204. Terrain past the profile is
+drawn like any other ground with nothing solid in it, so the vehicle falls *through* it to
+`failDepth` with rock rendered underneath the whole way. `PROFILE_HALF_X` is derived from
+`LANDABLE_HALF_X` now — an exact bound, since both noise terms are fbm and return [−1, 1]
+— rather than a figure that happened to be large enough.
+
 ### Noise
 
 `fbm()` is normalised and centred to [−1, 1], with smoothstep lattice interpolation.

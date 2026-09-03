@@ -33,6 +33,42 @@ beforeAll(() => {
  *
  * Recapture with a script that sums the same grid if the landscape is meant to change.
  */
+/**
+ * The collider profile has to reach every landing the generator can grade.
+ *
+ * Arithmetic rather than sampling, because the bound is exact — both noise terms are fbm,
+ * which returns [-1, 1] — and because the failure mode is one no screenshot and no
+ * ordinary seed would show. A bench graded past the end of the profile is drawn like any
+ * other ground and has nothing solid in it: the vehicle falls *through* the terrain to
+ * `failDepth` with the rock rendered under it the whole way. It happened on the seed
+ * where the centreline sits at +26 and the floor is 78 wide, and only on seeds like it.
+ */
+describe('everything the game can land on has a collider under it', () => {
+  it('reaches the furthest bench the centreline can push east', () => {
+    // What `buildProfile` actually iterates to, which is the spec value snapped down.
+    const reach = Math.floor(CANYON.PROFILE_HALF_X / CANYON.CELL) * CANYON.CELL;
+    expect(CANYON.LANDABLE_HALF_X).toBeLessThanOrEqual(reach);
+  });
+
+  it('lets the camera follow the vehicle all the way out to it', () => {
+    // A clamp short of the landing films the prologue from the side. See `clampX`.
+    expect(Math.max(CANYON.PROFILE_HALF_X - 70, CANYON.LANDABLE_HALF_X)).toBeGreaterThanOrEqual(
+      CANYON.LANDABLE_HALF_X,
+    );
+  });
+
+  it('bounds the bench with the same numbers the generator poses it from', () => {
+    // The bound is only exact while these are the terms `centreAt`, `floorHalfAt` and
+    // `heightIn` actually use — which is why they live in the spec and are imported back.
+    const worstBenchCentre =
+      CANYON.CENTRE_WANDER +
+      CANYON.FLOOR_HALF * (1 + CANYON.FLOOR_HALF_SWING) +
+      CANYON.WALL_RUN +
+      CANYON.BENCH.SET_BACK;
+    expect(CANYON.LANDABLE_HALF_X).toBeCloseTo(worstBenchCentre + CANYON.BENCH.HALF_WIDTH, 9);
+  });
+});
+
 describe('heightAt is stable for a given seed', () => {
   it('matches the recorded sum over a grid spanning the world', () => {
     let sum = 0;
@@ -40,7 +76,12 @@ describe('heightAt is stable for a given seed', () => {
       for (let x = -1000; x <= 1000; x += 17) sum += canyon.heightAt(x, z);
     }
 
-    expect(sum).toBeCloseTo(1181928.1747766074, 6);
+    // Moved once, deliberately: 1181928.1747766074 → this, a shift of −121.8 over 1.18M
+    // when `RIM_BENCH` started actually cutting a bench into the east lip. A 54-unit flat
+    // on one rim of a 2000-wide grid is exactly the size of change that should be, and
+    // the fact that every point sample below except the bench's own held is the evidence
+    // that nothing else in the landscape moved with it.
+    expect(sum).toBeCloseTo(1181806.350061455, 6);
   });
 
   it.each([
@@ -54,6 +95,9 @@ describe('heightAt is stable for a given seed', () => {
     [-300, -900, 253.844075152],
     [0, -1499, -46.573897475],
     [999, 200, 212.488759656],
+    // On the rim bench itself, which is otherwise unsampled here and is the one stretch
+    // of this landscape a mission is guaranteed to touch. See `RIM_BENCH`.
+    [162, 0, 245.81910479367193],
   ])('matches the recorded height at (%i, %i)', (x, z, expected) => {
     expect(canyon.heightAt(x, z)).toBeCloseTo(expected, 6);
   });

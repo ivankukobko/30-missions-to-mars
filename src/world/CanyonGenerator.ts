@@ -25,6 +25,39 @@ export interface Shelf {
 }
 
 /**
+ * The bench cut into the east lip, which is the only ground the prologue can land on.
+ *
+ * Mission 1 drops the relay straight down on one control — `AIRFRAMES.relay` locks
+ * rotation and has no lateral thruster — so the player cannot choose where it touches
+ * down, and `resolveContact` only accepts bare rock whose normal clears
+ * `MAX_GROUND_LANDING_SLOPE`. The rim is generated terrain: its flats move with the seed,
+ * and on a third of them there is no flat at the entry column at all.
+ *
+ * There was a `RIM_SITES = [132, 150, 168]` in the campaign that was meant to guarantee
+ * this and did nothing whatsoever, for two independent reasons. **Both are the reason
+ * this is centreline-relative and lives in the generator, rather than absolute x in the
+ * campaign:**
+ *
+ * - it was fed to `build` as a `Shelf`, and shelves are applied inside `floorDetail`,
+ *   which `heightIn` multiplies by `onFloor` — zero at any x this far out. Measured
+ *   across ten seeds, grading with those sites and grading with none produced heights
+ *   identical to three decimal places;
+ * - the rim is not at a fixed x. It stands at `centre + floorHalf + WALL_RUN`, and the
+ *   centreline wanders ±38 while `floorHalf` swings ±42% — so the lip falls anywhere from
+ *   x=122 to x=234. On seed 7 the authored sites were a quarter of the way *down the
+ *   wall*: the entry column stood at y=57 against a rim of 240.
+ *
+ * Set back by its own half-width so the flat starts at the nominal rim and runs outward
+ * onto the upland. A bench centred *on* the lip would reach inward and notch the wall
+ * face, which is the crater the `Shelf` doc comment is about.
+ *
+ * The dimensions themselves are in `CanyonSpec` because two other numbers are solved from
+ * them — `PROFILE_HALF_X` and the camera's lateral clamp, both of which have to reach the
+ * furthest bench the generator can produce.
+ */
+const RIM_BENCH = CANYON.BENCH;
+
+/**
  * How far either side of a wall-mounted dig the collider profile samples densely.
  *
  * All that is left of a constant that used to do three jobs: this, the width of the mesh's
@@ -146,6 +179,16 @@ interface Row {
   phase: number;
   /** Height each shelf levels its ground to. Index-aligned with `shelves`. */
   shelfLevel: number[];
+  /** Centre of the rim bench on this slice — see `RIM_BENCH`. Moves with the centreline. */
+  benchX: number;
+  /**
+   * Height the bench levels to, or null while it is being computed.
+   *
+   * Null is how the one-step recursion terminates: `row` needs the *un-benched* surface at
+   * `benchX` to know what height to level to, so it evaluates `heightIn` against a row
+   * whose level is not yet known, and `heightIn` skips the bench when it sees null.
+   */
+  benchLevel: number | null;
 }
 
 const tmpColor = new THREE.Color();
@@ -191,11 +234,13 @@ export class CanyonGenerator {
    * into a landscape with somewhere to go.
    */
   private centreAt(z: number): number {
-    return this.noise.fbm(z * 0.0035, 71) * 38;
+    // Amplitude in the spec, not here: `LANDABLE_HALF_X` is solved from it, and a wander
+    // widened locally would move the rim out from under the collider profile in silence.
+    return this.noise.fbm(z * 0.0035, 71) * CANYON.CENTRE_WANDER;
   }
 
   private floorHalfAt(z: number): number {
-    return CANYON.FLOOR_HALF * (1 + this.noise.fbm(z * 0.006, 83) * 0.42);
+    return CANYON.FLOOR_HALF * (1 + this.noise.fbm(z * 0.006, 83) * CANYON.FLOOR_HALF_SWING);
   }
 
   private floorYAt(z: number): number {
@@ -312,14 +357,20 @@ export class CanyonGenerator {
    * operands, hoisted to where they stop repeating.
    */
   private row(z: number): Row {
-    return {
+    const centre = this.centreAt(z);
+    const floorHalf = this.floorHalfAt(z);
+    const base: Row = {
       z,
-      centre: this.centreAt(z),
-      floorHalf: this.floorHalfAt(z),
+      centre,
+      floorHalf,
       floorY: this.floorYAt(z),
       phase: this.noise.fbm(z * 0.002, 97) * 0.4 * CANYON.TERRACE_HEIGHT,
       shelfLevel: this.shelves.map((s) => this.floorRelief(s.x, z)),
+      benchX: centre + floorHalf + CANYON.WALL_RUN + RIM_BENCH.SET_BACK,
+      benchLevel: null,
     };
+    // One extra `heightIn` per slice, against ~500 columns that each need the row anyway.
+    return { ...base, benchLevel: this.heightIn(base.benchX, base) };
   }
 
   /**
@@ -374,7 +425,37 @@ export class CanyonGenerator {
       y = lerp(y, this.terrace(up, row.phase, strength), w);
     }
 
+    /**
+     * The rim bench, last — after the terracing and after the plateau handover.
+     *
+     * Order is the whole point. A shelf applied earlier is re-corrugated by `terrace` and
+     * then blended away by the upland handover, which is the second half of why the
+     * campaign's `RIM_SITES` graded nothing: even reaching this far out, a bench folded
+     * into the relief term arrives before the two operations that would undo it.
+     *
+     * East only. The west lip is scenery on every mission and grading it would put a
+     * terrace in the skyline that nothing ever lands on.
+     */
+    if (row.benchLevel !== null && x > row.centre) {
+      const dd = Math.abs(x - row.benchX);
+      if (dd < RIM_BENCH.HALF_WIDTH + RIM_BENCH.SHOULDER) {
+        const t = smoothstep(Math.max(0, dd - RIM_BENCH.HALF_WIDTH) / RIM_BENCH.SHOULDER);
+        y = lerp(row.benchLevel, y, t);
+      }
+    }
+
     return y;
+  }
+
+  /**
+   * Where the rim bench stands on the collider slice, which is where the prologue enters.
+   *
+   * The entry column and the graded ground are the same number by construction rather
+   * than by two authored values agreeing — see `RIM_BENCH`, and `entryX` in `Missions.ts`
+   * for the one mission that reads it.
+   */
+  rimSiteX(): number {
+    return this.row(0).benchX;
   }
 
   /**

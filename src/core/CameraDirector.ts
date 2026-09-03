@@ -316,7 +316,14 @@ export class CameraDirector {
   }
 
   private clampX(x: number): number {
-    const limit = CANYON.PROFILE_HALF_X - 70;
+    /**
+     * Inset from the profile's edge so the camera never frames the end of the colliders —
+     * but never inside the furthest landing the game can ask for, which on a high-centre
+     * seed is further east than that inset would allow. Clamping short of the vehicle
+     * does not stop the mission; it just films it from the side, and the prologue's whole
+     * job is to show the player where they are going.
+     */
+    const limit = Math.max(CANYON.PROFILE_HALF_X - 70, CANYON.LANDABLE_HALF_X);
     return Math.max(-limit, Math.min(limit, x));
   }
 

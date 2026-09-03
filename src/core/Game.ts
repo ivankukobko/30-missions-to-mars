@@ -21,7 +21,7 @@ import {
   airframeFor,
   PROLOGUE,
   LAST_SOL,
-  RIM_SITES,
+  entryX,
   musicTrackFor,
   MISSION_COUNT,
   CAMPAIGN_FLIGHTS,
@@ -177,6 +177,13 @@ export class Game implements MenuHost {
   private mission!: Mission;
   private lander: Lander | null = null;
   private targetPad: PadInfo | null = null;
+  /**
+   * The column this mission entered down, resolved against the canyon.
+   *
+   * Held rather than recomputed because three things have to agree about it — the hull,
+   * the camera and the sun's target — and on the prologue it is not `mission.start.x`.
+   */
+  private entryColumn = 0;
   private accumulator = 0;
   private lastFrame = performance.now();
   private settleTimer = 0;
@@ -365,10 +372,11 @@ export class Game implements MenuHost {
     // rebuild. Clearing this inside either builder would be wrong — the canyon and the
     // colony both contribute, and whichever ran second would forget the other's.
     forgetFadedMaterials();
-    // The rim shelf is graded on every mission, not just the prologue: it is where the
-    // player's relay is standing for the rest of the campaign, and terrain that moved
-    // under a planted landmark would be the mast bug all over again. See `RIM_SITES`.
-    this.canyon.build(current.digs, [...campaignPadSites(worlds), ...RIM_SITES]);
+    // The rim bench is not passed in. It is part of the landform now and is cut on every
+    // mission rather than only the prologue's — which it has to be, because the player's
+    // relay stands on it for the rest of the campaign and terrain that moved under a
+    // planted landmark would be the mast bug all over again. See `RIM_BENCH`.
+    this.canyon.build(current.digs, campaignPadSites(worlds));
     // Kept for the epilogue, which has to know where the bores were in order to bury them.
     this.currentDigs = current.digs;
 
@@ -429,17 +437,20 @@ export class Game implements MenuHost {
     audio.setEngineLayout(this.lander.airframe.engines.map((e) => e.x));
     // A mission with no address is one where bare rock is a legitimate place to stop.
     this.lander.allowGround = mission.target === null;
-    this.lander.x = mission.start.x;
+    // Resolved against the canyon rather than read off the mission, because the prologue's
+    // column is the graded bench and the bench moves with the seed. See `entryX`.
+    this.entryColumn = entryX(mission, this.canyon);
+    this.lander.x = this.entryColumn;
     this.lander.y = mission.start.y;
     this.lander.vx = mission.entry?.vx ?? ENTRY_VELOCITY.vx;
     this.lander.vy = mission.entry?.vy ?? ENTRY_VELOCITY.vy;
-    this.lander.group.position.set(mission.start.x, mission.start.y, 0);
+    this.lander.group.position.set(this.entryColumn, mission.start.y, 0);
     // Collapse the render interpolation onto the entry pose, or the first frame smears
     // the hull from wherever the previous mission left it.
     this.lander.pin();
 
-    this.director.snapTo(mission.start.x, mission.start.y);
-    this.sun.target.position.set(mission.start.x, CANYON.FLOOR_Y, 0);
+    this.director.snapTo(this.entryColumn, mission.start.y);
+    this.sun.target.position.set(this.entryColumn, CANYON.FLOOR_Y, 0);
     this.applySky(mission);
 
     this.ui.setHudVisible(false);
@@ -673,8 +684,11 @@ export class Game implements MenuHost {
     // would have been refused its landing if it had is the wrong kind of detail to leave
     // lying in an ending.
     this.lander.allowGround = true;
-    this.lander.x = this.mission.start.x;
-    this.lander.y = this.mission.start.y;
+    // Down the prologue's own column, which is where `first` would have entered — the
+    // ending's claim is that this is mission 1's payload on mission 1's fuel, and the
+    // column is part of that. Nothing lands here, so the bench under it is not the point.
+    this.lander.x = entryX(first, this.canyon);
+    this.lander.y = first.start.y;
     this.lander.vx = ENTRY_VELOCITY.vx;
     this.lander.vy = ENTRY_VELOCITY.vy;
     this.lander.group.position.set(this.lander.x, this.lander.y, 0);

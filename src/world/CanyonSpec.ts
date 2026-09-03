@@ -19,6 +19,42 @@
  *   z = -1600   BACKDROP    mesas seen through the slot, above the rim.
  */
 
+/** Amplitude of the centreline's wander, in world units. `centreAt` is fbm × this. */
+const CENTRE_WANDER = 38;
+/** Fraction either side of `FLOOR_HALF` the floor's width swings. `floorHalfAt` is ± this. */
+const FLOOR_HALF_SWING = 0.42;
+const FLOOR_HALF = 62;
+const WALL_RUN = 78;
+
+/**
+ * The bench cut into the east lip — the only ground the prologue can land on.
+ *
+ * Lives here rather than in the generator because two other dimensions are solved from
+ * it: how far the collider profile has to reach, and how far the camera is allowed to
+ * follow. See `RIM_BENCH`'s full account in `CanyonGenerator.ts`.
+ */
+const BENCH = {
+  /** Distance past the nominal rim to the bench centre. */
+  SET_BACK: 30,
+  /** Level ground either side of centre. 54 units of flat, which is 87 hull widths. */
+  HALF_WIDTH: 27,
+  /** Eased back into the natural contour over this much, on both sides. */
+  SHOULDER: 14,
+};
+
+/**
+ * The furthest east the game can ever ask for a landing, on the worst seed it can roll.
+ *
+ * Both noise terms are bounded — fbm returns [-1, 1] — so this is an exact bound rather
+ * than a sampled one, which matters because the failure it guards is invisible: a bench
+ * graded past the end of the collider profile is *visible terrain with nothing solid in
+ * it*, and the vehicle falls through it to `failDepth` with the ground drawn under it the
+ * whole way. Measured on seed 7, whose centreline sits at +26 and whose floor is 78 wide:
+ * the bench lands at x=212.6 and the profile stopped at 204.
+ */
+const LANDABLE_HALF_X =
+  CENTRE_WANDER + FLOOR_HALF * (1 + FLOOR_HALF_SWING) + WALL_RUN + BENCH.SET_BACK + BENCH.HALF_WIDTH;
+
 export const CANYON = {
   /** Canyon floor at the mouth. Altitude readout is simply lander.y. */
   FLOOR_Y: 0,
@@ -26,9 +62,13 @@ export const CANYON = {
   RIM_Y: 240,
 
   /** Half-width of the canyon floor at the mouth, before it meanders. */
-  FLOOR_HALF: 62,
+  FLOOR_HALF,
+  CENTRE_WANDER,
+  FLOOR_HALF_SWING,
   /** Horizontal run the wall takes to climb from floor to rim. */
-  WALL_RUN: 78,
+  WALL_RUN,
+  BENCH,
+  LANDABLE_HALF_X,
   /**
    * Thickness of a rock stratum. Wall height is snapped toward multiples of this,
    * turning the climb into a staircase of benches at constant altitude — which is
@@ -84,8 +124,18 @@ export const CANYON = {
    * that reads as an arbitrary number and silently stops holding.
    */
   CELL: 6,
-  /** Collider profile half-width: out past the rim on both sides. */
-  PROFILE_HALF_X: 210,
+  /**
+   * Collider profile half-width: out past the rim on both sides.
+   *
+   * Derived, not authored. It was 210 for as long as the only landing surfaces out here
+   * were pads the campaign placed near the middle; the rim bench moves with the seed and
+   * on the extreme ones stands at 234, so the number had to become a consequence of
+   * `LANDABLE_HALF_X` rather than a figure that happened to be big enough. Rounded up to
+   * a whole `CELL` so the collider samples keep landing exactly on mesh columns — see
+   * `buildProfile`, which lost that alignment once already by iterating from a value that
+   * was not a multiple.
+   */
+  PROFILE_HALF_X: Math.ceil((LANDABLE_HALF_X + BENCH.SHOULDER + 12) / 6) * 6,
   /**
    * Half-width of the terrain sheet.
    *

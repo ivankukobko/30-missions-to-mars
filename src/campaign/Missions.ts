@@ -555,27 +555,26 @@ export function worldAt(
 const DEAD_RELAYS = [-34, -68, 62, 96];
 
 /**
- * Where the rim is graded flat, so the prologue has somewhere to land on every seed.
+ * Where a mission enters, once the canyon is known.
  *
- * This was very nearly a bug shipped as scenery. The rim is real generated terrain and
- * its slope is a function of the seed: measured on 1696448283, the east rim's landable
- * stretches were x 130–178, 184–194, 230–250, 256–264 and 290–314 — 110 units of flat
- * ground scattered across 200 of rim, in positions that move with every roll. Bare rock
- * only counts as a landing when the contact normal clears `MAX_GROUND_LANDING_SLOPE`, so
- * an authored `start.x` tuned against one seed's flats would have been a coin toss on
- * every other, and the failure mode is the worst kind: the prologue would simply be
- * unlandable for some players, with nothing on screen to say why.
+ * Everything but the prologue enters at its authored `start.x`, which is an address in a
+ * canyon whose interesting features are all authored too. The prologue is the one flight
+ * with no address and no lateral control: `AIRFRAMES.relay` locks rotation and carries no
+ * thruster, so the column it is dropped down is the only ground it will ever be offered,
+ * and `resolveContact` refuses bare rock steeper than `MAX_GROUND_LANDING_SLOPE`.
  *
- * These go into `canyon.build` alongside `campaignPadSites`, which is the mechanism the
- * campaign already uses to guarantee ground under a pad that rests on it. Each site
- * levels `halfWidth: 9` with a 10-unit shoulder, so three spaced 18 apart merge into one
- * continuous shelf of about 54 units — wider than the natural flat this seed happened to
- * provide, and there whatever the seed says.
+ * So it enters over the bench the generator grades into the east lip, and it enters over
+ * it *because that is the same number* — `CanyonGenerator.rimSiteX`, not a constant tuned
+ * to sit inside it. The previous arrangement was two authored numbers that were supposed
+ * to agree, and the test that guarded them compared one constant to another and passed
+ * while the prologue was unlandable on three seeds in ten. See `RIM_BENCH`.
  *
- * Deliberately not hidden. The shelf is visible from entry for the whole campaign, and a
- * terrace on the rim is exactly what a landing site should look like from above.
+ * Structurally typed rather than importing the generator, so the mission table stays a
+ * table and `Missions.ts` keeps having no dependency on the world.
  */
-export const RIM_SITES = [132, 150, 168];
+export function entryX(mission: Mission, canyon: { rimSiteX(): number }): number {
+  return mission.id === PROLOGUE.id ? canyon.rimSiteX() : mission.start.x;
+}
 
 /**
  * The prologue, by name rather than by index.

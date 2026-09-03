@@ -12,7 +12,7 @@ import {
   missionGoal,
   EPILOGUE,
   PROLOGUE,
-  RIM_SITES,
+  entryX,
 } from './Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
 import { CORPS } from '../world/CanyonSpec.ts';
@@ -30,6 +30,8 @@ import { resolveTerrainAnchoredDigs, applyDigAttachments, type WallTerrain } fro
 import { CANYON } from '../world/CanyonSpec.ts';
 import { snapToColumn } from '../world/ColonyLattice.ts';
 import type { Prop } from '../world/Colony.ts';
+import { freshCanyon } from '../testing/canyonFixture.ts';
+import { MAX_GROUND_LANDING_SLOPE } from '../entities/LanderBody.ts';
 
 /**
  * Everything the player is shown for a mission, one string.
@@ -1095,11 +1097,53 @@ describe('the prologue', () => {
     expect(PROLOGUE.entry?.vx ?? 0).toBe(0);
   });
 
-  it('enters over the graded shelf, so there is ground under it on every seed', () => {
-    // The rim's natural flats move with the seed; `RIM_SITES` is what guarantees one.
-    const shelf = { lo: Math.min(...RIM_SITES) - 9, hi: Math.max(...RIM_SITES) + 9 };
-    expect(PROLOGUE.start.x).toBeGreaterThanOrEqual(shelf.lo);
-    expect(PROLOGUE.start.x).toBeLessThanOrEqual(shelf.hi);
+  /**
+   * The claim this makes is about rock, and the one it replaced was about constants.
+   *
+   * The old test read `expect(start.x).toBeGreaterThanOrEqual(min(RIM_SITES) - 9)` — two
+   * authored numbers compared to each other, which passed for as long as they were typed
+   * consistently and said nothing at all about whether the ground was there. It was, and
+   * the prologue was unlandable on three seeds in ten. See `RIM_BENCH`.
+   */
+  it('has landable rock under the prologue on every seed, measured', { timeout: 120000 }, () => {
+    for (const seed of [0, 1, 7, 12345, 631729407, 1696448283, 42, 999, 2024, 555111]) {
+      const { canyon } = freshCanyon(seed);
+      canyon.build([], []);
+      const x = entryX(PROLOGUE, canyon);
+
+      // The chord the collider actually offers, sampled the way `colliderProfile` does:
+      // one point per `CANYON.CELL`, so contact is with a 6-unit span, not a tangent.
+      const x0 = Math.floor(x / CANYON.CELL) * CANYON.CELL;
+      const slope = (canyon.heightAt(x0 + CANYON.CELL, 0) - canyon.heightAt(x0, 0)) / CANYON.CELL;
+      const ny = 1 / Math.hypot(1, slope);
+
+      expect(ny, `seed ${seed} at x=${x.toFixed(1)}`).toBeGreaterThanOrEqual(
+        MAX_GROUND_LANDING_SLOPE,
+      );
+    }
+  });
+
+  /**
+   * And a bench wide enough to be a place rather than a point.
+   *
+   * The entry is straight down, so one landable chord would technically do — but the
+   * relay stands here for the rest of the campaign and is looked at from the canyon
+   * floor, and a landmark on a one-cell ledge reads as an accident.
+   */
+  it('grades a bench either side of the entry, not just the column itself', { timeout: 120000 }, () => {
+    for (const seed of [0, 7, 42, 631729407]) {
+      const { canyon } = freshCanyon(seed);
+      canyon.build([], []);
+      const x = entryX(PROLOGUE, canyon);
+      const level = canyon.heightAt(x, 0);
+
+      // Across the flat the bench claims, nothing may depart from its level by more than
+      // the terracing would put back if the bench were not being applied last.
+      for (let d = -24; d <= 24; d += CANYON.CELL) {
+        expect(Math.abs(canyon.heightAt(x + d, 0) - level), `seed ${seed} at +${d}`)
+          .toBeLessThan(1);
+      }
+    }
   });
 });
 
