@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <!--
+    The canyon slot: two walls closing on a lit gap.
+
+    The game's own signature composition — it is what the main menu sits over and what the
+    player flies down twenty-nine times. Drawn rather than rendered because a favicon is
+    read at 16px, where the vehicle, the pads and the landing ring all dissolve into two
+    grey pixels; only the silhouette survives, so the silhouette is the whole icon.
+
+    Four wall shapes rather than two: the near pair (#3d1a09) reads as shadow against the
+    far pair (#7a3414) even when the image is four pixels wide, which is what keeps the
+    slot from flattening into a single dark mass on a dark browser tab. The colours are the
+    world's own — rockLow, rockMid and sun from CanyonSpec — over the page's theme-color.
+  -->
+  <rect width="64" height="64" fill="#1a0a04"/>
+  <path d="M0 0 H24 L29 30 L26 64 H0 Z" fill="#7a3414"/>
+  <path d="M64 0 H42 L37 30 L40 64 H64 Z" fill="#7a3414"/>
+  <path d="M0 0 H14 L19 32 L16 64 H0 Z" fill="#3d1a09"/>
+  <path d="M64 0 H52 L47 32 L50 64 H64 Z" fill="#3d1a09"/>
+  <path d="M24 0 H42 L37 30 L33 64 L29 30 Z" fill="#ffcf9a"/>
+</svg>

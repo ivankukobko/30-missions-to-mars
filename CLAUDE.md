@@ -69,8 +69,9 @@ was rejected, and the measurement that settled it — see `src/world/CanyonSpec.
 `missionTime` field in `src/core/Game.ts` for the register. Match it. A comment restating
 the line below it is noise.
 
-`README.md` is the design record and is kept current with the code. A change that alters
-behaviour, tuning or a tolerance belongs there too.
+`docs/` is the design record and is kept current with the code — one page per subject,
+indexed from `README.md`, which is an index and a pitch rather than a chapter. A change
+that alters behaviour, tuning or a tolerance belongs on the page that owns it.
 
 ## Determinism is load-bearing
 
