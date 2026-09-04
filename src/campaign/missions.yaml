@@ -200,7 +200,7 @@ missions:
           Helion read that assay and stopped at the depth the sample came from. We read the same page. The ore gets richer the deeper you go — that is our whole position. East tower is up.
       - sender: KESSLER DEEP
         content: >-
-          The array you are carrying listens to the rock. It counts the small quakes the seam throws as it settles. We will want those numbers.
+          It counts the small quakes the seam throws as it settles. It will also count anything Helion does to the west, which is not why I bought it.
       - sender: KESSLER DEEP
         content: >-
           You fly one of ours now. Nothing that goes down a bore has any business turning, so it does not.
@@ -231,7 +231,7 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          They are building on our sightlines, navigator. We asked a tribunal to stop them. The order came back signed on the last window, served this morning — both charters down tools where they stand.
+          They are building on our sightlines, navigator. We asked a tribunal to stop them, and it did. Order IXN-0071, signed at the last session and put in front of both charters this morning — down tools where they stand.
       - sender: IXION OUTPOST
         content: >-
           You will have noticed the run in is tighter. That is not your flying.
@@ -295,7 +295,7 @@ missions:
           Nine days, navigator. Nine days with no drill running anywhere in this canyon, and you could hear the wind again.
       - sender: IXION OUTPOST
         content: >-
-          Then the charters appealed, and this morning the same tribunal overturned its own order — one window later. We have the only clean record down here, and it bought us nine days.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home to the outpost pad.
+          Then the charters appealed, and this morning the same tribunal threw out its own IXN-0071, one session later. We have the only clean record down here, and it bought us nine days.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home to the outpost pad.
 
   - id: 12
     sol: 140
@@ -428,7 +428,7 @@ missions:
           Pad is in at the shaft floor, well under the canyon now, and the walls are close on both sides.
       - sender: KESSLER DEEP
         content: >-
-          Light load on purpose today, tin can. I want you learning the hole while it is still forgiving.<br/><br/><b>OBJECTIVE</b> Take it down the shaft. Deliver to SHAFT HEAD.
+          Nothing heavy today, tin can. That is the second string I have ordered for this shaft. The first is under the spoil we dropped on it, and my crew has been on helmet lamps ever since.<br/><br/><b>OBJECTIVE</b> Take it down the shaft. Deliver to SHAFT HEAD.
     adds:
       props:
         - kind: pad
@@ -538,10 +538,13 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          We take the main shaft down tonight, a long way further. The seam we are on is worked out. The good rock is below us now.
+          We take the main shaft down tonight, a long way further. The seam we are on is worked out — the good rock is below us now.
       - sender: KESSLER DEEP
         content: >-
-          The pylons anchor the new lining, tin can. If they are not seated square, everything we hang under them comes back up the fast way.<br/><br/><b>OBJECTIVE</b> Deliver the pylons to SHAFT HEAD.
+          Helion holds this one because they cut it first. I will hold what is under it because I will be the only one who has ever been down there.
+      - sender: KESSLER DEEP
+        content: >-
+          Seat them square, tin can. Everything below them is rock nobody has a claim on yet, and I am not losing it because a pylon went in crooked.<br/><br/><b>OBJECTIVE</b> Deliver the pylons to SHAFT HEAD.
 
   - id: 20
     sol: 340
@@ -829,7 +832,10 @@ missions:
           Outpost's channel has been quiet a long while. Used to be traffic on it every shift. Not something I have the time to chase.
       - sender: KESSLER DEEP
         content: >-
-          It is a containment shell. It caps the deep seam so a charge can go in without bringing the roof down. Do this one right — I would not hand it to anyone else.<br/><br/><b>OBJECTIVE</b> Deliver the shell to SHAFT DEEP.
+          Once that is capped I can put a charge under the seam without losing the roof. Helion have been cutting toward it for a year and they still cannot reach what sits under us.
+      - sender: KESSLER DEEP
+        content: >-
+          Do this one right. I would not hand it to anyone else.<br/><br/><b>OBJECTIVE</b> Deliver the shell to SHAFT DEEP.
 
   - id: 27
     sol: 564

@@ -41,8 +41,11 @@ The axis is not accuracy. It is **what kind of noun you get**, and the three pos
 not overlap.
 
 **The name is earned, not assigned.** Mission 1 addresses you as nothing — you have not
-done anything yet. From mission 2 Ixion calls you *the navigator*, after the navigation
-you built them. They explain it once and never again.
+done anything yet, and mission 2 still does not use the word: it is the run that *sends*
+you to plant the radar. From mission 3, once the mast is standing, Ixion calls you *the
+navigator*, after the navigation you built them. They explain it once and never again —
+and the explanation is what the name is worth: *"Nobody had the standing to make it
+official, and it stuck."*
 
 **Kessler's is a category, not a nickname.** *Tin can* is what he calls any remote unit on
 a telemetry link; he used it before you and he will use it after. It appears in four of his
