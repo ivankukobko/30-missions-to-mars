@@ -135,7 +135,15 @@ missions:
         # is square, and that difference is the only thing in this canyon that says who was
         # here first — the shape of the rock, from the prologue on, with no brief mentioning
         # it and nothing to land in. By mission 14 it is a doorway two other companies use.
-        - id: ixion-working
+        #
+        # **`shaft`, from its first stage.** This was `ixion-working`, which read as a second
+        # excavation and is not one: there is exactly one hole in this canyon and this is its
+        # opening cut. `mergeDigs` never knew the difference — it collapses records by
+        # overlapping x, not by id, and `Missions.test.ts` asserts the five stages come out as
+        # one excavation — so the two names only ever disagreed with each other in the source.
+        # The rename says what the geometry already did. Whose working it is still changes at
+        # mission 14; that is a fact about the campaign, not about the hole.
+        - id: shaft
           anchorToWall: east
           mount: floor
           halfWidth: 12
