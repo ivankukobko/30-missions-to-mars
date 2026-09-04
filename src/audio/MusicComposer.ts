@@ -57,20 +57,32 @@ function step(root: number, semitones: number): number {
 }
 
 /**
- * How long one step is held, so a full cycle runs about forty seconds. Slow enough that
- * a change reads as an event rather than a beat, quick enough that a run which goes
- * badly is not spent entirely on one chord.
+ * How long one step is held. Four of them, so the progression comes round every 28 seconds.
+ *
+ * **28 is the median descent.** The reference pilot flies the campaign in 28.0 seconds
+ * (18.0–33.3 across the twenty it can fly), so a typical run now hears the harmony arrive
+ * exactly once: out on the step it took off under, and home by touchdown. At the old 10.5 —
+ * a 42-second cycle — no descent in the game was long enough to complete one, and the
+ * progression's single move was something most runs either caught or missed depending on
+ * where in the loop they happened to start. A four-chord figure nobody ever hears resolve is
+ * paying for structure it does not deliver.
+ *
+ * Still slow enough that a change reads as weather rather than as a beat: seven seconds is
+ * two and a half times the longest thing the player does in one gesture.
  */
-const STEP_SECONDS = 10.5;
+const STEP_SECONDS = 7;
 
 /**
  * Glide between steps, as a `setTargetAtTime` time constant — so the move is about
- * three times this before it has effectively arrived. At 0.7 that is roughly two
- * seconds against a ten-second step: quick enough to land as a change, slow enough that
- * it is still a slide rather than a cut. The earlier 1.9 took most of six seconds and
- * the chord spent more of its life arriving than being itself.
+ * three times this before it has effectively arrived. Quick enough to land as a change,
+ * slow enough that it is still a slide rather than a cut. The earlier 1.9 took most of six
+ * seconds and the chord spent more of its life arriving than being itself.
+ *
+ * Scaled with `STEP_SECONDS` rather than re-picked by ear: it was 0.7 against a 10.5-second
+ * step, which is a fifth of the step spent arriving, and 0.47 is the same fifth of 7. The
+ * proportion is the thing that was tuned; the number is a consequence of it.
  */
-const GLIDE = 0.7;
+const GLIDE = 0.47;
 
 /**
  * Bits in a mission ident. Twenty-nine missions need five, and `11101` is the last one.
@@ -89,8 +101,8 @@ const IDENT_BIT = 0.26;
 const DISTANT_IDENT = 1;
 
 /**
- * One bar per ident bit, so the word fills exactly one chord step: 2.1 seconds, about
- * 114 BPM in four.
+ * One bar per ident bit, so the word fills exactly one chord step: 1.4 seconds, about
+ * 171 BPM in four.
  *
  * A five-bar phrase against a four-step progression is deliberate. The two cycle together
  * only every twenty bars, so the groove never sits square against the harmony — which is
@@ -167,6 +179,30 @@ export function wobbleBar(missionId: number, barIndex: number): WobbleBar | null
     // move that sounds like it is not coming back.
     offset: isSet(bit + 1) ? 0 : -2,
   };
+}
+
+/**
+ * Semitones above the chord tone for a one and for a zero.
+ *
+ * Exactly an octave apart, and that is the contract: anything inside an octave reads as
+ * melody rather than as a value, and the interval is the only thing telling the player which
+ * bit they just heard. Both are *above* the root so the figure sits over the pad rather than
+ * inside it — the low bit is the quiet one, not a bass note.
+ */
+export const IDENT_HIGH = 24;
+export const IDENT_LOW = 12;
+
+/**
+ * Whether bit `index` of the mission's callsign is set, MSB first.
+ *
+ * Pure and exported for the same reason `wobbleBar` is: the mapping is the composition, and
+ * MSB ordering is easy to get subtly wrong in a way that is inaudible as a bug and merely
+ * sounds like a different mission. Now that a zero is sounded rather than skipped, a
+ * reversed word is a *plausible* five-note figure every time, which is worse — there is no
+ * gap pattern left to notice it by.
+ */
+export function identBit(missionId: number, index: number): boolean {
+  return ((missionId >> (IDENT_BITS - 1 - index)) & 1) === 1;
 }
 
 /**
@@ -280,8 +316,10 @@ export class MusicComposer {
     if (idx === this.currentChordIdx) return;
     this.currentChordIdx = idx;
     this.applyCurrentChord();
-    // Once per cycle, at the top. Roughly forty seconds apart, so it reads as a station
-    // identifying itself rather than as a hook.
+    // Once per cycle, at the top — 28 seconds apart, so it reads as a station identifying
+    // itself rather than as a hook. Closer together than the old 42 and now sounding every
+    // bit rather than only the set ones, which is the point: a callsign heard once a run is
+    // atmosphere, and one heard at the top of every cycle is a number the player can learn.
     if (idx === 0) this.emitIdent();
   }
 
@@ -317,13 +355,33 @@ export class MusicComposer {
   }
 
   /**
-   * Sounds the mission number, most significant bit first: a chord tone for a set bit,
-   * silence for a clear one.
+   * Sounds the mission number, most significant bit first — **every bit, high for a one and
+   * an octave lower for a zero.**
    *
-   * Pitches come from the live chord, so the figure is consonant whatever step it lands
-   * on and never has to know what key it is in. It climbs an octave halfway through so
-   * five even strokes do not read as a flat line, and every note is scheduled at an
-   * absolute time off the audio clock — no timers, nothing to drift.
+   * A clear bit used to be silence, which made the figure a rhythm that happened to be
+   * derived from a number rather than a number you could hear. Five strokes with gaps in
+   * them is a groove; five notes where each one is high or low is a *word*, and the player
+   * can count it. That is the whole change: the melody is the mission's callsign, and a
+   * callsign nobody can read is only atmosphere.
+   *
+   * The octave is the bit, so nothing else may use it. The old version climbed an octave
+   * halfway through the word "so five even strokes do not read as a flat line" — a cosmetic
+   * use of the exact axis that now carries the meaning, and it had to go. What keeps the
+   * figure from being flat instead is `chord[i % 3]`: pitches still walk the live chord, so
+   * the line moves and stays consonant whatever step it lands on, while the register alone
+   * says which bit it is.
+   *
+   * Timbre backs it up rather than carrying it. A zero is a sine and a one a triangle, so
+   * the low note is duller as well as lower — two cues for one distinction, which is what
+   * lets it survive a mix where the engine is deliberately the loudest thing.
+   *
+   * The **rhythm** is a separate encoding of the same number and keeps its rests: see
+   * `wobbleBar`, where a clear bit is a silent bar and the run length drives the ratchet.
+   * That is what the build and drop of mission 29 are made of, and it does not survive
+   * sounding every bar. Two readings of one word — one you count, one you feel.
+   *
+   * Every note is scheduled at an absolute time off the audio clock — no timers, nothing to
+   * drift.
    */
   private emitIdent(): void {
     if (!this.ctx || !this.destination || this.isMuted || !this.isPlaying) return;
@@ -334,19 +392,21 @@ export class MusicComposer {
 
     for (let i = 0; i < IDENT_BITS; i++) {
       // MSB first, so the figure reads left to right the way the number is written.
-      const bit = (this.missionId >> (IDENT_BITS - 1 - i)) & 1;
-      if (!bit) continue;
+      const bit = identBit(this.missionId, i);
 
       const at = start + i * IDENT_BIT;
-      const semitones = chord[i % 3] + 24 + (i >= 3 ? 12 : 0);
+      // The octave *is* the bit. See `IDENT_HIGH` / `IDENT_LOW`.
+      const semitones = chord[i % 3] + (bit ? IDENT_HIGH : IDENT_LOW);
 
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      osc.type = 'triangle';
+      osc.type = bit ? 'triangle' : 'sine';
       osc.frequency.setValueAtTime(step(theme.root, semitones), at);
 
       gain.gain.setValueAtTime(0, at);
-      gain.gain.linearRampToValueAtTime(0.045, at + 0.012);
+      // A zero sits slightly under a one — enough that the word has a shape when it is
+      // half-heard, not so much that it reads as silence again.
+      gain.gain.linearRampToValueAtTime(bit ? 0.045 : 0.034, at + 0.012);
       gain.gain.exponentialRampToValueAtTime(0.0004, at + 0.42);
 
       osc.connect(gain);

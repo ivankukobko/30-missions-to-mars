@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { wobbleBar } from './MusicComposer.ts';
+import { wobbleBar, identBit, IDENT_HIGH, IDENT_LOW } from './MusicComposer.ts';
 import { MISSION_COUNT } from '../campaign/Missions.ts';
 
 /** The five bars of one mission's figure, `null` for a rest. */
@@ -68,5 +68,40 @@ describe('wobbleBar', () => {
         expect(Number.isInteger(bar.cycles)).toBe(true);
       }
     }
+  });
+});
+
+/**
+ * The other encoding of the same number: the melody, which sounds every bit rather than
+ * only the set ones. See `emitIdent`.
+ */
+describe('the ident melody', () => {
+  it('reads the mission number most significant bit first', () => {
+    const word = (id: number) => [0, 1, 2, 3, 4].map((i) => (identBit(id, i) ? 1 : 0)).join('');
+    expect(word(1)).toBe('00001');
+    expect(word(16)).toBe('10000');
+    expect(word(21)).toBe('10101');
+    expect(word(29)).toBe('11101');
+  });
+
+  it('separates the two bits by exactly an octave', () => {
+    // The interval is the whole encoding. Anything inside an octave reads as melody, and a
+    // reversed pair would sound like a perfectly plausible figure on every mission — there
+    // are no rests left to notice it by now that a zero is sounded.
+    expect(IDENT_HIGH - IDENT_LOW).toBe(12);
+    expect(IDENT_HIGH).toBeGreaterThan(IDENT_LOW);
+  });
+
+  it('spells every campaign mission exactly, and fits in five bits', () => {
+    // Round-trip rather than spot checks: the five positions the melody sounds have to
+    // reconstruct the mission number and nothing else, which is what pins both the MSB
+    // ordering and the word length. A sixth mission past 31 would silently alias onto a
+    // lower one, and the melody would sound like a run the player had already flown.
+    for (let mission = 1; mission <= MISSION_COUNT; mission++) {
+      let back = 0;
+      for (let i = 0; i < 5; i++) back = (back << 1) | (identBit(mission, i) ? 1 : 0);
+      expect(back, `mission ${mission}`).toBe(mission);
+    }
+    expect(MISSION_COUNT).toBeLessThan(32);
   });
 });
