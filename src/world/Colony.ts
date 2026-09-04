@@ -604,7 +604,7 @@ export class Colony {
     // Where the foreground layer thins out, so it never hides the vehicle. Left at its
     // default — far above the canyon, so the layer stays solid — when there is no lander,
     // which is every inspector view and the moment between missions.
-    if (lander) setLanderFocus(lander.x, lander.y, camera?.position.z);
+    if (lander) setLanderFocus(lander.x, lander.y);
 
     for (const ring of this.rings) {
       const isTarget = ring.padId === this.targetPadId;

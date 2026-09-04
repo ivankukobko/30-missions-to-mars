@@ -131,13 +131,46 @@ on a grown canyon, four flight positions in five have faded colony geometry betw
 camera and the vehicle, which is why the effect cannot be gated to shafts and underground
 even though the terrain half of it could be.
 
-### The hole is a cone, not a cylinder
+### It is gated at the canyon mouth
+
+That table is also where the bug was, unread. **8, 13 and 24 blocked of 260 at the rim,
+against 0 to 4 of 375 in the canyon** — the fade does its least useful work exactly where
+the camera has the most terrain in front of it, and there is no colony up there for the
+other four-fifths to carry. Every fragment it touched above the lip was ground it had no
+business dissolving, which is what it looked like: open upland going to sky underneath a
+lander sitting plainly on top of it.
+
+So `FADE_GATE_BAND` closes the hole over the mouth — full strength at 200, gone by `RIM_Y`.
+The band sits *inside* the canyon so nothing pops as the vehicle crosses the lip. Measured,
+the lip is 239–240 on every seed (it is constructed, not noise) and the upland just outside
+it 245–268.
+
+This was the third attempt at the same symptom and the only one that settled it. The other
+two were real faults and worth keeping — see below — but neither was the cause. `FADE_RADIUS`
+in particular was briefly cut to 12 on the theory that the hole was simply too wide; freezing
+one frame at both values showed almost no difference, and it is back at 34, which is what the
+colony case wants. **A hole sized to the lander shows it down a keyhole between two struts.**
+
+### The hole is a cone along the camera-to-vehicle ray
 
 `FADE_RADIUS` is a screen-size decision — wide enough to clear the vehicle and its plume —
 and screen size is an angle. Holding it as a fixed *world* radius therefore makes the hole
 grow on screen the closer the occluder is to the camera, and by a lot: a circle of radius R
 at distance D subtends the same angle as R·d/D at distance d, so an occluder halfway to the
 vehicle got twice the hole it needed.
+
+The axis was wrong for longer than the shape was. `gap` measured world *xy* distance to the
+vehicle, which is a cone around the line **parallel to z** through it — the camera-to-vehicle
+ray only while the camera looks straight down the z axis. That holds inside the canyon and
+fails on every pitched entry and rim shot, where a z-parallel column projects to a *slanted*
+line on screen: the hole opened somewhere along that line with the vehicle nowhere near it.
+It also had no notion of where the vehicle sat along the ray, so geometry behind the thing it
+was revealing faded too.
+
+It now projects onto the real ray using three.js's own `cameraPosition` fragment uniform — no
+plumbing, and the whole camera rather than the one component `setLanderFocus` used to pass —
+and fades only while `0 < along < len`, which is to say strictly between the camera and the
+vehicle. The old `(uCameraZ - z) / uCameraZ` is the on-axis special case of `along / len`.
 
 Inside the canyon that is a modest over-widening, which is why it went unnoticed for a long
 time. In the prologue it is not. That camera stands above the rim with upland a few tens of

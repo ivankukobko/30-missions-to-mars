@@ -13,6 +13,10 @@ import {
   EPILOGUE,
   PROLOGUE,
   entryX,
+  radioDue,
+  nextRadioCall,
+  RADIO_MIN_GAP,
+  debriefLine,
 } from './Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
 import { CORPS } from '../world/CanyonSpec.ts';
@@ -40,10 +44,21 @@ import { MAX_GROUND_LANDING_SLOPE } from '../entities/LanderBody.ts';
  * as `messages` has no `brief` to read and the rules about who says what to whom are
  * about what arrives on screen, not about which field it was authored in.
  */
+/**
+ * Everything this mission says to the player, on every channel.
+ *
+ * Written when a brief was the only place anybody could speak. It is not any more — a
+ * client now talks during the descent and again over the score card — and the campaign's
+ * standing rules (never state the total, never tally the runs, never say how long it took)
+ * are about *what the player is told*, not about which surface told them. A rule that only
+ * inspects `messages` is a rule with two new ways around it.
+ */
 const transmission = (m: (typeof MISSIONS)[number]): string =>
-  resolveBriefCards(m)
-    .map((c) => c.body)
-    .join(' ');
+  [
+    ...resolveBriefCards(m).map((c) => c.body),
+    ...(m.radio ?? []).map((c) => c.content),
+    ...(m.debrief ? [m.debrief.content, m.debrief.strong ?? '', m.debrief.weak ?? ''] : []),
+  ].join(' ');
 
 const CORP_NAMES = new Set(Object.values(CORPS).map((c) => c.name));
 
@@ -945,6 +960,54 @@ describe('the Helion contract form', () => {
     expect(new Set(stamps).size).toBe(helion.length);
   });
 
+  it('is never the one making the joke, and is always the one who sets it up', () => {
+    /**
+     * *Corporates Chasm* is Ixion's, and it can only ever be Ixion's.
+     *
+     * It was Helion's first — the form losing the name of the place across the arbitration,
+     * nobody left over there to correct it, the machine filing the truth by accident. That
+     * is wrong twice over. A pun nobody in the fiction perceives is not a pun, it is the
+     * game elbowing the player over the heads of its own cast; and Helion being *wrong about
+     * a fact* contradicts the one thing the form is. It has no warmth, no pronouns and no
+     * opinion, and what it has instead is accuracy — it is the only client that ever gets
+     * the answer about the carrier right. A contract that cannot spell the canyon is not a
+     * colder machine, it is a less reliable one.
+     *
+     * So the form supplies the straight line and Ixion takes it, one card later, the first
+     * time a corporation ever speaks on the outpost's channel. `COPRATES CHASMA` is said
+     * exactly once in the campaign and the joke is answering *that card* — which makes the
+     * order load-bearing. Move either card and the pun still reads, badly, as a thing the
+     * outpost says out of nowhere about a name nobody has mentioned.
+     */
+    const said = (m: (typeof MISSIONS)[number]) =>
+      [...m.messages.map((x) => x.content), ...(m.radio ?? []).map((x) => x.content)].join(' ');
+
+    for (const m of helion) {
+      expect(said(m), `mission ${m.id}`).not.toMatch(/CORPORATES/i);
+    }
+
+    // Said once, by the form, before it has any standing here.
+    const named = MISSIONS.filter((m) => said(m).includes('COPRATES CHASMA'));
+    expect(named.map((m) => m.id)).toEqual([3]);
+
+    // The punchline is Ixion's, nobody else repeats it, and it is told once.
+    const punned = MISSIONS.filter((m) => /Corporates Chasm/.test(said(m)));
+    expect(punned.map((m) => m.id)).toEqual([3]);
+    expect(punned[0].client).toBe('outpost');
+
+    // And it is a reply: the setup is the card immediately before it.
+    const cards = named[0].messages;
+    const setup = cards.findIndex((c) => c.content.includes('COPRATES CHASMA'));
+    const joke = cards.findIndex((c) => /Corporates Chasm/.test(c.content));
+    expect(cards[setup].sender).toMatch(/HELION/);
+    expect(cards[joke].sender).toMatch(/IXION/);
+    expect(joke, 'the punchline answers the card before it').toBe(setup + 1);
+
+    // The name it earns the player arrives after the joke, not before — nothing may call
+    // the carrier `navigator` until mission 3's last card coins it.
+    expect(cards[joke].content).not.toMatch(/navigator/i);
+  });
+
   it('only ever revises forward', () => {
     // Monotonic, and deliberately not contiguous: rev 10 was generated and never sent.
     const revs = helion.map((m) => Number(/REV (\d+)/.exec(clientVoice(m))![1]));
@@ -1633,5 +1696,215 @@ describe('the calendar', () => {
      */
     const everything = [...MISSIONS.map(transmission), ...EPILOGUE.map((m) => m.content)].join(' ');
     expect(everything).not.toMatch(/six hundred (and )?twenty|628|a mars year|two years/i);
+  });
+});
+
+/**
+ * The two channels that do not stop the world: what the client says while you are falling,
+ * and what it says once the landing has resolved.
+ *
+ * Both exist because the campaign had exactly one narrative surface and it was a modal. The
+ * debrief was being carried a mission late in the *next* client's brief — which works while
+ * Ixion flies the opening five in a row and fails everywhere else, since ten of twenty-eight
+ * handoffs are same-corp and nine hand off to a form with no second person. The radio is the
+ * other half: a canyon that only speaks from behind a card is one you visit.
+ */
+describe('the transmission channels', () => {
+  const withRadio = MISSIONS.filter((m) => m.radio?.length);
+
+  it('fires a call on altitude or on the clock, whichever comes first', () => {
+    /**
+     * Two tests for the same reason `EpilogueFall` runs two. Altitude alone lets a diving
+     * pilot outrun every call in the mission; a clock alone stacks them onto a cautious one
+     * who is still a long way up. Neither failure is visible in a screenshot.
+     */
+    const call = { content: 'x', atAltitude: 600, atSeconds: 12 };
+    expect(radioDue(call, 900, 4)).toBe(false);
+    expect(radioDue(call, 600, 4)).toBe(true);
+    expect(radioDue(call, 599, 0)).toBe(true);
+    // Still high, but slow enough that the descent has left the call behind.
+    expect(radioDue(call, 900, 12)).toBe(true);
+  });
+
+  it('never puts a call on top of one still being read', () => {
+    /**
+     * The defect the authored triggers cannot prevent, found by flying rather than by
+     * reading. Both anchors are crossed 6–8 seconds apart by the reference pilot — 620 at
+     * t≈11, 300 at t≈18 — and inside four by anyone who dives, at which point the second
+     * transmission replaced the first mid-sentence and the player lost both.
+     *
+     * A per-call predicate has nothing to say about this, which is why the selection is the
+     * unit under test and not `radioDue`.
+     */
+    const calls = [
+      { content: 'first', atAltitude: 620, atSeconds: 12 },
+      { content: 'second', atAltitude: 300, atSeconds: 19 },
+    ];
+    const none = new Set<number>();
+    // A dive past both thresholds still only sounds one.
+    expect(nextRadioCall(calls, none, 250, 5, null)).toBe(0);
+    expect(nextRadioCall(calls, new Set([0]), 250, 5, 5)).toBeNull();
+    // ...and the second waits out the gap rather than being dropped.
+    expect(nextRadioCall(calls, new Set([0]), 250, 5 + RADIO_MIN_GAP, 5)).toBe(1);
+    // Still high and still early: nothing is due yet.
+    expect(nextRadioCall(calls, new Set([0]), 700, 15, 0)).toBeNull();
+    // Still high but long past the deadline — the clock is the backstop for a pilot who
+    // hovers, and it is the half of `radioDue` that a descent otherwise never exercises.
+    expect(nextRadioCall(calls, new Set([0]), 700, 30, 0)).toBe(1);
+  });
+
+  it('orders its calls down the descent', () => {
+    // A later call that triggers higher, or sooner, fires out of sequence — or worse, fires
+    // at the same moment as the one before it and replaces it before it has been read.
+    for (const m of withRadio) {
+      const calls = m.radio!;
+      for (let i = 1; i < calls.length; i++) {
+        expect(calls[i].atAltitude, `mission ${m.id} call ${i}`).toBeLessThan(
+          calls[i - 1].atAltitude,
+        );
+        expect(calls[i].atSeconds, `mission ${m.id} call ${i}`).toBeGreaterThan(
+          calls[i - 1].atSeconds,
+        );
+      }
+    }
+  });
+
+  it('leaves the approach alone', () => {
+    /**
+     * The reference pilot flies the campaign in 28 seconds median, of which the first 10.5
+     * belong to the callsign sounding the mission number and the last ten to the flare. Two
+     * calls is the ceiling and the second of them has to be done talking before the vehicle
+     * is somewhere its pilot cannot look away from.
+     */
+    for (const m of withRadio) {
+      expect(m.radio!.length, `mission ${m.id}`).toBeLessThanOrEqual(2);
+      for (const call of m.radio!) {
+        expect(call.atSeconds, `mission ${m.id}`).toBeGreaterThanOrEqual(11);
+        expect(call.atSeconds, `mission ${m.id}`).toBeLessThanOrEqual(20);
+        // Short enough to take in without reading. A sentence, not a card.
+        expect(call.content.replace(/<[^>]+>/g, ' ').length, `mission ${m.id}`).toBeLessThanOrEqual(130);
+      }
+    }
+  });
+
+  it('keeps Helion a datagram', () => {
+    /**
+     * The rule was always no second person and no first — never silence. So Helion transmits
+     * in flight like everybody else and announces nothing: an unannounced field set assumes
+     * whatever receives it parses field sets, which is how the form addresses the carrier
+     * without ever owning a `you`. Give it a sender and it becomes a correspondent.
+     */
+    for (const m of MISSIONS) {
+      for (const call of m.radio ?? []) {
+        const speaker = call.corp ?? m.client;
+        if (speaker === 'helion') {
+          expect(call.sender, `mission ${m.id}`).toBeUndefined();
+          expect(call.content, `mission ${m.id}`).not.toMatch(
+            /\b(you|your|yours|we|us|our|ours)\b/i,
+          );
+        } else {
+          expect(call.sender, `mission ${m.id}`).toBeTruthy();
+        }
+      }
+    }
+  });
+
+  it('leaves mission 1 and mission 29 silent, for opposite reasons', () => {
+    /**
+     * The prologue carries no calls because there is nothing to carry them on. `messages` is
+     * empty for the same reason — nobody can transmit to a link that does not exist yet — and
+     * a radio call would be the one thing in the campaign that arrives before the relay it is
+     * arriving on. Its *debrief* is the exception that proves it: the first voice in the game
+     * is Ixion's, and it reaches the player because the relay is now standing on the rim.
+     *
+     * Mission 29 is the other end. It has calls and no debrief, because what follows a
+     * landing there is the epilogue — and a client answering the run would be the last human
+     * voice in the campaign arriving *after* the one the campaign was built to end on.
+     */
+    const prologue = MISSIONS.find((m) => m.id === 1)!;
+    expect(prologue.messages).toHaveLength(0);
+    expect(prologue.radio ?? []).toHaveLength(0);
+    expect(prologue.debrief).toBeDefined();
+
+    const last = MISSIONS[MISSIONS.length - 1];
+    expect(last.id).toBe(29);
+    expect(last.radio?.length).toBeGreaterThan(0);
+    expect(last.debrief).toBeUndefined();
+
+    // Every other mission is answered by whoever paid for it. That is the hole this closes.
+    for (const m of MISSIONS) {
+      if (m.id === 29) continue;
+      expect(m.debrief, `mission ${m.id}`).toBeDefined();
+    }
+  });
+
+  it('never repeats a brief line on the glass', () => {
+    /**
+     * The two channels are for different work — the brief carries what you would re-read,
+     * the radio carries what you would only ever hear once — and a call that restates a card
+     * the player read ninety seconds ago spends the descent saying nothing. It is also the
+     * likeliest drift: a call is easiest to write by reaching for the line already there.
+     */
+    const strip = (t: string) => t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    for (const m of MISSIONS) {
+      const brief = m.messages.map((x) => strip(x.content)).join(' ');
+      for (const call of m.radio ?? []) {
+        const opening = strip(call.content).split('.')[0];
+        if (opening.length <= 25) continue;
+        expect(brief, `mission ${m.id}: "${opening}"`).not.toContain(opening);
+      }
+    }
+  });
+
+  it('moves Helion\'s figure with the landing, continuously', () => {
+    /**
+     * The form reports rather than judges, so its answer is not one of three authored
+     * buckets — it is the run's own points, which is the number `Progress` banks and the
+     * colony is paid in. Two landings that are both a B buy different amounts of building
+     * and should not file identical paperwork.
+     *
+     * The ordinal is the fiddly half and the reason this is tested rather than eyeballed:
+     * 11, 12 and 13 are the exceptions every naive implementation gets wrong, and nothing
+     * about a wrong one looks broken.
+     */
+    const helion = MISSIONS.find((m) => m.id === 25)!;
+    const at = (points: number) =>
+      debriefLine(helion.debrief!, { rank: 'B', points, fuelPct: 0.4, touchdownSpeed: 1, offset: 0 });
+    expect(at(54)).toContain('54TH CENTILE');
+    expect(at(91)).toContain('91ST CENTILE');
+    expect(at(22)).toContain('22ND CENTILE');
+    expect(at(43)).toContain('43RD CENTILE');
+    expect(at(11)).toContain('11TH CENTILE');
+    expect(at(12)).toContain('12TH CENTILE');
+    expect(at(13)).toContain('13TH CENTILE');
+    expect(at(1)).toContain('1ST CENTILE');
+    // A machine has nothing to choose between, so it carries no variants to choose from.
+    expect(helion.debrief!.strong).toBeUndefined();
+    expect(helion.debrief!.weak).toBeUndefined();
+  });
+
+  it('answers a run in the register of whoever paid for it', () => {
+    // Helion's debrief is a figure and a disposition — recognition that cannot act on
+    // itself. Ixion and Kessler are people and get sentences. Same rule as the briefs.
+    for (const m of MISSIONS) {
+      if (!m.debrief) continue;
+      const lines = [m.debrief.content, m.debrief.strong, m.debrief.weak].filter(
+        (l): l is string => l !== undefined,
+      );
+      for (const line of lines) {
+        if (m.client === 'helion') {
+          expect(line, `mission ${m.id}`).not.toMatch(/\b(you|your|yours|we|us|our|ours)\b/i);
+        }
+      }
+      // A rank always has a line: the ends fall back to the default when unauthored, so
+      // adding a variant is additive and no rank can print nothing.
+      for (const rank of ['S', 'A', 'B', 'C'] as const) {
+        const line = debriefLine(m.debrief, { rank, points: 54, fuelPct: 0.4, touchdownSpeed: 1, offset: 0 });
+        expect(line, `mission ${m.id} rank ${rank}`).toBeTruthy();
+        // No token survives to the card. A form that prints `{CENTILE}` at the player is
+        // the one failure this channel can have that still looks like working software.
+        expect(line, `mission ${m.id} rank ${rank}`).not.toMatch(/\{[A-Z]+\}/);
+      }
+    }
   });
 });

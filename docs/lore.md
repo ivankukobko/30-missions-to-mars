@@ -112,17 +112,124 @@ them.
 
 Three registers, same pattern as everything else:
 
-- **Ixion** says it warmly and specifically. *"You placed it better than the specification
-  asked for"* (mission 2).
+- **Ixion** says it warmly and specifically. *"You set the mast down tighter than the spec
+  asked"* (mission 3).
 - **Kessler** says it comparatively. He ranks you against units he has flown.
-- **Helion** emits a centile. No praise, just a figure — and one that moves with your
-  actual `Progress` points.
+- **Helion** emits a centile. No praise, just a figure — the run's own points, interpolated
+  through `{CENTILE}` so the answer moves continuously rather than landing in one of three
+  authored buckets — and a disposition line that leads nowhere: `NO ACTION ARISING`. It is
+  the only client with no `strong` or `weak` anywhere, because a form has nothing to choose.
+  The exception is mission 28, where the form stops reporting and *classifies* — see
+  *The classifier*, which is shipped now and branches on the same figure.
 
 Comparative and infrequent, stated as fact rather than compliment.
+
+**It is said on the score card now, not in the next brief.** `Mission.debrief`, on all
+twenty-eight missions that have one. See *The two channels that do not stop the world*.
+
+### The two channels that do not stop the world
+
+Until this, everything with a voice in it stopped the game to speak. That was right for a
+brief and it left the campaign with one narrative surface and no way to be *inhabited*.
+
+**The debrief was always here, delivered a mission late.** The opening card of mission 3 was
+mission 2's debrief; mission 2's opening card was the prologue's — which is why **the
+campaign's first voice is now on mission 1's score card**, arriving because the relay is
+standing, instead of at the top of the next brief where nothing caused it. The convention only works
+while Ixion flies the first five contracts in a row: ten of twenty-eight handoffs are
+same-corp, nine hand to a form with no second person to acknowledge anybody with, and no
+party has standing to grade a run it did not commission. So for two thirds of the campaign
+the run you just flew was answered by nobody, and the late missions quietly stopped trying.
+
+It belongs on the score card, which is also the first position in the game that can read the
+rank — the old form could not, and *"tighter than the spec asked"* prints whatever the
+player actually did. `Debrief.strong` and `.weak` cover S/A and C, both optional, and a
+mission with neither says one thing however you flew. That is the honest default: only two
+of the three clients are watching that closely.
+
+**The radio is the other half.** `Mission.radio` puts a transmission on the glass mid-descent
+— bottom-left, no dismissal, nothing the player needs. It carries **no instruction**, which
+is what lets it fire on **every attempt**: a canyon that falls silent on your fourth try was
+performing for you. Which fixes the register — these are *observations, not events*. "Radar
+is up on your feed now" is an event and a lie by attempt seven.
+
+The budget is measured, not guessed. The reference pilot flies the campaign in 28 seconds
+median (18.0–33.3 across the twenty it can fly); the callsign owns the first 10.5 sounding
+the mission number, and the flare owns the last ten. Two calls — fifty-six across the
+campaign — and `Missions.test.ts` holds the ceiling.
+
+The anchors are `620` and `300` (`240` below the floor), measured rather than picked: that
+same pilot crosses 620 at t≈11 and 300 at t≈18 on every mission in the campaign. But the
+triggers only say *earliest*. **`RADIO_MIN_GAP` says readable**, and it is the rule the
+authored anchors could not express — found by flying, not by reading. A pilot who dives
+crosses both thresholds inside four seconds, and the second transmission used to replace the
+first mid-sentence, costing the player both. A call that comes due inside the gap waits;
+`nextRadioCall` is the whole selection rather than a predicate for exactly that reason, since
+a per-call test has nothing to say about two calls.
+
+**Two silences, for opposite reasons.** Mission 1 has no calls — there is no link to carry
+one, which is the same reason its `messages` are empty. Mission 29 has calls and *no
+debrief*, because what follows that landing is the epilogue, and a client answering the run
+would be the last human voice in the campaign arriving after the one it was built to end on.
+
+**Helion transmits too, and announces nothing.** The rule was always no second person and no
+first — never silence. An unannounced field set assumes whatever receives it parses field
+sets, so the form addresses the carrier by *format* while never owning a `you`, and the
+livery is the only routing it carries. A **datagram, not a handshake**: nothing acknowledged,
+nothing negotiated, no notice taken of whether anything read it. The moment Helion's protocol
+responds to the carrier, Helion has observed it and the canyon has a third party with
+opinions in it — which is what got the wry-middle-manager register cut.
+
+It is the only client that gets what the carrier is right, and it gets there by never asking.
+Eleven contracts of that is also what the classifier at 28 is finally *stating* — see
+*The classifier*, which until now arrived with nothing under it.
 
 ---
 
 ## The Canyon
+
+### Where this actually is
+
+**A fissure in the floor of Coprates Chasma, not the chasma itself.**
+
+The numbers were always saying so and nobody had read them back. This canyon is 240 units
+floor to rim and about 280 rim to rim — a ratio of roughly 1:1. Coprates is ~60 km wide and
+~8 km deep, which is 1:7.5. At the real trough's proportions you could fly the whole campaign
+without seeing a wall, and two of the game's own rules would collapse: *it has to fly, the
+destination has no ground route* (in a 60 km basin you would drive) and the entire arc of the
+corridor closing because of what you delivered (you cannot close 60 km with thirty pads).
+
+`CanyonSpec` had already committed to it in one line — the backdrop at `z = -1600` is *mesas
+seen through the slot, above the rim*, and mesas standing above your rim means the rim opens
+onto a floor with massifs on it rather than onto open plain.
+
+So `MASSIF` builds the rest of it: west of the rim the ground sets back, then climbs past
+1250 — the wall of Valles Marineris, seen across the chasma floor. The depth stack that
+gives is the campaign's own subject, which is going down:
+
+| | |
+| --- | --- |
+| Plateau surface | 0 |
+| Coprates floor — **this canyon's `RIM_Y`** | −8 km |
+| The fissure floor — `FLOOR_Y` | −240 more |
+| Kessler's shaft at −303, `failDepth` −320 | −300 more |
+
+Mission 1's *"We are the only thing at the bottom of this canyon"* becomes the bottom of the
+bottom, and the last delivery of the campaign sits about 8.6 km below the Martian datum.
+
+**Nothing inside the rim moved.** The floor, both walls, the entrance and every fuel budget
+are the numbers they were; the massif lives past the rim on ground no mission can reach, and
+`CanyonGenerator.test.ts` asserts across seeds that nothing stands tall anywhere the vehicle
+can legally be. It is visible only from above the rim — the entry and the first seconds of
+the descent — because from inside a 240-deep slot the west lip occludes everything beyond it.
+That is physically right and it is the honest limit of what it buys.
+
+It also offers a third reading of the ending, and the game still adjudicates nothing.
+Fissures in these floors deepen by collapsing into voids — that is how Coprates Catena, the
+pit chain on the plateau, was made. So Kessler *"breaking into the chasm"* at mission 24 is
+him joining the process that built the place he is standing in, and the epilogue's collapse
+has a third candidate alongside the pillar and the Final Charge: **this is what these
+features do.** It is the only one of the three with nobody's hand on it.
 
 ### Depth is the axis, and arrival order is the cause
 
@@ -327,6 +434,63 @@ took something out of the ground.
 - **Weapon**: the record. *"We filed first. It will not matter, but it will be on the
   record — and the record is the only thing we have that they cannot dig up."*
 
+#### The jokes, and where they stop
+
+There are five, they are all dry, and they all live in the **first half**: 3, 4, 7, 10, 13.
+That is the arc rather than an accident of drafting — early on this is a canyon with people
+in it who still make jokes, and after the shaft opens at 15 nobody makes another one. Kessler
+is funny by accident and only ever about the job; Ixion is funny on purpose and never quite
+lands it; Helion cannot be funny at all and is twice the straight man.
+
+- **3, Ixion** — *Corporates Chasm*, below.
+- **4, Ixion** — *"Third week here, somebody swore there was a face in the east wall. We
+  photographed it for a month. It was a rock."* The same shape as the reclaimer line one card
+  away: a story for the setup, an institutional fact for the punchline. It never says Viking
+  or Cydonia, so the player who knows the Face on Mars gets a second layer and nobody else
+  loses anything.
+- **7, Kessler** — *"This used to be done with rovers. Months to cross what you do in a
+  minute, and nothing on the far end to talk to."* A back-in-my-day on his first contract,
+  and the campaign's only acknowledgement that ground logistics ever existed here. The last
+  clause is him assuming what is on the link, which is what *tin can* already does.
+- **10, Kessler** — *"We could settle this with rock, paper, scissors. They have the paper, I
+  have the rock, and nobody has scissors."* Told while the injunction has his crew stood down,
+  which is the only state in which he would bother. Helion **is** the paper — nine auto-filed
+  contracts and no person — and Kessler is the rock. The missing scissors is the resolution
+  that never arrives.
+- **13, Kessler** — *"Crossed the whole of empty space to get here and the job is digging
+  dirt. Again. Nobody mentions that part."* On the last delivery that ever lands on a surface,
+  which is the moment the complaint becomes literally true.
+
+No mission carries two. One dry aside every few runs is texture; two on one run would make
+the speaker the comic relief, which neither of them survives being.
+
+#### Corporates Chasm
+
+The campaign's one joke, and it is a groaner. Mission 3, immediately after Helion's
+auto-filed notice of interest — the first time a corporation ever speaks on the outpost's
+channel, and the only time anybody in the game says the canyon's real name:
+
+> **HELION EXTRACTION** — *ORE ASSAY READ FROM AN OPEN RELAY, COPRATES CHASMA. NO CLAIM ON
+> RECORD. SURVEY DISPATCHED.*
+>
+> **IXION OUTPOST** — *Coprates Chasma. Corporates Chasm, more like. Nobody here laughed
+> either.*
+
+**The machine sets it up and the human takes it**, which is the only arrangement that works.
+Helion cannot make the joke: a pun nobody in the fiction perceives is the game elbowing the
+player over its cast's heads, and a form that misfiles a proper noun is not a colder machine
+but a less reliable one — accuracy is what Helion has instead of a voice. Kessler is funny by
+accident and never about anything but the job. Ixion is the only party that can be bitter and
+fond in the same breath about a place it has lived in for eleven years.
+
+It is also a **prediction**, made the moment the survey is dispatched and proved right by the
+twenty-six missions that follow. And `either` is doing the quiet half: the joke was told to a
+telemetry link, and nothing came back.
+
+`Missions.test.ts` holds the order, because the joke is a *reply* — move either card and it
+becomes the outpost punning out of nowhere on a name nobody has mentioned. It also holds the
+absence of *navigator*: the name is coined on the next card and cannot be used before it.
+
 #### The turn — **Proposed**
 
 Ixion does not start as a villain and does not end as one either. They were in the race,
@@ -389,7 +553,15 @@ all three:
   somebody had decided it mattered.
 - **The form drifts, because nobody maintains it.** Revisions climb 1 → 11 and skip 10,
   which was generated and never sent. `ATTRITION: WITHIN TOLERANCE` arrives at 25 and never
-  leaves. The drift is structural too: a contract is two cards — manifest, then `CONDITIONS
+  leaves.
+
+  **The drift is in the process, never in a fact.** Helion spells the canyon `COPRATES
+  CHASMA` at mission 3 and the form never mislays it. A version of this document had the
+  name corrupting to `CORPORATES CHASM` across the arbitration — the machine filing the
+  truth by accident, nobody left to correct it — and it is wrong twice over: a pun nobody in
+  the fiction perceives is the game elbowing the player over its own cast's heads, and a
+  form that cannot spell the place is not a colder machine but a less reliable one. Accuracy
+  is what Helion has instead of a voice. See *Corporates Chasm* under Ixion. The drift is structural too: a contract is two cards — manifest, then `CONDITIONS
   OF CARRIAGE` — until the arbitration annex exists at 21, from which point it is three. The
   annex is always **last**, so the final three Helion runs begin descent from a page of
   boilerplate with nothing about flying on it.
@@ -403,17 +575,30 @@ Helion has no arc because Helion has no character; what changes is the paperwork
 clipped middle manager was the original register and was cut — it made Helion a third
 person with opinions, which left the canyon with three voices and no silence in it.
 
-#### The classifier — **Proposed**
+#### The classifier
 
 The annex has spent eight contracts denying you a category — *the carrier is not a party
-and has no standing to be heard*. The payoff is the form running out of categories, at
-mission 28, branching on your accumulated points:
+and has no standing to be heard*. The payoff is the form running out of categories, on
+mission 28's debrief, branching on how that run scored:
 
-- high — `NO HUMAN FACTOR DETECTED. CLASSIFICATION: PENDING.`
-- low — `ATTRITION ABOVE FORECAST. CLASSIFICATION: EXPENDABLE. CONTRACT NOT RENEWED.`
+- high — `NO HUMAN FACTOR DETECTED. CLASSIFICATION: PENDING`
+- default — `CLASSIFICATION: PENDING`
+- low — `ATTRITION ABOVE FORECAST. CLASSIFICATION: EXPENDABLE. CONTRACT NOT RENEWED`
 
-Both are recognition. One cannot file you; the other files you as a write-off. It never says
-*you*, never acknowledges, and it is the only client that ever gets the answer right.
+Both ends are recognition. One cannot file you; the other files you as a write-off. It never
+says *you*, never acknowledges, and it is the only client that ever gets the answer right.
+
+**It is the one Helion debrief that branches, and that is not a contradiction.** Everywhere
+else the form reports a figure and has nothing to choose, which is why no other Helion
+debrief carries a variant. Here it is not judging a landing — it is a document hitting
+different branches of its own logic, which is what a form does. The distinction is the whole
+reason the exception is legible rather than a lapse.
+
+**What it now has under it.** Eleven contracts of in-flight `radio` arriving as unannounced
+field sets, none of which ever asked whether anything could read them. The classification is
+the form finally *stating* what its own transmission format assumed all campaign — see
+*The two channels that do not stop the world*. Before that channel existed this card was a
+clever line with nothing behind it.
 
 ### Kessler Deep — everything below
 

@@ -45,6 +45,10 @@ export interface InspectorHost {
   /** Writes a named scheme into the live palette and rebuilds the world, since terrain
    *  and colony colour are computed at build time — see `Game.setColorScheme`. */
   setColorScheme(name: string): void;
+  /** Whether the world is held still. See `Game.toggleFreeze`. */
+  frozen(): boolean;
+  /** Holds it, or lets it go. Returns the new state. */
+  toggleFrozen(): boolean;
   /** True while the inspector owns the camera and the simulation is held. */
   setInspecting(on: boolean): void;
 }
@@ -112,6 +116,7 @@ export class Inspector {
         <span class="debug-sep"></span>
         <button id="dbg-free" class="debug-toggle">Free Cam (F2): off</button>
         <button id="dbg-gizmos" class="debug-toggle">Gizmos: off</button>
+        <button id="dbg-freeze" class="debug-toggle">Freeze (F3): off</button>
         <select id="dbg-scheme" title="colour grading">
           ${Object.keys(COLOR_SCHEMES)
             .map((name) => `<option value="${name}">${name}</option>`)
@@ -174,6 +179,7 @@ export class Inspector {
     );
 
     this.panel.querySelector('#dbg-free')!.addEventListener('click', () => this.toggle());
+    this.panel.querySelector('#dbg-freeze')!.addEventListener('click', () => this.freeze());
 
     // Reloads the mission, so the mission field can go stale if the host clamps the id —
     // it does not, but `refresh` is cheap and keeps the panel honest either way.
@@ -197,6 +203,13 @@ export class Inspector {
     window.addEventListener('keydown', (e) => {
       if (e.code === 'F2') {
         this.toggle();
+        e.preventDefault();
+        return;
+      }
+      // Deliberately usable while flying, unlike the rest of these: the whole point is to
+      // stop a descent at a chosen instant, which means the key has to work mid-descent.
+      if (e.code === 'F3') {
+        this.freeze();
         e.preventDefault();
         return;
       }
@@ -240,6 +253,21 @@ export class Inspector {
       },
       { passive: false },
     );
+  }
+
+  /**
+   * Holds the world still, and draws nothing to say so beyond the toggle's own label.
+   *
+   * Separate from free cam on purpose: they compose. Freeze picks the instant, free cam
+   * then flies around it, which is the pair of controls every geometry question in
+   * `CLAUDE.md` actually wants — walk the vehicle, look under the deck, check what is
+   * really behind a surface that has gone transparent.
+   */
+  private freeze(): void {
+    const on = this.host.toggleFrozen();
+    const button = this.panel.querySelector('#dbg-freeze')!;
+    button.textContent = `Freeze (F3): ${on ? 'on' : 'off'}`;
+    button.classList.toggle('on', on);
   }
 
   private toggle(): void {

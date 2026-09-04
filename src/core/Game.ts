@@ -23,6 +23,7 @@ import {
   LAST_SOL,
   entryX,
   musicTrackFor,
+  nextRadioCall,
   MISSION_COUNT,
   CAMPAIGN_FLIGHTS,
   ENTRY_VELOCITY,
@@ -701,6 +702,9 @@ export class Game implements MenuHost {
     this.accumulator = 0;
     this.heightAboveGround = Infinity;
     this.identSent = false;
+    // Every attempt hears the canyon again. See `radioSent`.
+    this.radioSent.clear();
+    this.radioLastAt = null;
     this.lastFrame = performance.now();
 
     this.state = 'FALL';
@@ -886,6 +890,32 @@ export class Game implements MenuHost {
 
   // -------------------------------------------------------------------- loop
 
+  /**
+   * Holds the world still without putting anything on the screen. `?debug=1` only.
+   *
+   * The pause overlay is the wrong instrument for looking at a frame: it takes the HUD
+   * down, dims the canyon behind a card and covers the middle of the shot, which is
+   * usually the part worth looking at. Every geometry question this repo asks — does the
+   * cargo hang below the pad, does a pod corner reach under the deck, is that surface
+   * faded when nothing is behind it — is a question about one frame of a live descent,
+   * and the only way to hold one was to crash into `state = 'BRIEF'` from the console.
+   *
+   * Frozen, `elapsed` is zero rather than the loop being skipped, so the sim, the camera
+   * director and every effect stop by the same mechanism and none of them can drift out of
+   * step with the others. `lastFrame` still advances, so thawing does not jump.
+   */
+  private frozen = false;
+
+  toggleFreeze(): boolean {
+    this.frozen = !this.frozen;
+    this.lastFrame = performance.now();
+    return this.frozen;
+  }
+
+  get isFrozen(): boolean {
+    return this.frozen;
+  }
+
   private frame(now: number): void {
     requestAnimationFrame(this.frame);
 
@@ -901,11 +931,14 @@ export class Game implements MenuHost {
      * completed step throughout: a hitch immediately after the player takes control,
      * which is the worst possible moment for one. Measured at −0.08 s, about five frames.
      */
-    const elapsed = Math.max(0, Math.min((now - this.lastFrame) / 1000, 0.25));
+    // Zero while frozen: one number, so everything downstream of it stops together.
+    const elapsed = this.frozen ? 0 : Math.max(0, Math.min((now - this.lastFrame) / 1000, 0.25));
     this.lastFrame = now;
 
     if (this.inspecting) {
       this.inspector?.update(elapsed);
+      // The camera is moving even though nothing else is, so the overlays have to follow it.
+      if (this.lander) this.updateOverlays(this.lander);
     } else if (this.state === 'PLAYING') {
       this.stepSimulation(elapsed);
     } else if (this.state === 'UPLINK') {
@@ -1108,6 +1141,8 @@ export class Game implements MenuHost {
     if (thrusting && !this.wasThrusting) this.effects.ignite(lander.x, lander.y);
     this.wasThrusting = thrusting;
 
+    if (this.state === 'PLAYING') this.updateRadio(lander);
+
     if (this.state === 'PLAYING') {
       // Per engine, in airframe order, so a twin running one nozzle sounds like a
       // twin running one nozzle. `rcsLeft` fires to rotate left, and the jet that does
@@ -1156,6 +1191,40 @@ export class Game implements MenuHost {
     }
   }
 
+  /**
+   * Which calls this descent has already made. Reset on every load, including a retry.
+   *
+   * Per *attempt*, not per mission, and that is the design rather than an oversight. The
+   * brief solved its own repetition problem by skipping itself on a retry (`BriefOptions
+   * .resumed`), which is affordable there because a brief stops the world and a player who
+   * has read it wants past it. A call costs nothing to ignore, carries no instruction, and
+   * is the only thing in the game claiming the canyon is occupied — a canyon that falls
+   * silent on your fourth attempt is a canyon that was performing for you. See `RadioCall`.
+   */
+  private radioSent = new Set<number>();
+
+  /**
+   * Puts a call on the glass when the descent reaches it.
+   *
+   * Both tests are read off `missionTime` and the vehicle's own altitude, so a retry flown
+   * the same way gets the same calls at the same points — the strip is presentation, but
+   * *when* it fires is simulation, and simulation here replays.
+   */
+  /** When the last call went up, measured from the handover. Null until one has. */
+  private radioLastAt: number | null = null;
+
+  private updateRadio(lander: Lander): void {
+    const calls = this.mission.radio;
+    if (!calls) return;
+    const since = this.missionTime - this.consoleUpAt;
+    const next = nextRadioCall(calls, this.radioSent, lander.y, since, this.radioLastAt);
+    if (next === null) return;
+    const call = calls[next];
+    this.radioSent.add(next);
+    this.radioLastAt = since;
+    this.ui.showRadio(call.sender, call.content, CORPS[call.corp ?? this.mission.client].color);
+  }
+
   private updateHud(lander: Lander, dt: number): void {
     const depthRange = CANYON.FLOOR_Y - this.mission.failDepth;
     const abyssProximity =
@@ -1173,6 +1242,22 @@ export class Game implements MenuHost {
     };
 
     this.ui.updateHud(this.telemetry(lander, common), dt);
+    this.updateOverlays(lander);
+  }
+
+  /**
+   * The screen-space layers, re-projected through whatever camera is live.
+   *
+   * Split out of `updateHud` because they are not telemetry: the marker and the reticle are
+   * a world position pushed through a camera, and both of those are true every frame
+   * regardless of whether the simulation is advancing. Left inside `updateHud` they only
+   * ran from `stepSimulation`, which the inspector does not call — so switching to free cam
+   * pinned the brackets wherever the shot happened to be at that moment and left them
+   * there, floating on empty ground while the camera flew away from the vehicle. It reads
+   * as the overlay having lost the lander, and it cost an afternoon of chasing a fade bug
+   * that was really this.
+   */
+  private updateOverlays(lander: Lander): void {
     this.ui.updateMarker(this.director.camera, lander.renderX, lander.renderY);
     this.ui.updateReticle(this.director.camera, {
       // Drawn position, so the brackets sit on the hull rather than a step behind it.
@@ -1584,6 +1669,8 @@ export class Game implements MenuHost {
       mastX: () => this.progress.mastX,
       mastY: () => this.progress.mastY,
       terrain: () => this.canyon,
+      frozen: () => this.isFrozen,
+      toggleFrozen: () => this.toggleFreeze(),
       loadMission: (id) => this.loadMission(id),
       useSeed: (seed) => this.useSeed(seed),
       gizmos: () => this.colony.gizmos,

@@ -78,6 +78,66 @@ const BENCH = {
 };
 
 /**
+ * The great wall west of the canyon — the one that makes this a crack in a floor rather
+ * than a canyon in a plain.
+ *
+ * The fiction it settles is one `CanyonSpec` was already half-committed to. The backdrop
+ * at `z = -1600` is described as *mesas seen through the slot, above the rim*, and mesas
+ * standing above your rim means the rim opens onto a floor with massifs on it — not onto
+ * open upland. Coprates Chasma is ~60 km across and ~8 km deep; this canyon is ~280 units
+ * rim to rim and 240 deep, a ratio of about 1:1 against the real thing's 1:7.5. It was
+ * never the main trough. It is a fissure in the trough's floor, and what stands to the
+ * west is the wall of Valles Marineris itself.
+ *
+ * **Everything inside the rim is untouched.** The floor, both walls, the entrance and the
+ * whole flight corridor are the numbers they were: this only reshapes ground the player
+ * cannot reach and has never been able to land on.
+ *
+ * Anchored to distance *past the rim* rather than to an absolute x, so it sits the same
+ * relative to the canyon on every seed — the centreline wanders 38 either way and the floor
+ * half-width swings 42%, which between them move the west rim from about x −76 to x −204.
+ */
+export const MASSIF = {
+  /**
+   * How far beyond the rim the ground stays upland before it starts to climb.
+   *
+   * Past the 110-unit handover `heightIn` already runs, and then some. The set-back is the
+   * whole reason this is safe: a massif that started rising at the lip would function as a
+   * taller west rim, and every Helion approach in the campaign comes down the west wall.
+   * Held flat first, the west reads as a shelf with something enormous standing back from
+   * it — which is also what the sketch this was built from shows.
+   */
+  SET_BACK: 70,
+  /** Horizontal distance the face climbs over. */
+  RUN: 380,
+  /*
+   * Both of these were 160 and 420 first, with a 900 rise, and it was *correct and
+   * invisible*: measured on screen the wall read as a shadow at the edge of frame during
+   * entry and nothing at all after it. Two things eat it — the camera closes in on the
+   * vehicle within a few seconds of handover, and above the rim `AIR` is dense enough that
+   * FogExp2 is 90% opaque by 1378 units, which is where a face set back that far is sitting.
+   *
+   * Closer and taller is the fix, and closer is safe because `smoothstep` starts flat: at 70
+   * past the rim the face has risen 36 units by the time it is 110 out, so it still cannot
+   * function as a taller lip. `CanyonGenerator.test.ts` measures the negative directly.
+   */
+  /**
+   * Height above `RIM_Y` at the top, before ribs.
+   *
+   * Missions enter between 830 and 1050, so a summit at 1250 + ribs means the wall is still
+   * going up past the vehicle at the moment the player takes control. That is the whole
+   * image, and it is worth more than a figure scaled off the real 8 km — which the fog eats
+   * long before the geometry runs out.
+   *
+   * **This is an establishing shot by construction, not by accident.** From inside a
+   * 240-deep slot the west rim occludes everything beyond it, so the wall is visible only
+   * from above the rim: the entry, the uplink fall, and the first seconds of the descent.
+   * That is physically correct and it is the honest limit of what this change buys.
+   */
+  RISE: 1250,
+};
+
+/**
  * The furthest east the game can ever ask for a landing, on the worst seed it can roll.
  *
  * Both noise terms are bounded — fbm returns [-1, 1] — so this is an exact bound rather

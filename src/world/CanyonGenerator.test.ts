@@ -69,6 +69,50 @@ describe('everything the game can land on has a collider under it', () => {
   });
 });
 
+describe('the massif stays outside the canyon', () => {
+  /**
+   * The check the golden sum cannot make.
+   *
+   * `MASSIF` adds up to twelve hundred units of rock west of the rim, which is more than
+   * five times the canyon's own depth — and the one way that goes wrong is invisible to
+   * every other test in this repo: if the face began rising at the lip instead of setting
+   * back from it, the west rim would simply be taller. Nothing would float, no layout would
+   * fail, no pad would be unreachable by the channel rules, and every Helion approach in the
+   * campaign — all of which come down the west wall from directly above — would be flying
+   * into a shadow that was not there when the fuel budgets were measured.
+   *
+   * So this asserts the negative directly, across seeds, over the whole span the vehicle can
+   * legally occupy: from the west rim east to the end of the collider profile, nothing stands
+   * more than the upland's own relief above `RIM_Y`. Measured, the tallest thing in that span
+   * is 245–301 on every seed here and always on the *east* side, which is untouched ground.
+   */
+  it.each([7, 12345, 631729407, 916936499, 1, 999983, 42])(
+    'seed %i: nothing towers over the flight corridor',
+    (seed) => {
+      const g = new CanyonGenerator(new THREE.Scene(), new PhysicsWorld(-6), seed);
+      g.build([], []);
+      let westRim = 0;
+      for (let x = 0; x >= -CANYON.WORLD_HALF_X; x -= 0.5) {
+        if (g.heightAt(x, 0, false) < CANYON.RIM_Y) westRim = x;
+        else if (westRim !== 0) break;
+      }
+      let worst = 0;
+      for (let x = westRim; x <= CANYON.PROFILE_HALF_X; x += 0.5) {
+        worst = Math.max(worst, g.heightAt(x, 0, false));
+      }
+      expect(worst).toBeLessThan(CANYON.RIM_Y + 160);
+    },
+  );
+
+  it('and does rise, well beyond it', () => {
+    // The other half: a set-back so generous the wall never appeared would pass everything
+    // above. It has to be there, and it has to clear the altitude missions enter at.
+    const g = new CanyonGenerator(new THREE.Scene(), new PhysicsWorld(-6), 12345);
+    g.build([], []);
+    expect(g.heightAt(-700, 0, false)).toBeGreaterThan(1050);
+  });
+});
+
 describe('heightAt is stable for a given seed', () => {
   it('matches the recorded sum over a grid spanning the world', () => {
     let sum = 0;
@@ -77,17 +121,24 @@ describe('heightAt is stable for a given seed', () => {
     }
 
     /**
-     * Moved once, deliberately: 1181928.1747766074 → this, −357 over 1.18M.
+     * Moved twice, deliberately.
      *
-     * Two changes in one landscape pass — the rim patch `RIM_BENCH` grades, and the pans
-     * that `pan` puts through the upland so that patch is not the only level ground above
-     * the canyon. The pans are the larger share of it, which is the right way round: a
-     * change that only moved the bench would mean the disguise was not doing anything.
+     * 1181928.1747766074 → 1181570.9976155343, −357 over 1.18M. Two changes in one
+     * landscape pass — the rim patch `RIM_BENCH` grades, and the pans that `pan` puts
+     * through the upland so that patch is not the only level ground above the canyon. The
+     * pans are the larger share of it, which is the right way round: a change that only
+     * moved the bench would mean the disguise was not doing anything.
      *
-     * That every point sample below except the bench's own held is the evidence the two
-     * are localised rather than a general shift in the terrain.
+     * 1181570.9976155343 → this, **near-tripling** it. That is `MASSIF`: the Valles
+     * Marineris wall now standing west of the canyon, which adds up to twelve hundred units
+     * of rock over about four hundred of the two thousand this grid spans. A change of that size is
+     * supposed to look alarming here, and the check that it is the intended one is not the
+     * total — it is that **only one point sample below moved**, `(-300, -900)`, which is the
+     * base of the new face. Every sample on the floor, on both walls, on the bench and out
+     * east at x=999 is bit-for-bit what it was. The canyon and its entrance are untouched;
+     * only ground the player has never been able to reach has changed.
      */
-    expect(sum).toBeCloseTo(1181570.9976155343, 6);
+    expect(sum).toBeCloseTo(3210938.568141571, 6);
   });
 
   it.each([
@@ -98,12 +149,18 @@ describe('heightAt is stable for a given seed', () => {
     [65, 0, -1.922765538],
     [-65, 0, -4.007675352],
     [300, -400, 218.299444741],
-    [-300, -900, 253.844075152],
     [0, -1499, -46.573897475],
     [999, 200, 212.488759656],
     // On the rim bench itself, which is otherwise unsampled here and is the one stretch
     // of this landscape a mission is guaranteed to touch. See `RIM_BENCH`.
     [162, 0, 244.9730587771891],
+    // The base of the west face — the only one of these that `MASSIF` moved, from
+    // 253.844075152, and the reason the rest of this table is the evidence it is localised.
+    [-300, -900, 511.2195222970124],
+    // On the face itself, well up it. Nothing sampled the west backdrop before, so a
+    // thousand units of new rock could have appeared or vanished here unnoticed — which is
+    // exactly what happened when this table was written and the massif did not exist.
+    [-700, 0, 1413.3863034868996],
   ])('matches the recorded height at (%i, %i)', (x, z, expected) => {
     expect(canyon.heightAt(x, z)).toBeCloseTo(expected, 6);
   });

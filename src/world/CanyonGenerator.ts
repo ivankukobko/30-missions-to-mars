@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { Noise, clamp01, lerp, smoothstep } from './Noise.ts';
-import { CANYON, FACET_CELL, PALETTE } from './CanyonSpec.ts';
+import { CANYON, FACET_CELL, MASSIF, PALETTE } from './CanyonSpec.ts';
 import { boreDirection, isFloorMounted, type Vec2 } from './Shaft.ts';
 import type { Carved } from './ShaftGrid.ts';
 import { AntFarm, BACK_Z, FRONT_Z } from './AntFarm.ts';
@@ -439,7 +439,9 @@ export class CanyonGenerator {
     const past = d - row.floorHalf - CANYON.WALL_RUN;
     if (past > 0) {
       const w = smoothstep(past / 110);
-      const up = CANYON.RIM_Y + this.plateau(x, row.z);
+      // West only. Beyond the shelf the ground keeps going — see `massif` and `MASSIF`.
+      const up =
+        CANYON.RIM_Y + this.plateau(x, row.z) + (side < 0 ? this.massif(past, row.z) : 0);
       // Ordinary mesa terracing, taken to a hard staircase inside a pan. See `pan`.
       const strength = lerp(lerp(CANYON.TERRACE_STRENGTH, 0.5, w), 0.97, this.pan(x, row));
       y = lerp(y, this.terrace(up, row.phase, strength), w);
@@ -504,6 +506,36 @@ export class CanyonGenerator {
       n.ridge(x * 0.026 + 2, z * 0.01 + 31) * 13 +
       n.fbm(x * 0.075, z * 0.075 + 79) * 4.5;
     return Math.max(relief, -38) + 12;
+  }
+
+  /**
+   * The Valles Marineris wall standing west of the canyon.
+   *
+   * Zero until `MASSIF.SET_BACK` past the rim, so it cannot act as a taller west lip — the
+   * west wall carries every Helion deck in the campaign and the approach to all of them is
+   * from directly above. Beyond the set-back it climbs over `RUN` to `RISE`, which is the
+   * only place in the world where ground goes higher than `RIM_Y` by more than plateau
+   * relief.
+   *
+   * **Ribbed in z, not in x.** The face this is imitating is spur-and-gully — the triangular
+   * flatiron spurs separated by V-shaped gullies that make up every wall in the real chasma.
+   * Those run *down* the face, which from a cross-section at the play plane means they must
+   * vary along the canyon's length and barely at all across it. Ridged noise on `z` gives
+   * exactly that; the same noise on `past` would give terraces, which the wall already has
+   * from `terrace` and which would read as a staircase rather than as ribs.
+   *
+   * Scaled by the same ramp as the rise, so the ribs emerge out of the shelf instead of
+   * corrugating flat ground at the base of the face.
+   */
+  private massif(past: number, z: number): number {
+    const t = clamp01((past - MASSIF.SET_BACK) / MASSIF.RUN);
+    if (t <= 0) return 0;
+    const n = this.noise;
+    const ribs =
+      n.ridge(z * 0.004 + 91, past * 0.0016) * 120 +
+      n.ridge(z * 0.011 + 97, past * 0.004) * 46 +
+      n.fbm(z * 0.03 + 101, past * 0.01) * 24;
+    return smoothstep(t) * (MASSIF.RISE + ribs);
   }
 
   /**

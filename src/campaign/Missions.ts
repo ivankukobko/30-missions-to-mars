@@ -6,6 +6,7 @@ import { resolveLayout } from './Layout.ts';
 import { snapToColumn } from '../world/ColonyLattice.ts';
 import { parseCells } from '../world/ShaftGrid.ts';
 import type { DigEntry } from './TerrainDigs.ts';
+import type { LandingScore } from './Progress.ts';
 
 /** What the cargo physically looks like strapped under the lander. */
 export type CargoShape = 'crate' | 'drum' | 'sphere' | 'rig';
@@ -85,6 +86,15 @@ export interface Mission {
    * outpost commenting on somebody else's contract — which is what `sender` is for.
    */
   messages: BriefMessage[];
+  /**
+   * What the client says after *this* mission's landing, on the score card. See `Debrief`.
+   *
+   * Authored on the mission it answers rather than on the one after it, which is the whole
+   * correction: a debrief belongs to the run it is about, not to whoever flies next.
+   */
+  debrief?: Debrief;
+  /** Transmissions that arrive during this descent, without stopping it. See `RadioCall`. */
+  radio?: RadioCall[];
   /** Overrides the default entry velocity for this mission. */
   entry?: { vx?: number; vy?: number };
   /**
@@ -184,6 +194,86 @@ export interface BriefMessage {
   register?: 'corp' | 'sys';
 }
 
+/**
+ * What the client says once the landing has resolved.
+ *
+ * The campaign already had this beat and delivered it a mission late: the opening card of
+ * mission 3 is mission 2's debrief, carried by whoever happens to be the next client. That
+ * works while Ixion flies the first five contracts in a row and stops the moment the
+ * campaign rotates. Ten of twenty-eight handoffs are same-corp; nine hand off to Helion,
+ * which has no second person to acknowledge anybody with; and the parties do not speak for
+ * each other. So for most of the campaign the run you just flew was answered by nobody, and
+ * the late missions gave up the convention entirely rather than fake it.
+ *
+ * Here the client who commissioned the run answers it, on the card that already reports the
+ * landing — which is also the first position in the game that can read the rank. The old
+ * form could not: *"you set the mast down tighter than the spec asked"* is authored before
+ * the flight it praises and prints whatever the player actually did.
+ */
+export interface Debrief {
+  sender: string;
+  /** The line for a landing that was simply a landing. */
+  content: string;
+  /**
+   * Alternatives for the two ends of the scale — S/A, and C.
+   *
+   * Both optional, and a mission with neither says the same thing however you flew. That is
+   * the honest default rather than a gap to fill in: authoring three variants everywhere
+   * would make a canyon of closely-attentive employers out of two who are not, and the
+   * registers are already fixed — Ixion is warm and specific, Kessler comparative, Helion
+   * emits a figure. Only Ixion and Kessler have any reason to notice a difference.
+   */
+  strong?: string;
+  weak?: string;
+}
+
+/**
+ * A transmission that arrives mid-descent, on the glass, without stopping anything.
+ *
+ * The brief is the channel that carries instructions, so this one carries none: a call the
+ * player misses while landing costs them texture and never information. That is what lets
+ * it fire on **every attempt** rather than once per mission. A place that only speaks the
+ * first time you visit it is a cutscene; a place that says the same thing every time you
+ * fall through it is inhabited.
+ *
+ * Which fixes the register: these are **observations, not events**. *"Radar is up and on
+ * your feed now"* is an event, and it is a lie on attempt seven. What belongs here is
+ * whatever is true of the canyon during any descent.
+ */
+export interface RadioCall {
+  /**
+   * Who is transmitting, shown as the card's header.
+   *
+   * **Omitted for Helion, and that is the character rather than an economy.** The rule was
+   * always no second person and no first — never silence. A machine broadcasting an
+   * unannounced field set assumes the receiver is the kind of thing that parses field sets,
+   * so Helion addresses the carrier by *format* while never once saying `you`, and the
+   * livery is the only routing header the transmission needs.
+   *
+   * A datagram, not a handshake. Nothing is acknowledged, nothing is negotiated and nothing
+   * adapts — the moment Helion's protocol responds to the carrier, Helion has observed it,
+   * and the campaign has a third party with opinions in it. It is the only client that gets
+   * what the carrier is right, and it gets there by never asking.
+   */
+  sender?: string;
+  content: string;
+  /** Whose livery the card wears. Defaults to the client — set it only for a cut-in. */
+  corp?: CorpId;
+  /**
+   * Fires when the vehicle first falls past this altitude, or this many seconds after the
+   * handover, whichever comes first.
+   *
+   * Two tests for the same reason `EpilogueFall` runs two: altitude alone lets a diving
+   * pilot outrun both calls, and a clock alone lands them on top of each other for a
+   * cautious one. The window is narrow. The reference pilot flies the campaign in 28
+   * seconds median (18.0 to 33.3 across the twenty it can fly), of which the first 10.5
+   * belong to the callsign sounding the mission number and the last ten to the flare —
+   * leaving roughly one readable stretch, which is why two calls is the ceiling.
+   */
+  atAltitude: number;
+  atSeconds: number;
+}
+
 /** One page of a brief. `body` is the authored markup, unescaped and ready to render. */
 export interface BriefCard {
   title: string;
@@ -233,6 +323,94 @@ export function missionGoal(mission: Mission): string {
       .trim();
   }
   return 'Land intact — anywhere survivable.';
+}
+
+/**
+ * Whether a call has come due, given where the vehicle is and how long it has been flying.
+ *
+ * A pure predicate rather than a branch inside the frame loop, because it is the one part
+ * of this channel with a rule in it and the frame loop is the one place that cannot be
+ * tested. `sinceHandover` is measured from `begin` in fixed 120 Hz steps, so a retry flown
+ * the same way fires the same calls at the same points — see `Game.updateRadio`.
+ */
+export function radioDue(call: RadioCall, altitude: number, sinceHandover: number): boolean {
+  return altitude <= call.atAltitude || sinceHandover >= call.atSeconds;
+}
+
+/**
+ * The least time between two calls, in seconds.
+ *
+ * A card types itself in (~1s), holds 4.6, then fades over 0.7. Anything under about seven
+ * seconds replaces a transmission the player is still reading, which is worse than not
+ * sending it: they lose both.
+ *
+ * This exists because the authored triggers alone do not space anything. Measured against
+ * the reference pilot the two anchors land 6–8 seconds apart — 620 at t≈11, 300 at t≈18 —
+ * but that is one profile. A pilot who dives crosses both thresholds inside four seconds
+ * and used to get the second call on top of the first; a pilot who never touches the
+ * throttle crosses them in three. The triggers say *earliest*, and this says *readable*.
+ */
+export const RADIO_MIN_GAP = 7;
+
+/**
+ * The next call to put on the glass, or null.
+ *
+ * The whole selection rather than a predicate, because the rule that was missing is about
+ * two calls rather than one, and a per-call test cannot express it. `lastAt` is when the
+ * previous call went up, or null if none has.
+ *
+ * At most one per step: two calls coming due together is the exact case the gap exists for,
+ * and firing both because the loop happened to visit them in the same frame would be the
+ * bug with extra steps.
+ */
+export function nextRadioCall(
+  calls: readonly RadioCall[],
+  sent: ReadonlySet<number>,
+  altitude: number,
+  sinceHandover: number,
+  lastAt: number | null,
+): number | null {
+  if (lastAt !== null && sinceHandover - lastAt < RADIO_MIN_GAP) return null;
+  for (let i = 0; i < calls.length; i++) {
+    if (sent.has(i)) continue;
+    if (radioDue(calls[i], altitude, sinceHandover)) return i;
+  }
+  return null;
+}
+
+/** `54` to `54TH`. English ordinals, for the one field in the game that carries a figure. */
+function ordinal(n: number): string {
+  const tens = n % 100;
+  if (tens >= 11 && tens <= 13) return `${n}TH`;
+  return `${n}${({ 1: 'ST', 2: 'ND', 3: 'RD' } as Record<number, string>)[n % 10] ?? 'TH'}`;
+}
+
+/**
+ * Which of a debrief's lines this landing earned, with its figures filled in.
+ *
+ * Two mechanisms, because the three clients answer a run in two different ways.
+ *
+ * **People pick a sentence.** B takes the default, because B is what the scale calls an
+ * unremarkable landing and an unremarkable landing is what the default line is written for.
+ * The two ends fall back to it when unauthored, so a variant is always additive and no rank
+ * can print nothing.
+ *
+ * **A form reports a number.** `{CENTILE}` interpolates the run's own points — the same 0–100
+ * figure `scoreLanding` computes and `Progress` banks — so Helion's answer moves continuously
+ * with how the player actually flew, instead of landing in one of three authored buckets.
+ * That is the more accurate machine as well as the less authored one: bucketing would mean
+ * somebody had decided which landings deserved which sentence, and there is nobody over
+ * there to decide it. It is also why no Helion debrief carries `strong` or `weak` — a form
+ * has nothing to choose. Same reasoning as `RETURN EXPECTED: NO` carrying no emphasis.
+ */
+export function debriefLine(debrief: Debrief, score: LandingScore): string {
+  const line =
+    (score.rank === 'S' || score.rank === 'A') && debrief.strong
+      ? debrief.strong
+      : score.rank === 'C' && debrief.weak
+        ? debrief.weak
+        : debrief.content;
+  return line.replace('{CENTILE}', ordinal(score.points));
 }
 
 /**

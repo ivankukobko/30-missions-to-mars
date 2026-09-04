@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { CORPS } from '../world/CanyonSpec.ts';
 import type { PadInfo } from '../world/Colony.ts';
-import { missionGoal, type Mission } from '../campaign/Missions.ts';
+import { debriefLine, missionGoal, type Mission } from '../campaign/Missions.ts';
 import type { LandingScore, PlaythroughSummary, Rank } from '../campaign/Progress.ts';
 import type { Airframe } from '../entities/Airframe.ts';
 import { LANDER } from '../entities/Lander.ts';
@@ -10,6 +10,7 @@ import type { HudData } from './HudData.ts';
 import { createInstrument, type InstrumentPanel, type Scheme } from './InstrumentPanel.ts';
 import { Reticle, type HullBounds, type ReticleState } from './Reticle.ts';
 import { buildBrief, buildEpilogue } from './Brief.ts';
+import { Radio } from './Radio.ts';
 
 /** The handshake's own status line, on every mission that has one to complete. */
 const UPLINK_DEFAULT = 'UPLINK ESTABLISHING';
@@ -101,6 +102,7 @@ export class Interface {
   private marker: HTMLElement;
   private panel: HTMLElement;
   private reticle = new Reticle();
+  private radio = new Radio();
 
   private pauseButton: HTMLElement;
   private onPauseRequested: (() => void) | null = null;
@@ -194,7 +196,7 @@ export class Interface {
     // The overlay is a sibling of `.hud`, deliberately. `setAirframe` sets the client's
     // livery on `.hud`, and the augmented layer is the player's rather than the
     // charter's — being outside that subtree is what stops `--corp` inheriting into it.
-    root.append(this.hud, this.reticle.root, this.uplink, this.marker, this.panel);
+    root.append(this.hud, this.reticle.root, this.uplink, this.marker, this.radio.root, this.panel);
 
     this.installKeyboardNav();
   }
@@ -271,6 +273,21 @@ export class Interface {
    * The pieces the pages are built from stay here, because the pause overlay and the
    * result card use the same row and toggle constructors.
    */
+  /**
+   * A transmission on the flight glass. See `Radio`.
+   *
+   * The colour follows the *sender* rather than the client, which is why this takes one:
+   * a cut-in is somebody who is not paying for the run, and it has to look like them.
+   */
+  showRadio(sender: string | undefined, content: string, corpColor: number): void {
+    this.radio.show(sender, content, hex(corpColor));
+  }
+
+  /** Takes any live transmission down. The run is over, or the world has stopped. */
+  clearRadio(): void {
+    this.radio.clear();
+  }
+
   showBrief(
     mission: Mission,
     bestRank: Rank | null,
@@ -653,6 +670,27 @@ export class Interface {
     card.append(manifest);
 
     /**
+     * The client answering the run, last, so it has the final word over the numbers.
+     *
+     * Order is deliberate: rank, then the measurements, then somebody speaking about them.
+     * The card was a scoreboard and nothing else, which made the one screen in the campaign
+     * that follows a completed act the one screen with no voice on it — while the sentence
+     * that should have been here arrived a mission later, in the next client's brief, in
+     * whichever register happened to be next. See `Debrief`.
+     *
+     * Livery is the card's own `--corp`, the client's. Every debrief in the campaign is the
+     * employer answering their own contract — nobody else has standing to grade a run they
+     * did not commission, which is the same isolation rule that made the beat impossible to
+     * carry in the following brief.
+     */
+    if (mission.debrief) {
+      const said = el('div', 'debrief');
+      said.append(el('div', 'debrief-sender', mission.debrief.sender));
+      said.append(el('div', 'debrief-body', debriefLine(mission.debrief, score)));
+      card.append(said);
+    }
+
+    /**
      * Fly it again, before moving on.
      *
      * A rank is the thing the player is scored on and the campaign already keeps the best
@@ -831,6 +869,10 @@ export class Interface {
     this.hud.classList.toggle('hidden', !visible || this.noConsole);
     this.marker.classList.toggle('hidden', !visible || !this.navOnline);
     this.reticle.setVisible(visible);
+    // A live transmission belongs to a flight in progress. Every path that takes the
+    // console down — a landing, a wreck, the pause overlay, the menu — is a path that
+    // should not leave somebody mid-sentence on the glass behind a card.
+    if (!visible) this.radio.clear();
   }
 
   /**

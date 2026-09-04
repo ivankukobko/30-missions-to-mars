@@ -890,6 +890,115 @@ body {
   box-shadow: 0 0 10px color-mix(in srgb, var(--sys) 60%, transparent);
 }
 
+/* ------------------------------------------------------------- debrief */
+
+/*
+ * The client answering the run, under the numbers on the score card. See `Debrief`.
+ *
+ * A rule above it rather than a card of its own: this is the same transmission the manifest
+ * belongs to, not a second screen, and boxing it would make the result card two things. The
+ * gap under it is wider than the gap over it so the block reads as belonging to the figures
+ * it follows rather than to the buttons it precedes.
+ */
+.debrief {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid color-mix(in srgb, var(--corp) 22%, transparent);
+  margin-bottom: 20px;
+}
+
+.debrief-sender {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--corp);
+  margin-bottom: 6px;
+}
+
+.debrief-body {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink);
+}
+
+/* --------------------------------------------------------------- radio */
+
+/*
+ * The transmission strip. See `Radio.ts` for what it is for.
+ *
+ * **Bottom-left, and clear of the bottom edge.** The HUD claims both top corners and the
+ * pause button claims the bottom-right; the rest of the bottom band is the one region
+ * nothing else wants. It sits 19% up rather than flush because touch flight reads three
+ * vertical thirds off raw coordinates over the full height of the window — nothing is
+ * blocked (`#ui-layer` is `pointer-events: none` end to end), but on a phone the player's
+ * thumbs physically rest on the bottom edge, and a card under a hand is a card nobody sees.
+ *
+ * Left-anchored rather than centred: `.warning` owns the vertical midline and the reticle
+ * owns the middle of the glass, and this belongs on the same side as the payload and the
+ * target — the "what this run is" side.
+ *
+ * `--corp` is set per call, from the sender. The strip lives outside `.hud` precisely so
+ * the client's livery cannot reach it — see the `root.append` order in `Interface.ts`.
+ */
+.radio {
+  position: absolute;
+  left: max(18px, env(safe-area-inset-left));
+  bottom: 19%;
+  max-width: min(46ch, 42vw);
+  pointer-events: none;
+  padding: 7px 12px;
+  border-left: 2px solid color-mix(in srgb, var(--corp) 55%, transparent);
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.52), transparent 88%);
+  animation: radio-in 260ms ease-out;
+}
+
+/* Arrives rather than appears. Short enough not to be a transition the player waits on. */
+@keyframes radio-in {
+  from {
+    opacity: 0;
+    transform: translateX(-10px);
+  }
+}
+
+.radio.leaving {
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: opacity 700ms ease, transform 700ms ease;
+}
+
+.radio-sender {
+  font-size: 9px;
+  letter-spacing: 0.18em;
+  color: var(--corp);
+  margin-bottom: 4px;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--corp) 45%, transparent);
+}
+
+/*
+ * Helion transmits without announcing itself, so there is no header to leave a gap where
+ * one would have been. The livery is the whole of the routing — see `RadioCall.sender`.
+ */
+.radio.anonymous .radio-sender {
+  display: none;
+}
+
+.radio-body {
+  font-size: 12px;
+  line-height: 1.45;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+
+/*
+ * Helion's own lines are field sets rather than sentences, and they are authored that way
+ * rather than styled that way — the contrast eleven briefs have already taught the player
+ * is in the writing. All this does is stop a long field wrapping into prose.
+ */
+.radio.anonymous .radio-body {
+  letter-spacing: 0.1em;
+  color: color-mix(in srgb, var(--corp) 62%, var(--ink));
+}
+
 /* -------------------------------------------------------------- marker */
 
 .marker {
@@ -1764,6 +1873,15 @@ button.primary:focus-visible {
   }
   .rank {
     font-size: 58px;
+  }
+  /*
+   * On a phone the strip gets the width it needs — 42vw is a column two words wide here —
+   * and sits higher still, because a thumb on a small screen covers proportionally more of
+   * the bottom band than the same thumb on a desktop window covers of that one.
+   */
+  .radio {
+    max-width: min(38ch, 78vw);
+    bottom: 24%;
   }
 }
 
