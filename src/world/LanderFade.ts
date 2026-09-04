@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { CANYON } from './CanyonSpec.ts';
 
 /**
  * Anything standing between the camera and the vehicle thins out around it.
@@ -25,16 +26,57 @@ import * as THREE from 'three';
  *     projection per fragment to get there.
  */
 
-/** How see-through a surface gets directly over the vehicle, and how far the hole reaches.
- *  The radius is roughly three cells, which is wide enough to clear the lander and its
- *  plume without opening a window you could fly a mission through. */
+/** How see-through a surface gets directly over the vehicle. */
 const FADE_OPACITY = 0.16;
+
+/**
+ * How far the hole reaches, in world units at the vehicle.
+ *
+ * Large against the vehicle it uncovers — `LANDER.RADIUS` is 0.62, so this is fifty-five
+ * times the hull's half-width — and that is not the mistake it looks like. What the hole has
+ * to clear is not the hull but the *colony member in front of it*: the foreground layer is
+ * built from lattice cells and gantry runs metres across, and a hole sized to the lander
+ * shows it down a keyhole between two struts. Measured in the shaft at mission 20, 34 opens
+ * the clean circle the feature wants and 12 leaves the vehicle behind a bar.
+ *
+ * It was briefly 12, on the theory that the radius was what dissolved the upland out from
+ * under a lander on the rim. It was not: freezing the same frame at both values showed
+ * almost no difference, because the real fault was that the effect was running above the
+ * mouth at all. `FADE_GATE_BAND` is that fix, and with it in place this number goes back to
+ * being tuned for the only case left — the one it was always tuned for.
+ *
+ * The note that used to sit here said "roughly three cells", which is 18. That was wrong
+ * about its own constant for as long as it stood.
+ */
 const FADE_RADIUS = 34;
+
+/**
+ * Over the canyon mouth the hole closes entirely, across this band.
+ *
+ * **Above the rim the feature has no work to do.** What it exists for is the near canyon
+ * wall and the colony's foreground layer — geometry the player has to see *past* rather
+ * than see. Both stop at the mouth. Above it there is open upland in front of the camera
+ * and nothing that can stand between it and the vehicle, so every fragment the fade touches
+ * up there is ground it had no business dissolving: measured, the lip is 239–240 on every
+ * seed and the upland just outside it 245–268, which is exactly the range the vehicle is
+ * flying over when the surface goes to sky underneath it.
+ *
+ * A band rather than a cut, and the band sits *inside* the canyon — full strength at 200,
+ * gone by `RIM_Y` — so the hole is already shut by the time the vehicle crosses the lip and
+ * nothing pops on the way through.
+ *
+ * This is the second half of the fix, and the necessary one. Pointing the cone down the real
+ * camera-to-vehicle ray was correct and did not settle it; neither did sizing the hole to
+ * the vehicle. Both were true faults. Neither was *this* one, which is that the effect was
+ * running at all in the one place it can only do harm.
+ */
+const FADE_GATE_BAND = 40;
 
 interface Patched {
   uniforms: {
     uFocus: { value: THREE.Vector2 };
     uFrontZ: { value: number };
+    uGate: { value: number };
   };
 }
 
@@ -114,18 +156,64 @@ export function patchDepth(material: THREE.Material, opts: DepthEffects): void {
       // vehicle exists is fully opaque rather than fully clear.
       shader.uniforms.uFocus = { value: new THREE.Vector2(0, 1e6) };
       shader.uniforms.uFrontZ = { value: frontZ };
+      shader.uniforms.uGate = { value: 1 };
       shader.uniforms.uFadeNear = { value: FADE_OPACITY };
       shader.uniforms.uFadeRadius = { value: FADE_RADIUS };
       declarations.push(
         'uniform vec2 uFocus;',
         'uniform float uFrontZ;',
+        'uniform float uGate;',
         'uniform float uFadeNear;',
         'uniform float uFadeRadius;',
       );
+      /**
+       * A cone along the **camera-to-vehicle ray**, and only the part of it in front of the
+       * vehicle.
+       *
+       * Two bugs lived here, and the second is why the first was hard to see.
+       *
+       * **The hole was a cone around the wrong axis.** `gap` measured world xy distance to
+       * the vehicle, which is a cone around the line *parallel to z* through it. That is the
+       * camera-to-vehicle ray only while the camera is looking straight down the z axis, and
+       * the header's claim that it "looks very nearly down the z axis" is true inside the
+       * canyon and false everywhere else — `CameraDirector` pitches hard on the high entry
+       * shots and over the rim. Off-axis, a z-parallel column projects to a *slanted* line on
+       * screen, so the hole opened somewhere along that line with the vehicle nowhere near
+       * it: a grey wedge on a slope, metres from the lander, occluding nothing.
+       *
+       * **And it had no idea where the vehicle was along the ray.** Every fragment in front of
+       * `uFrontZ` was a candidate however far past the vehicle it sat, so geometry *behind*
+       * the thing it was supposed to reveal faded too.
+       *
+       * Both go away by asking the question the feature is actually about: is this fragment
+       * between the camera and the vehicle, and close to the line joining them? `along` is
+       * the distance down that ray, `gap` the perpendicular offset from it, and the fade only
+       * applies while `0 < along < len` — strictly in front of the vehicle, which is what
+       * "until it covers the aircraft" means.
+       *
+       * The cone is kept and is now exact rather than approximated. `uFadeRadius` is a screen
+       * size, screen size is an angle, and a circle of radius R at the vehicle subtends the
+       * same angle as R·along/len partway there. The old `(uCameraZ - z) / uCameraZ` was that
+       * same ratio measured along z instead of along the ray, which is the on-axis special
+       * case of this line.
+       *
+       * `cameraPosition` is three.js's own fragment uniform, so this needs no plumbing —
+       * which is also why `uCameraZ` and the `cameraZ` argument that fed it are gone. The
+       * shader can see the whole camera, not one component of it.
+       */
       body +=
         '  if (vFadeWorld.z > uFrontZ) {\n' +
-        '    float gap = length(vFadeWorld.xy - uFocus);\n' +
-        '    gl_FragColor.a *= mix(uFadeNear, 1.0, smoothstep(0.0, uFadeRadius, gap));\n' +
+        '    vec3 toFocus = vec3(uFocus, 0.0) - cameraPosition;\n' +
+        '    float len = max(length(toFocus), 1e-4);\n' +
+        '    vec3 dir = toFocus / len;\n' +
+        '    vec3 rel = vFadeWorld - cameraPosition;\n' +
+        '    float along = dot(rel, dir);\n' +
+        '    if (along > 0.0 && along < len) {\n' +
+        '      float gap = length(rel - dir * along);\n' +
+        '      float reach = uFadeRadius * (along / len);\n' +
+        '      float near = mix(1.0, uFadeNear, uGate);\n' +
+        '      gl_FragColor.a *= mix(near, 1.0, smoothstep(0.0, max(reach, 0.001), gap));\n' +
+        '    }\n' +
         '  }\n';
     }
 
@@ -157,11 +245,23 @@ export function patchDepth(material: THREE.Material, opts: DepthEffects): void {
   if (frontZ !== null) faded.push(material);
 }
 
-/** Points every faded surface at the vehicle. Called once a frame. */
+/**
+ * Points every faded surface at the vehicle. Once a frame.
+ *
+ * It used to carry the camera's z as well, to convert the hole's screen size into a world
+ * radius. The shader reads three.js's own `cameraPosition` now and works from the whole
+ * camera rather than one component of it, which is what let the cone follow the actual
+ * view ray instead of the z axis.
+ */
 export function setLanderFocus(x: number, y: number): void {
+  // Closed over the mouth. Computed once here rather than per fragment — it is the same
+  // number for every surface in the frame. See `FADE_GATE_BAND`.
+  const gate = Math.min(1, Math.max(0, (CANYON.RIM_Y - y) / FADE_GATE_BAND));
   for (const material of faded) {
     const shader = material.userData.fade as Patched | undefined;
-    shader?.uniforms.uFocus.value.set(x, y);
+    if (!shader) continue;
+    shader.uniforms.uFocus.value.set(x, y);
+    shader.uniforms.uGate.value = gate;
   }
 }
 

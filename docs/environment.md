@@ -76,6 +76,61 @@ jitter, because independent draws clump: an earlier version put three of four sh
 within 26 units of each other, merging into one 60-unit plateau while half the canyon
 got none.
 
+### Pans, and the Patch the Prologue Lands On
+
+Shelves are a floor feature — `heightIn` applies them inside `floorDetail`, scaled by
+`onFloor`, which is zero anywhere up the wall. The prologue lands on the **rim**, and it
+lands there on one control: `AIRFRAMES.relay` locks rotation and carries no lateral
+thruster, so the column it is dropped down is the only ground it will ever be offered,
+and `resolveContact` refuses bare rock steeper than `MAX_GROUND_LANDING_SLOPE`.
+
+The campaign carried a `RIM_SITES = [132, 150, 168]` that was meant to guarantee a flat
+there. It did nothing at all, for two independent reasons — and the two together are why
+the patch is now a landform in the generator rather than data in the campaign:
+
+- it was passed to `build` as ordinary shelves, so it was multiplied by `onFloor` and
+  vanished. Grading with those sites and grading with none produce heights identical to
+  three decimal places, on every seed measured;
+- the rim is not at a fixed x. It stands at `centre + floorHalf + WALL_RUN`, and the
+  centreline wanders ±38 while `floorHalf` swings ±42%, so the lip falls anywhere between
+  x=122 and x=234. On the worst seeds the authored sites were a quarter of the way *down
+  the wall* — the entry column stood at y=57 against a rim of 240.
+
+So `RIM_BENCH` is posed relative to the centreline, and the mission's entry column is
+`canyon.rimSiteX()` rather than an authored `start.x`, so the ground and the vehicle
+cannot drift apart. It is applied **last**, after the terracing and after the plateau
+handover, since a patch folded in earlier is re-corrugated by one and blended away by the
+other.
+
+**The disguise is the harder half, and it is not shaping — it is context.** A single flat
+in a landscape with no other flats in it reads as construction however carefully it is
+shaped, by elimination rather than by appearance. So `pan` turns the mesa terracing that
+already builds the walls up to a hard staircase through a low-frequency mask: roughly half
+of each band is a dead-flat tread at full strength, so a patchy mask puts flats through
+the upland and leaves the rest the ridged noise it was. Between 14% and 23% of the upland
+is now level, and the share **away** from the landing patch is the same as the share near
+it — which is the measurement that says the patch is no longer an outlier. One pan is
+forced around the patch rather than left to the mask, so the claim holds on every seed
+rather than on the lucky ones.
+
+Three sizings were wrong before this one, and each was wrong in an instructive way:
+
+- **54 units wide, applied to every row.** Only z=0 carries colliders, so the other 1699
+  units of canyon were scenery paying for a guarantee they played no part in. It rendered
+  as a graded road running to the horizon.
+- **30 wide, tapered.** A promontory. Better, still infrastructure.
+- **20 wide, levelled to a terrace tread.** The tread snap was meant to put the patch at
+  the altitudes the natural pans sit at. At half a band, that moves the level by up to 15
+  units, let out over an 8-unit shoulder — a cliff around a patch 20 across. It sits at
+  local ground height instead; the pan around it does the blending.
+
+Widening the rim's reach also broke something quieter. On a high-centreline seed the patch
+stood at x=212 and the collider profile stopped at 204. Terrain past the profile is drawn
+like any other ground with nothing solid in it, so the vehicle falls *through* it to
+`failDepth` with rock rendered underneath the whole way. `PROFILE_HALF_X` is derived from
+`LANDABLE_HALF_X` now — an exact bound, since both noise terms are fbm and return [−1, 1]
+— rather than a figure that happened to be large enough.
+
 ### Noise
 
 `fbm()` is normalised and centred to [−1, 1], with smoothstep lattice interpolation.

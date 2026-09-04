@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import { Noise, clamp01, lerp, smoothstep } from './Noise.ts';
-import { CANYON, FACET_CELL, PALETTE } from './CanyonSpec.ts';
+import { CANYON, FACET_CELL, MASSIF, PALETTE } from './CanyonSpec.ts';
 import { boreDirection, isFloorMounted, type Vec2 } from './Shaft.ts';
 import type { Carved } from './ShaftGrid.ts';
 import { AntFarm, BACK_Z, FRONT_Z } from './AntFarm.ts';
@@ -23,6 +23,39 @@ export interface Shelf {
   halfWidth: number;
   shoulder: number;
 }
+
+/**
+ * The bench cut into the east lip, which is the only ground the prologue can land on.
+ *
+ * Mission 1 drops the relay straight down on one control — `AIRFRAMES.relay` locks
+ * rotation and has no lateral thruster — so the player cannot choose where it touches
+ * down, and `resolveContact` only accepts bare rock whose normal clears
+ * `MAX_GROUND_LANDING_SLOPE`. The rim is generated terrain: its flats move with the seed,
+ * and on a third of them there is no flat at the entry column at all.
+ *
+ * There was a `RIM_SITES = [132, 150, 168]` in the campaign that was meant to guarantee
+ * this and did nothing whatsoever, for two independent reasons. **Both are the reason
+ * this is centreline-relative and lives in the generator, rather than absolute x in the
+ * campaign:**
+ *
+ * - it was fed to `build` as a `Shelf`, and shelves are applied inside `floorDetail`,
+ *   which `heightIn` multiplies by `onFloor` — zero at any x this far out. Measured
+ *   across ten seeds, grading with those sites and grading with none produced heights
+ *   identical to three decimal places;
+ * - the rim is not at a fixed x. It stands at `centre + floorHalf + WALL_RUN`, and the
+ *   centreline wanders ±38 while `floorHalf` swings ±42% — so the lip falls anywhere from
+ *   x=122 to x=234. On seed 7 the authored sites were a quarter of the way *down the
+ *   wall*: the entry column stood at y=57 against a rim of 240.
+ *
+ * Set back by its own half-width so the flat starts at the nominal rim and runs outward
+ * onto the upland. A bench centred *on* the lip would reach inward and notch the wall
+ * face, which is the crater the `Shelf` doc comment is about.
+ *
+ * The dimensions themselves are in `CanyonSpec` because two other numbers are solved from
+ * them — `PROFILE_HALF_X` and the camera's lateral clamp, both of which have to reach the
+ * furthest bench the generator can produce.
+ */
+const RIM_BENCH = CANYON.BENCH;
 
 /**
  * How far either side of a wall-mounted dig the collider profile samples densely.
@@ -146,6 +179,23 @@ interface Row {
   phase: number;
   /** Height each shelf levels its ground to. Index-aligned with `shelves`. */
   shelfLevel: number[];
+  /** Centre of the rim bench on this slice — see `RIM_BENCH`. Moves with the centreline. */
+  benchX: number;
+  /**
+   * How much of the bench this slice gets: 1 across the play slice, 0 down the canyon.
+   *
+   * Zero is the common case — the bench spans 340 of the canyon's 1700 units — and a zero
+   * weight also skips the extra `heightIn` that resolving `benchLevel` costs.
+   */
+  benchWeight: number;
+  /**
+   * Height the bench levels to, or null while it is being computed.
+   *
+   * Null is how the one-step recursion terminates: `row` needs the *un-benched* surface at
+   * `benchX` to know what height to level to, so it evaluates `heightIn` against a row
+   * whose level is not yet known, and `heightIn` skips the bench when it sees null.
+   */
+  benchLevel: number | null;
 }
 
 const tmpColor = new THREE.Color();
@@ -191,11 +241,13 @@ export class CanyonGenerator {
    * into a landscape with somewhere to go.
    */
   private centreAt(z: number): number {
-    return this.noise.fbm(z * 0.0035, 71) * 38;
+    // Amplitude in the spec, not here: `LANDABLE_HALF_X` is solved from it, and a wander
+    // widened locally would move the rim out from under the collider profile in silence.
+    return this.noise.fbm(z * 0.0035, 71) * CANYON.CENTRE_WANDER;
   }
 
   private floorHalfAt(z: number): number {
-    return CANYON.FLOOR_HALF * (1 + this.noise.fbm(z * 0.006, 83) * 0.42);
+    return CANYON.FLOOR_HALF * (1 + this.noise.fbm(z * 0.006, 83) * CANYON.FLOOR_HALF_SWING);
   }
 
   private floorYAt(z: number): number {
@@ -312,14 +364,32 @@ export class CanyonGenerator {
    * operands, hoisted to where they stop repeating.
    */
   private row(z: number): Row {
-    return {
+    const centre = this.centreAt(z);
+    const floorHalf = this.floorHalfAt(z);
+    const base: Row = {
       z,
-      centre: this.centreAt(z),
-      floorHalf: this.floorHalfAt(z),
+      centre,
+      floorHalf,
       floorY: this.floorYAt(z),
       phase: this.noise.fbm(z * 0.002, 97) * 0.4 * CANYON.TERRACE_HEIGHT,
       shelfLevel: this.shelves.map((s) => this.floorRelief(s.x, z)),
+      benchX: centre + floorHalf + CANYON.WALL_RUN + RIM_BENCH.SET_BACK,
+      benchWeight: 1 - smoothstep((Math.abs(z) - RIM_BENCH.RUN) / RIM_BENCH.FADE),
+      benchLevel: null,
     };
+    if (base.benchWeight <= 0) return base;
+    /**
+     * One extra `heightIn`, on the minority of slices that carry any bench at all, and the
+     * surface's own height at that point used as the level rather than anything tidier.
+     *
+     * An earlier version snapped this to a terrace tread, on the reasoning that the pans
+     * around it are flat *because* they are treads and so can only sit at multiples of
+     * `TERRACE_HEIGHT`. That is true and it is the wrong trade at this size: the snap moves
+     * the level by up to half a band, and half a band is 15 units — a 15-unit step let out
+     * over an 8-unit shoulder, which is a cliff around a patch 20 across. Sitting at local
+     * ground level is what makes it blend; the pan around it is what makes it look placed.
+     */
+    return { ...base, benchLevel: this.heightIn(base.benchX, base) };
   }
 
   /**
@@ -369,12 +439,48 @@ export class CanyonGenerator {
     const past = d - row.floorHalf - CANYON.WALL_RUN;
     if (past > 0) {
       const w = smoothstep(past / 110);
-      const up = CANYON.RIM_Y + this.plateau(x, row.z);
-      const strength = lerp(CANYON.TERRACE_STRENGTH, 0.5, w);
+      // West only. Beyond the shelf the ground keeps going — see `massif` and `MASSIF`.
+      const up =
+        CANYON.RIM_Y + this.plateau(x, row.z) + (side < 0 ? this.massif(past, row.z) : 0);
+      // Ordinary mesa terracing, taken to a hard staircase inside a pan. See `pan`.
+      const strength = lerp(lerp(CANYON.TERRACE_STRENGTH, 0.5, w), 0.97, this.pan(x, row));
       y = lerp(y, this.terrace(up, row.phase, strength), w);
     }
 
+    /**
+     * The rim bench, last — after the terracing and after the plateau handover.
+     *
+     * Order is the whole point. A shelf applied earlier is re-corrugated by `terrace` and
+     * then blended away by the upland handover, which is the second half of why the
+     * campaign's `RIM_SITES` graded nothing: even reaching this far out, a bench folded
+     * into the relief term arrives before the two operations that would undo it.
+     *
+     * East only. The west lip is scenery on every mission and grading it would put a
+     * terrace in the skyline that nothing ever lands on.
+     */
+    if (row.benchLevel !== null && x > row.centre) {
+      const dd = Math.abs(x - row.benchX);
+      if (dd < RIM_BENCH.HALF_WIDTH + RIM_BENCH.SHOULDER) {
+        // Two ramps, and the z one folded into the x one rather than applied after it: at
+        // `benchWeight` 0 this has to leave `y` exactly as it found it, and lerping toward
+        // a partially-benched height would leave a trace of the bench on every slice.
+        const acrossX = smoothstep(Math.max(0, dd - RIM_BENCH.HALF_WIDTH) / RIM_BENCH.SHOULDER);
+        y = lerp(row.benchLevel, y, 1 - (1 - acrossX) * row.benchWeight);
+      }
+    }
+
     return y;
+  }
+
+  /**
+   * Where the rim bench stands on the collider slice, which is where the prologue enters.
+   *
+   * The entry column and the graded ground are the same number by construction rather
+   * than by two authored values agreeing — see `RIM_BENCH`, and `entryX` in `Missions.ts`
+   * for the one mission that reads it.
+   */
+  rimSiteX(): number {
+    return this.row(0).benchX;
   }
 
   /**
@@ -400,6 +506,67 @@ export class CanyonGenerator {
       n.ridge(x * 0.026 + 2, z * 0.01 + 31) * 13 +
       n.fbm(x * 0.075, z * 0.075 + 79) * 4.5;
     return Math.max(relief, -38) + 12;
+  }
+
+  /**
+   * The Valles Marineris wall standing west of the canyon.
+   *
+   * Zero until `MASSIF.SET_BACK` past the rim, so it cannot act as a taller west lip — the
+   * west wall carries every Helion deck in the campaign and the approach to all of them is
+   * from directly above. Beyond the set-back it climbs over `RUN` to `RISE`, which is the
+   * only place in the world where ground goes higher than `RIM_Y` by more than plateau
+   * relief.
+   *
+   * **Ribbed in z, not in x.** The face this is imitating is spur-and-gully — the triangular
+   * flatiron spurs separated by V-shaped gullies that make up every wall in the real chasma.
+   * Those run *down* the face, which from a cross-section at the play plane means they must
+   * vary along the canyon's length and barely at all across it. Ridged noise on `z` gives
+   * exactly that; the same noise on `past` would give terraces, which the wall already has
+   * from `terrace` and which would read as a staircase rather than as ribs.
+   *
+   * Scaled by the same ramp as the rise, so the ribs emerge out of the shelf instead of
+   * corrugating flat ground at the base of the face.
+   */
+  private massif(past: number, z: number): number {
+    const t = clamp01((past - MASSIF.SET_BACK) / MASSIF.RUN);
+    if (t <= 0) return 0;
+    const n = this.noise;
+    const ribs =
+      n.ridge(z * 0.004 + 91, past * 0.0016) * 120 +
+      n.ridge(z * 0.011 + 97, past * 0.004) * 46 +
+      n.fbm(z * 0.03 + 101, past * 0.01) * 24;
+    return smoothstep(t) * (MASSIF.RISE + ribs);
+  }
+
+  /**
+   * Where the upland lies in **pans**: broad flats scattered through the mesa country.
+   *
+   * The rim bench used to be the only level ground above the canyon, which is why it read
+   * as construction however carefully it was shaped — a single flat in a landscape with no
+   * other flats in it is a runway by elimination, not by appearance. So the flats come
+   * first and the bench is one of them.
+   *
+   * The mechanism is the terracing that already builds the walls, turned up. `terrace`
+   * snaps height toward multiples of `TERRACE_HEIGHT` with a smoothstep over 0.45 of a
+   * band, so at full strength roughly half of each band is a dead-flat tread and the rest
+   * is the riser between two. Applying that at full strength *everywhere* would be a
+   * staircase; applying it through a low-frequency mask puts the staircase in patches and
+   * leaves the rest of the upland the ridged noise it already was.
+   *
+   * The frequency is deliberately below the ridge fields it competes with — features about
+   * 260 units across, which is a few times the bench and a fraction of the visible upland,
+   * so a patch reads as a landform rather than as texture.
+   */
+  private pan(x: number, row: Row): number {
+    const field = smoothstep((this.noise.fbm(x * 0.0038 + 131, row.z * 0.0038 + 17) - 0.08) / 0.5);
+    /**
+     * And one pan is not left to chance. The bench has to be able to claim it is natural
+     * on **every** seed, not on the seeds where the mask happened to land there — so a pan
+     * is forced around it, wider than the bench in both axes, and the graded flat sits
+     * inside a flat that would have been there anyway.
+     */
+    const near = Math.hypot((x - row.benchX) / RIM_BENCH.PAN_X, row.z / RIM_BENCH.PAN_Z);
+    return Math.max(field, 1 - smoothstep(near));
   }
 
   /** Floor relief plus the colony's shelves and excavations. */

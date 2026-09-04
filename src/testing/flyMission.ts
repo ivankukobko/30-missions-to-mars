@@ -10,7 +10,7 @@ import {
   missionWorlds,
   planColonies,
 } from '../campaign/ColonyPlan.ts';
-import { airframeFor, ENTRY_VELOCITY, RIM_SITES, PROLOGUE, type Mission } from '../campaign/Missions.ts';
+import { airframeFor, entryX, ENTRY_VELOCITY, PROLOGUE, type Mission } from '../campaign/Missions.ts';
 import { scoreLanding, type LandingScore } from '../campaign/Progress.ts';
 import { Autopilot } from './Autopilot.ts';
 
@@ -72,7 +72,7 @@ export function flyMission(
    */
   const worlds = missionWorlds(null, null, canyon);
   const current = worlds(mission.id);
-  canyon.build(current.digs, [...campaignPadSites(worlds), ...RIM_SITES]);
+  canyon.build(current.digs, campaignPadSites(worlds));
 
   const plan = planColonies(mission.id, worlds, {}, seed, canyon);
   const colony = new Colony(scene, physics);
@@ -84,7 +84,9 @@ export function flyMission(
     Math.round(mission.fuel * frame.fuelScale),
     frame,
   );
-  lander.x = mission.start.x;
+  // The prologue's column comes off the canyon, not the mission — see `entryX`.
+  const startX = entryX(mission, canyon);
+  lander.x = startX;
   lander.y = mission.start.y;
   lander.vx = mission.entry?.vx ?? ENTRY_VELOCITY.vx;
   lander.vy = mission.entry?.vy ?? ENTRY_VELOCITY.vy;
@@ -95,7 +97,7 @@ export function flyMission(
   const target =
     pad && pad.kind === 'pad'
       ? { x: pad.x, y: pad.y ?? canyon.heightAt(pad.x, 0, true) + 1.3 }
-      : { x: mission.start.x, y: canyon.heightAt(mission.start.x, 0, true) };
+      : { x: startX, y: canyon.heightAt(startX, 0, true) };
   const padHalfWidth = pad && pad.kind === 'pad' ? pad.width / 2 : null;
 
   const route = options.followRoute

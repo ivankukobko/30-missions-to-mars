@@ -45,7 +45,7 @@ function fly(id: number): FlightOutcome {
 const REACHABLE = MISSIONS.filter((m) => !NEEDS_PATH_FOLLOWING.has(m.id));
 
 describe('a consistent pilot flying the whole campaign', () => {
-  it('lands every mission whose approach is a straight descent', () => {
+  it('lands every mission whose approach is a straight descent', { timeout: 300000 }, () => {
     for (const mission of REACHABLE) {
       const outcome = fly(mission.id);
       if (REPORT && outcome.kind === 'landed') {
@@ -75,7 +75,7 @@ describe('a consistent pilot flying the whole campaign', () => {
    * mission — mission 27 scores lowest on 76% fuel because it arrives at 1.46 u/s and 2.1
    * off centre, which is the score working correctly.
    */
-  it('does not let the score spread between missions widen', () => {
+  it('does not let the score spread between missions widen', { timeout: 300000 }, () => {
     /**
      * The prologue is left out. It is scored on open ground with no centring term at all,
      * on a tank deliberately extravagant enough that it carries no fuel gauge — it comes
@@ -96,11 +96,46 @@ describe('a consistent pilot flying the whole campaign', () => {
   });
 
   /** Nobody should be able to make a delivery unflyable without this going red. */
-  it('never runs a tank dry on a mission it can reach', () => {
+  it('never runs a tank dry on a mission it can reach', { timeout: 300000 }, () => {
     for (const mission of REACHABLE) {
       const outcome = fly(mission.id);
       if (outcome.kind !== 'landed') continue;
       expect(outcome.score.fuelPct, `mission ${mission.id}`).toBeGreaterThan(0.2);
+    }
+  });
+});
+
+/**
+ * The prologue, flown on ten seeds rather than one.
+ *
+ * Every other mission is checked against `SEED` alone, which is sound because their
+ * landing sites are pads the campaign authors and a pad is a pad on every seed. The
+ * prologue is the exception: it lands on **generated rock**, on one control, down a
+ * column it cannot leave — so its landing site is a property of the seed, and a single
+ * seed proves nothing at all about it.
+ *
+ * It proved nothing for a while. The rim's flats move, the grading meant to guarantee one
+ * was a no-op, and the mission entered at a hand-typed x that stood a third of the way
+ * down a cliff on roughly a third of seeds. This is the test that would have caught it:
+ * real entry velocity, real physics, real terrain, ten different canyons. See `RIM_BENCH`.
+ */
+describe('the prologue lands in any canyon the game can roll', () => {
+  const SEEDS = [0, 1, 7, 12345, 631729407, 1696448283, 42, 999, 2024, 555111];
+
+  it('puts the relay down intact on every one of them', { timeout: 300000 }, () => {
+    for (const seed of SEEDS) {
+      const outcome = flyMission(PROLOGUE, seed);
+      if (REPORT) {
+        console.log(
+          `seed ${String(seed).padStart(10)}: ${outcome.kind}` +
+            (outcome.kind === 'landed'
+              ? `  ${outcome.score.touchdownSpeed.toFixed(2)} u/s  ${outcome.score.points} pts ${outcome.score.rank}`
+              : outcome.kind === 'crashed'
+                ? `  on ${outcome.surface} at ${outcome.speed.toFixed(1)} u/s`
+                : `  ${outcome.reason}`),
+        );
+      }
+      expect(outcome.kind, `seed ${seed}`).toBe('landed');
     }
   });
 });

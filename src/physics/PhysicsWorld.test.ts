@@ -25,7 +25,7 @@ describe('PhysicsWorld.sweep', () => {
     expect(hit!.segment.kind).toBe('pad');
   });
 
-  it('catches contact at the speed the README claims was verified', () => {
+  it('catches contact at the speed `docs/architecture.md` claims was verified', () => {
     const world = new PhysicsWorld(-6);
     world.add(deck(0));
 

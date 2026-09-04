@@ -127,11 +127,27 @@ export function mouthSpan(x: number): [number, number] {
   return [x - SHAFT_CELL * 1.5, x + SHAFT_CELL * 0.5];
 }
 
-/** How far a pad bolted to a dig's far end stands proud of it — see `applyDigAttachments`.
- *  Above the 1.3 a ground pad uses, and for a reason that is about reading rather than
- *  physics: a bore's floor and its pad are the same colour in the same dark, so the deck
- *  needs enough separation to throw a shadow of its own. */
-const DIG_PAD_LIFT = 3;
+/**
+ * How far a pad bolted to a dig's far end stands proud of it — see `applyDigAttachments`.
+ *
+ * Above the 1.3 a ground pad uses, and originally for a reason that was about reading rather
+ * than physics: a bore's floor and its pad are the same colour in the same dark, so the deck
+ * needs enough separation to throw a shadow of its own.
+ *
+ * **It is a physics number too, and 3 was not enough.** The lift is measured from the *cell's
+ * nominal floor* — `worldY(row) - SHAFT_CELL / 2` — and the floor that is actually carved
+ * carries relief on top of that. Where the relief runs high the rock comes up through the
+ * deck: measured on seed 1036884791 at mission 20, the reference descent touches rock at
+ * y −168.44, inside the pad's own 20..28 footprint, with the deck at −169.33. The pad is
+ * under the floor by nine tenths of a unit and the mission cannot be completed — the vehicle
+ * lands gently, on rock, at 1.4 u/s and is told it crashed.
+ *
+ * 4.5 clears the worst of that relief with margin. It is still the wrong *shape* of fix: the
+ * honest one samples the carved floor across the deck's own footprint and lifts to clear the
+ * highest point it finds, so no seed can ever bury a deck again. That wants the shaft
+ * collider rather than the nominal grid, and it is the thing to do next.
+ */
+const DIG_PAD_LIFT = 4.5;
 
 /**
  * The wall's own inward normal used to set a wall bore's direction, sampled either side of
