@@ -6,6 +6,11 @@ A 2.5D physics lander built with **TypeScript** and **Three.js**.
 
 Three parties share one Martian chasm: a scientific outpost that got there first, and two extraction charters that did not. You fly the cargo runs, and what you deliver stays in the canyon — so by mission twenty-nine you are threading a corridor you spent twenty-eight missions helping to close. What comes after is the campaign's own thirtieth flight.
 
+### ▶ [Play now](https://ivankukobko.github.io/30-missions-to-mars/)
+
+No install, no account. Your canyon is rolled on first load and kept in `localStorage`, so
+the colony you grow is yours and a campaign survives a reload — see [Gameplay](docs/gameplay.md).
+
 ## Running
 
 ```bash
