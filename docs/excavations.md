@@ -36,3 +36,42 @@ once, jittered once, and every polygon touching that corner indexes the same num
 the face, the back and the corridor walls cannot come apart. They did, three times, for as
 long as each surface was an independent plate displaced by a field and the three agreed
 only by arithmetic that had to keep being re-earned.
+
+## Measuring the hole
+
+`npm run growth:report` walks the campaign headlessly and prints what the excavation and
+the settlement have become at every mission. It reads the shipping pipeline — the resolved
+ledger from `missionWorlds`, the cells from `carveFromDig`, the colony from `planColonies`
+— so a number out of it is a fact about the world the player flies, not about a model of
+one. `src/testing/GrowthModel.ts`.
+
+It exists because everything about how this hole *reads* was being judged by flying to it
+and looking, and none of the questions worth asking are ones a screenshot can answer. Two
+were sitting in plain sight the first time the table printed:
+
+| | m3 | m14 | m20 | m24 |
+|---|---|---|---|---|
+| cells | 3 | 22 | 31 | 42 |
+| depth | 24 | 60 | 168 | 300 |
+| widest run | 2 | 9 | 9 | 9 |
+| **blind ends** | 2 | **1** | **1** | **1** |
+| rock out, this stage | 10,368 | 65,664 | 31,104 | 38,016 |
+
+**From mission 14 on the complex has exactly one blind end, and every Kessler deck is
+standing on it.** The deck rows say the same thing from the other side: `shaft-head`,
+`shaft-ledge` and `shaft-deep` each score `nb 1` — one carved neighbour of four — with
+`down 0`, meaning nothing continues past them. Each was authored into the last row its own
+mission dug, so the bore stops at the deck and the deck is the reason the bore stops. That
+is a tube cut to hold a pad rather than a working somebody drove and then landed in; a real
+shaft is transport, its bottom is a sump, and the deck belongs at a *station* off the side
+of a hole that carries on down. `shaft-gallery` is the exception and reads better for it —
+`nb 3`, three cells short of the gallery's west end, a place on a route rather than a face.
+
+**145,152 of rock has left this canyon and none of it is anywhere.** `docs/lore.md` already
+recorded that spoil was missing; the number is `cells × SHAFT_CELL² × CORRIDOR_DEPTH`, and
+having it makes the gap something you can size a tailings pile against rather than a note.
+
+The report's assertions are deliberately thin — the excavation never un-digs itself, every
+in-shaft destination resolves into a carved cell, every deck leaves four hull radii to its
+nearest wall. Nothing asserts the *current* shape is right. That is the open question, and
+a test that froze today's answer would be the thing in the way of it.

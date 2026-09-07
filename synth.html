@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Synth — 30 Missions to Mars</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #1a0c05;
+        color: #f6e6d8;
+        font-family: ui-monospace, 'SF Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+        font-size: 12px;
+      }
+      main {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        padding: 16px;
+        align-items: flex-start;
+      }
+      section {
+        background: rgba(18, 9, 5, 0.88);
+        border: 1px solid rgba(255, 190, 140, 0.22);
+        padding: 12px;
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+      }
+      h2 {
+        margin: 0;
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        font-weight: normal;
+        color: #ffbe8c;
+        opacity: 0.75;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+      select,
+      button {
+        font-family: inherit;
+        font-size: 12px;
+        background: #12090580;
+        color: #f6e6d8;
+        border: 1px solid rgba(255, 190, 140, 0.3);
+        padding: 3px 6px;
+        cursor: pointer;
+      }
+      button:hover,
+      select:hover {
+        border-color: #ffbe8c;
+      }
+      /* The mission grid is the whole point of the page: 29 targets you can jab at, not a
+         dropdown you have to open. Client colour is carried on the button so the campaign's
+         shape — who is talking, and when they stop — is legible before a note is played. */
+      #tracks {
+        display: flex;
+        gap: 6px;
+      }
+      #tracks button {
+        padding: 6px 12px;
+        text-align: center;
+        border-color: currentColor;
+        opacity: 0.62;
+      }
+      #tracks button:hover {
+        opacity: 1;
+      }
+      /* The selection must not be drawn with `background: currentColor` plus an
+         overridden `color` — `currentColor` in the background resolves against the
+         element's *own* colour, so the override paints the fill dark as well and the
+         selected mission disappears. Tint and outline instead, and the client colour
+         stays the thing identifying the button. */
+      #tracks button[aria-pressed='true'] {
+        opacity: 1;
+        outline: 1px solid currentColor;
+        background: rgba(255, 190, 140, 0.16);
+        font-weight: bold;
+      }
+      .c-outpost {
+        color: #ffbe8c;
+      }
+      .c-helion {
+        color: #8cd6ff;
+      }
+      .c-kessler {
+        color: #ff8c8c;
+      }
+      #readout {
+        min-width: 300px;
+        line-height: 1.7;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+      }
+      .key {
+        color: #ffbe8c;
+        opacity: 0.6;
+        width: 92px;
+        flex: none;
+        letter-spacing: 0.1em;
+      }
+      .val {
+        white-space: pre;
+      }
+      .live {
+        color: #12090599;
+        background: #ffbe8c;
+        padding: 0 3px;
+      }
+      .dim {
+        opacity: 0.4;
+      }
+      .note {
+        max-width: 340px;
+        line-height: 1.6;
+        opacity: 0.62;
+        white-space: normal;
+      }
+      #arm {
+        padding: 8px 14px;
+        border-color: #ffbe8c;
+      }
+      input[type='range'] {
+        width: 130px;
+        accent-color: #ffbe8c;
+      }
+      .num {
+        width: 42px;
+        text-align: right;
+        color: #ffbe8c;
+      }
+      #grid-controls label {
+        justify-content: space-between;
+      }
+      #export {
+        max-width: 380px;
+      }
+      #patch {
+        margin: 0;
+        white-space: pre-wrap;
+        word-break: break-all;
+        color: #ffbe8c;
+        background: #12090599;
+        border: 1px solid rgba(255, 190, 140, 0.18);
+        padding: 8px;
+        line-height: 1.6;
+      }
+      .warn {
+        color: #ff8c8c;
+      }
+      #altitude-panel {
+        min-width: 330px;
+      }
+      .meter {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 3px 0;
+      }
+      .meter .lbl {
+        width: 44px;
+        color: #ffbe8c;
+        opacity: 0.7;
+      }
+      .meter .bar {
+        flex: 1;
+        height: 9px;
+        background: #12090599;
+        border: 1px solid rgba(255, 190, 140, 0.2);
+      }
+      /* Blockified explicitly: `.bar` is a flex item and so lays out as a block, but
+         `.fill` inside it is a plain inline span, and width/height do not apply to one. */
+      .meter .fill {
+        display: block;
+        height: 100%;
+        background: #ffbe8c;
+      }
+      .meter .pct {
+        width: 34px;
+        text-align: right;
+      }
+      .zone {
+        color: #ffbe8c;
+      }
+      #harmony-panel {
+        min-width: 330px;
+      }
+      #chords {
+        display: flex;
+        gap: 6px;
+      }
+      .slot {
+        display: flex;
+        flex-direction: column;
+        gap: 3px;
+        flex: 1;
+      }
+      .slot .step {
+        text-align: center;
+        opacity: 0.45;
+        font-size: 10px;
+        letter-spacing: 0.12em;
+      }
+      .slot.playing .step {
+        opacity: 1;
+        color: #ffbe8c;
+      }
+      .slot select {
+        width: 100%;
+      }
+      .slot.playing select {
+        border-color: #ffbe8c;
+        background: rgba(255, 190, 140, 0.16);
+      }
+      #key-hz {
+        width: 72px;
+      }
+      #pattern-panel,
+      #drawbar-panel {
+        min-width: 330px;
+      }
+      #drawbars {
+        display: flex;
+        gap: 10px;
+        align-items: flex-end;
+      }
+      .bar-stop {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+      }
+      /* Vertical, because a drawbar is — and because the shape of the registration should
+         be readable at a glance rather than as six numbers. */
+      .bar-stop input {
+        writing-mode: vertical-lr;
+        direction: rtl;
+        width: 22px;
+        height: 84px;
+        accent-color: #ffbe8c;
+      }
+      .bar-stop .ft {
+        font-size: 10px;
+        opacity: 0.65;
+      }
+      .bar-stop .lv {
+        font-size: 10px;
+        color: #ffbe8c;
+      }
+      #pattern {
+        display: flex;
+        gap: 4px;
+      }
+      .hit {
+        flex: 1;
+        text-align: center;
+        padding: 7px 0;
+        border: 1px solid rgba(255, 190, 140, 0.25);
+        font-size: 11px;
+      }
+      .hit.snare {
+        background: rgba(255, 190, 140, 0.22);
+        color: #ffd8bb;
+      }
+      .hit.parity {
+        border-style: dashed;
+      }
+      /* The grace kick shows as a notch on the leading edge of the tom it leans into. */
+      .hit.flammed {
+        box-shadow: inset 3px 0 0 #ff8c8c;
+      }
+      .hit .and {
+        display: block;
+        font-size: 9px;
+        color: #ffd8bb;
+      }
+      .hit .n {
+        display: block;
+        font-size: 9px;
+        opacity: 0.5;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section id="transport">
+        <h2>TRANSPORT</h2>
+        <button id="arm">CLICK TO ARM AUDIO</button>
+        <button id="beacon">SOUND DISTANT BEACON</button>
+        <div class="note">
+          Space plays and stops. Changing anything re-sounds the callsign at once; the
+          harmony takes up to a full step to move.
+        </div>
+      </section>
+      <section id="grid-controls">
+        <h2>GRID</h2>
+        <label>BPM <input id="bpm" type="range" min="70" max="200" step="1" /><span id="bpm-v" class="num"></span></label>
+        <label>COUNTS / BAR <input id="bpb" type="range" min="2" max="8" step="1" /><span id="bpb-v" class="num"></span></label>
+        <label>BARS / CHORD <input id="bpc" type="range" min="1" max="8" step="1" /><span id="bpc-v" class="num"></span></label>
+        <label>KIT <input id="kit" type="range" min="0" max="20" step="1" /><span id="kit-v" class="num"></span></label>
+        <label>TOM ↔ SNARE <input id="noise" type="range" min="0" max="100" step="5" /><span id="noise-v" class="num"></span></label>
+        <label>TOM ON <input id="flam" type="range" min="0" max="90" step="5" /><span id="flam-v" class="num"></span></label>
+        <div id="derived" class="note"></div>
+      </section>
+      <section id="harmony-panel">
+        <h2>HARMONY</h2>
+        <label>KEY
+          <select id="key-note"></select>
+          <select id="key-octave"></select>
+          <span id="key-hz" class="num"></span>
+        </label>
+        <div id="chords"></div>
+        <div class="note" id="harmony-note"></div>
+      </section>
+      <section id="tracks-panel">
+        <h2>LOAD A SHIPPED TRACK</h2>
+        <div id="tracks"></div>
+        <div class="note" id="track-note"></div>
+      </section>
+      <section id="altitude-panel">
+        <h2>ALTITUDE</h2>
+        <label>Y <input id="altitude" type="range" min="-320" max="1020" step="5" /><span id="altitude-v" class="num"></span></label>
+        <div id="layers"></div>
+        <div class="note" id="altitude-note"></div>
+      </section>
+      <section id="drawbar-panel">
+        <h2>DRAWBARS</h2>
+        <div id="drawbars"></div>
+        <div class="note" id="drawbar-note"></div>
+      </section>
+      <section id="pattern-panel">
+        <h2>PATTERN</h2>
+        <div id="pattern"></div>
+        <div class="note" id="pattern-note"></div>
+      </section>
+      <section id="callsign-panel">
+        <h2>CALLSIGN</h2>
+        <label>VALUE <input id="callsign" type="range" min="0" max="31" step="1" /><span id="callsign-v" class="num"></span></label>
+        <div class="note">
+          Five bits, and both the melody and the groove are readings of it. The number is
+          the composition: it decides whether the bass builds, ticks, or barely speaks.
+        </div>
+      </section>
+      <section id="readout">
+        <h2>WHAT YOU SHOULD BE HEARING</h2>
+      </section>
+      <section id="export">
+        <h2>PATCH</h2>
+        <div class="note">
+          The fields are the patch and the digest only names it — a hash is one-way, so
+          nothing could restore a tuning from one alone. Paste the literal into
+          <code>TEMPO</code> in <code>src/audio/MusicComposer.ts</code> to ship it.
+        </div>
+        <pre id="patch"></pre>
+        <button id="copy">COPY LITERAL</button>
+      </section>
+    </main>
+    <script type="module" src="/src/synth.ts"></script>
+  </body>
+</html>

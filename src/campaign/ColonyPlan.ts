@@ -580,6 +580,19 @@ export function planColonies(
   scores: Readonly<Record<string, number>>,
   seed: number,
   terrain: PlanTerrain,
+  /**
+   * Called after each mission of the walk, with the cells standing at the end of it.
+   *
+   * The walk is already the whole campaign; without this the only way to see mission 12
+   * was to call this function again with `id: 12`, which re-walks 1..12 and gives a
+   * bit-identical answer for quadratic work — 435 growth steps to read all twenty-nine.
+   * `GrowthModel` reads the campaign a mission at a time and is the reason this exists.
+   *
+   * Handed the live map rather than a copy, and the next iteration mutates it: an observer
+   * that wants to keep anything must measure it now. Cheap by construction — the counting
+   * every caller so far does costs nothing against the growth step it follows.
+   */
+  onMission?: (missionId: number, cells: ReadonlyMap<number, OrganismCell>) => void,
 ): ColonyPlan {
   const lattice = buildLattice(terrain, COLONY_CELL_SIZE, COLONY_ROWS);
   const substrate = buildSubstrate(terrain, lattice);
@@ -861,6 +874,8 @@ export function planColonies(
       existing: cells,
       spine,
     });
+
+    onMission?.(m, cells);
   }
 
   // Split the one shared cell map into a prop per corp — `Layout.ts` wants per-corp

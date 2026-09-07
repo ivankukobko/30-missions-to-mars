@@ -8,6 +8,7 @@ import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
 import { Colony, type PadInfo } from '../world/Colony.ts';
 import { forgetFadedMaterials } from '../world/LanderFade.ts';
 import { CANYON, CORPS, PALETTE, applyColorScheme, currentColorScheme } from '../world/CanyonSpec.ts';
+import type { Sounding } from '../audio/MusicComposer.ts';
 import { Lander, LANDER } from '../entities/Lander.ts';
 import { Effects } from '../entities/Effects.ts';
 import { Interface, type GameSettings } from '../ui/Interface.ts';
@@ -1153,6 +1154,15 @@ export class Game implements MenuHost {
       audio.updateWind(this.heightAboveGround, Math.abs(lander.vx));
     }
 
+    // The score follows the vehicle down — air out of the sky, body onto the ground, sub
+    // into the hole. Deliberately *not* gated on `PLAYING` the way the engine and the wind
+    // are: the uplink and the epilogue's fall are descents too, and they are the two the
+    // layering has most to say about, since in both of them the player has nothing to do
+    // but listen.
+    if (this.state === 'PLAYING' || this.state === 'UPLINK' || this.state === 'FALL') {
+      audio.setSounding(this.sounding(lander));
+    }
+
     // The plume only reaches the surface from close range, and hits harder the
     // nearer you get — which makes the dust itself an altitude cue on final.
     if (thrusting && ground !== null && above < LANDER.GEAR_DEPLOY_HEIGHT) {
@@ -1225,19 +1235,33 @@ export class Game implements MenuHost {
     this.ui.showRadio(call.sender, call.content, CORPS[call.corp ?? this.mission.client].color);
   }
 
-  private updateHud(lander: Lander, dt: number): void {
+  /**
+   * Where the vehicle is, in the terms the HUD and the score both want.
+   *
+   * One definition rather than two: `abyssProximity` was computed inline in `updateHud`,
+   * and the score needs the identical number — a mix that disagreed with the abyss warning
+   * about how deep you are would be a bug nobody could see, only faintly hear.
+   */
+  private sounding(lander: Lander): Sounding {
     const depthRange = CANYON.FLOOR_Y - this.mission.failDepth;
-    const abyssProximity =
-      depthRange > 0 ? clamp01((CANYON.FLOOR_Y - lander.y) / depthRange) : 0;
+    return {
+      altitude: lander.y - CANYON.FLOOR_Y,
+      heightAboveGround: this.heightAboveGround,
+      abyssProximity: depthRange > 0 ? clamp01((CANYON.FLOOR_Y - lander.y) / depthRange) : 0,
+    };
+  }
+
+  private updateHud(lander: Lander, dt: number): void {
+    const at = this.sounding(lander);
 
     const common = {
       fuel: lander.fuel,
       fuelCapacity: lander.fuelCapacity,
-      altitude: lander.y - CANYON.FLOOR_Y,
+      altitude: at.altitude,
       verticalSpeed: lander.vy,
       // Signed. The panels that draw a drift direction cannot recover it downstream.
       horizontalSpeed: lander.vx,
-      abyssProximity,
+      abyssProximity: at.abyssProximity,
       consoleTime: this.missionTime - this.consoleUpAt,
     };
 
@@ -1570,6 +1594,8 @@ export class Game implements MenuHost {
      */
     audio.updateEngineSound([]);
     audio.updateWind(Infinity, 0);
+    // Or a menu entered from the bottom of a shaft keeps sounding like one.
+    audio.resetSounding();
 
     // The console belongs to the flight. Paused, the numbers are frozen and the augmented
     // layer is painted over a vehicle nobody is flying — both read as stale rather than

@@ -310,6 +310,12 @@ What they are actually for:
   29 and scores **67 to 78 points** — an eleven-point spread, all of it above the A cut. The
   nine it cannot fly are the deliveries whose approach is not vertical, which need a path
   follower rather than a descend-and-translate profile. `npm run pilot:report`.
+- **What the world has become, per mission.** `src/testing/GrowthModel.ts` walks the
+  campaign headlessly and measures the two things that change across it — the excavation
+  and the settlement — off the shipping pipeline rather than a re-derivation of it.
+  `npm run growth:report`. The hole had never been measured at all, and the first table it
+  printed found that from mission 14 on the complex has exactly one blind end and every
+  Kessler deck stands on it. See [Excavations](excavations.md#measuring-the-hole).
 - **Campaign pacing, not just legality.** `ColonyBalance.test.ts` asserts the things a
   legality check cannot see: that the canyon closes in across every stretch of the
   campaign, that a charter builds on its own missions, that flying well buys visible

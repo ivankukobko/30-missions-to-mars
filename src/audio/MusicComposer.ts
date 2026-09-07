@@ -1,4 +1,6 @@
-import type { CorpId } from '../world/CanyonSpec.ts';
+import { CANYON, type CorpId } from '../world/CanyonSpec.ts';
+import { LANDER } from '../entities/LanderBody.ts';
+import { clamp01 } from '../world/Noise.ts';
 import { WobbleBass } from './WobbleBass.ts';
 
 /**
@@ -12,84 +14,280 @@ import { WobbleBass } from './WobbleBass.ts';
 export type MusicTrack = CorpId;
 
 /** A triad as semitone offsets from the key's tonic. */
-type Chord = readonly [number, number, number];
+export type Chord = readonly [number, number, number];
 
-const I: Chord = [0, 4, 7];
-const iii: Chord = [4, 7, 11];
-const IV: Chord = [5, 9, 12];
-const iv: Chord = [5, 8, 12];
+/**
+ * The chord vocabulary, as scale degrees over a tonic.
+ *
+ * Four triads used to be defined here as bare constants and named by an identity map,
+ * which worked precisely as long as every chord in the game was one of those four objects.
+ * A progression built in `synth.html` is a new array, so identity lookup returned nothing
+ * and the editor could not name what it had just made. Naming by *value* costs a reverse
+ * scan nobody runs in a hot path and stops the vocabulary being closed.
+ *
+ * The offsets are absolute from the tonic rather than inversions, because the voicing that
+ * consumes them — `[a−12, a, b, c, a+12]` — takes the first tone as the one to double. So
+ * `IV` is `[5, 9, 12]` and not `[0, 5, 9]`: the fourth is the root of the chord and has to
+ * be the note the sub and the air are an octave from.
+ *
+ * The first four are the ones the campaign ships; the rest exist so a progression can be
+ * written without editing this table first.
+ */
+export const DEGREES = {
+  I: [0, 4, 7],
+  iii: [4, 7, 11],
+  IV: [5, 9, 12],
+  iv: [5, 8, 12],
 
-interface Theme {
-  /** Tonic, in Hz. Low: these are pads, and the triad is voiced above it. */
-  root: number;
-  /** Four steps, held in turn. Deliberately mostly tonic — see below. */
-  progression: readonly [Chord, Chord, Chord, Chord];
+  i: [0, 3, 7],
+  'bII': [1, 5, 8],
+  ii: [2, 5, 9],
+  'ii°': [2, 5, 8],
+  'bIII': [3, 7, 10],
+  V: [7, 11, 14],
+  v: [7, 10, 14],
+  vi: [9, 12, 16],
+  VI: [9, 13, 16],
+  'bVI': [8, 12, 15],
+  'bVII': [10, 14, 17],
+  'vii°': [11, 14, 17],
+} as const satisfies Record<string, Chord>;
+
+export type Degree = keyof typeof DEGREES;
+
+/** Every degree, in the order the editor should offer them. */
+export const DEGREE_NAMES = Object.keys(DEGREES) as Degree[];
+
+/**
+ * What to call a triad, by value.
+ *
+ * Returns the offsets themselves for anything outside the vocabulary rather than throwing
+ * or inventing a name: a readout is not the place to decide that a chord is illegal, and a
+ * literal `[0,4,8]` is more use to whoever typed it than `?` would be.
+ */
+export function degreeName(chord: Chord): string {
+  const hit = DEGREE_NAMES.find(
+    (d) => DEGREES[d][0] === chord[0] && DEGREES[d][1] === chord[1] && DEGREES[d][2] === chord[2],
+  );
+  return hit ?? `[${chord.join(',')}]`;
+}
+
+const I = DEGREES.I;
+const ii = DEGREES.ii;
+const iii = DEGREES.iii;
+const IV = DEGREES.IV;
+const iv = DEGREES.iv;
+const V = DEGREES.V;
+const vi = DEGREES.vi;
+
+/** Pitch classes, sharps only — the roots in play are all named with sharps. */
+export const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'] as const;
+
+/**
+ * A key's tonic in Hz, from a pitch class and an octave.
+ *
+ * The shipped roots were written as bare frequencies with the note name in a trailing
+ * comment — the only record that they were named notes at all. Naming them means a key can
+ * be *chosen* rather than typed, and `MusicComposer.test.ts` pins all three against this so
+ * the comment cannot come loose from the number again.
+ */
+export function keyHz(pitchClass: number, octave: number): number {
+  const midi = (octave + 1) * 12 + pitchClass;
+  return 440 * Math.pow(2, (midi - 69) / 12);
 }
 
 /**
- * A theme per client, and each is one chord plus a single step away from it.
+ * A charter's timbre, as distinct from its harmony.
  *
- * Four-chord progressions cycling every ten seconds are a *song*, and a song is the
- * wrong thing to put under a game where the interesting sound is your own engine and the
- * loudest event is silence before touchdown. Each of these sits on the tonic and makes
- * one move, so the harmony reads as weather rather than as music with opinions.
- *
- * The step is chosen to say something about who is talking:
- *
- * - **Ixion — I I iii I.** Two bars of not moving, then the mediant: a minor chord
- *   inside a major key, which lifts and saddens at once. They are not going anywhere
- *   and they know it.
- * - **Helion — I IV I IV.** Plagal, out and back, out and back. No tension and no
- *   arrival — the sound of lateral expansion that never has to resolve anywhere.
- * - **Kessler — I iv iv I.** The minor subdominant, borrowed from the parallel minor
- *   and held for two steps. It is the darkest move available without changing key, and
- *   it is the one that sounds like going down.
+ * Split out because the two answer different questions. Key and progression say what a
+ * client is *doing*; drawbars and a drum kit say what they *sound like doing it*, and there
+ * is no reason those should have to agree across three companies who share nothing else.
+ * Every field is optional and falls back to `VOICING`, so a charter with nothing to say
+ * about its own tone inherits the campaign's.
  */
-const THEMES: Record<MusicTrack, Theme> = {
-  outpost: { root: 55.0, progression: [I, I, iii, I] }, // A
-  helion: { root: 61.74, progression: [I, IV, I, IV] }, // B
-  kessler: { root: 46.25, progression: [I, iv, iv, I] }, // F#
+export interface Voicing {
+  /** Registration, one level per ratio in `DRAWBARS`. */
+  drawbars: readonly number[];
+  /** Kit level. */
+  percussionLevel: number;
+  /** 0 a bare tom, 1 about a snare. */
+  percussionNoise: number;
+  /** Where the tom sits after its kick, as a fraction of a count. 0.5 is the &. */
+  tomOffset: number;
+}
+
+export interface Theme {
+  /** Tonic, in Hz. Low: these are pads, and the triad is voiced above it. */
+  root: number;
+  /** Four steps, held in turn. */
+  progression: readonly [Chord, Chord, Chord, Chord];
+  /** This charter's tone. Anything unset comes from `VOICING`. */
+  voice?: Partial<Voicing>;
+}
+
+/**
+ * The campaign's tone, and what a `Theme` inherits when it says nothing.
+ *
+ * Composed on `synth.html` and pasted back. Ixion and Helion arrived with *identical*
+ * timbre and only their harmony differing, so these live here rather than being written
+ * twice into two charters — the `voice` override exists for the first charter that
+ * actually wants something else, and until one does, duplicating it would only create two
+ * places for it to drift.
+ */
+export const VOICING: Voicing = {
+  drawbars: [0.4, 0.35, 0.2, 0.2, 0.5, 0.2],
+  percussionLevel: 0.12,
+  percussionNoise: 0.25,
+  tomOffset: 0.5,
+};
+
+/**
+ * A theme per client: a key, four steps, and optionally a tone of its own.
+ *
+ * Each progression is chosen to say something about who is talking.
+ *
+ * - **Ixion — vi ii iii V in A.** F♯m, Bm, C♯m, E. Four chords, three of them minor, and
+ *   **the tonic is never one of them**: A is the key and A never arrives. It closes on the
+ *   dominant, the one chord whose whole job is to demand the tonic, and then goes back
+ *   round to F♯m instead. A progression permanently about to come home. For the charter
+ *   that has been at the bottom of this canyon for eleven years and goes dark two missions
+ *   before the end, there is nothing better available.
+ *
+ *
+ * - **Helion — iii iv ii vi in C.** Em, Fm, Dm, Am: four minor triads, and **every
+ *   transition is exact parallel motion** — `+1 +1 +1`, then `−3 −3 −3`, `+7 +7 +7`,
+ *   `−5 −5 −5`. The whole progression is one shape translated four times, with no
+ *   independent voice leading anywhere in it. That is measurably why it sounds mechanical:
+ *   planing is a machine moving a fixed object around rather than four voices each deciding
+ *   where to go. For the charter that does category work correctly and expands sideways
+ *   forever, a figure that only ever *translates* is the characterisation.
+ *
+ * - **Kessler — V ii IV I in D.** A, Em, G, D. An entirely ordinary rock progression, and
+ *   the only one of the three that **reaches its own tonic** — on the last step, every
+ *   cycle, without fail. Ixion and Helion never touch theirs.
+ *
+ * That last fact is the set's whole argument, and none of it was authored as a set — three
+ * patches arrived separately and this fell out of them:
+ *
+ * - **Ixion never arrives.** It ends on the dominant, the chord whose only job is to demand
+ *   the tonic, then goes back round to F♯m instead.
+ * - **Helion never arrives and is not looking.** Four minor triads and nothing but parallel
+ *   motion; there is no tonic in it because there is no gravity in it.
+ * - **Kessler arrives.** Every cycle, on the beat, home.
+ *
+ * And the keys line up the same way. **A is exactly a fifth above D**, so Ixion's tonic is
+ * Kessler's dominant — and Kessler's progression *opens on A major*. Kessler begins where
+ * Ixion lives and resolves somewhere Ixion never gets to. For a campaign where the outpost
+ * goes dark two missions from the end and the deep mine keeps running, that is the entire
+ * relationship in four chords.
+ *
+ * It also sharpens mission 29, which is a Kessler contract scored in Ixion's key. That run
+ * sits on the chord Kessler *starts* from, playing the progression that never comes home.
+ *
+ * Ixion and Helion replaced progressions that sat on the tonic and made a single move,
+ * written when the harmony was meant to read as weather rather than as music with opinions.
+ * These have opinions. What that costs is priced in `STEP_SECONDS`' note.
+ */
+export const THEMES: Record<MusicTrack, Theme> = {
+  outpost: { root: 55.0, progression: [vi, ii, iii, V] }, // A1
+  helion: { root: 32.7, progression: [iii, iv, ii, vi] }, // C1
+  kessler: { root: 36.71, progression: [V, ii, IV, I] }, // D1
 };
 
 /** Semitones above a root, in Hz. */
-function step(root: number, semitones: number): number {
+function semitone(root: number, semitones: number): number {
   return root * Math.pow(2, semitones / 12);
 }
 
 /**
- * How long one step is held. Four of them, so the progression comes round every 28 seconds.
+ * The grid everything else is measured against.
  *
- * **28 is the median descent.** The reference pilot flies the campaign in 28.0 seconds
- * (18.0–33.3 across the twenty it can fly), so a typical run now hears the harmony arrive
- * exactly once: out on the step it took off under, and home by touchdown. At the old 10.5 —
- * a 42-second cycle — no descent in the game was long enough to complete one, and the
- * progression's single move was something most runs either caught or missed depending on
- * where in the loop they happened to start. A four-chord figure nobody ever hears resolve is
- * paying for structure it does not deliver.
+ * There was no tempo here before — only a 7-second chord step and a bar that fell out of
+ * dividing it by five, which meant the score *had* a BPM (171.43) that nothing named and
+ * nothing could be tuned against. A wobble is a rhythmic instrument and a callsign is a
+ * transmission on a schedule; both were being placed in seconds, by hand, against a
+ * number nobody had written down.
  *
- * Still slow enough that a change reads as weather rather than as a beat: seven seconds is
- * two and a half times the longest thing the player does in one gesture.
+ * So: one tempo, and every duration below derived from it.
+ *
+ * **140, and four bars to a chord.** 140 is the tempo the wobble is actually written in —
+ * `RATCHET`'s 1/4 through 1/16 are dubstep divisions and they want dubstep's own grid,
+ * which is 140 felt in half-time at 70. Four bars to a chord then puts the progression at
+ * 16 bars, or **27.4 seconds**, which is the number that actually matters: the reference
+ * pilot's median descent is 28.0, so a typical run still hears the harmony arrive exactly
+ * once — out on the step it took off under, home by touchdown. That property was what the
+ * old 7-second step was solving for, and it survives the move intact.
+ *
+ * The cost, and it is real: the five-bit word no longer fills exactly one chord. At five
+ * bars against four the ident drifts through every position in the progression and only
+ * comes back round every 80 bars, which no descent is long enough to hear. That is a
+ * feature rather than a casualty — the callsign is a machine keeping its own schedule, and
+ * a machine that happened to land on the downbeat every time was the one thing it should
+ * never sound like.
+ *
+ * `synth.html` can move all three of these at runtime, which is how they were chosen.
  */
-const STEP_SECONDS = 7;
+export interface Tempo {
+  /**
+   * Counts per minute, where a count is one drum hit — not "quarter notes per minute".
+   *
+   * The distinction only started mattering when the meter became adjustable. Calling it
+   * quarter notes leaves 6/8 ambiguous (six eighths, or three quarters?); calling it counts
+   * makes `beatsPerBar` mean exactly what it says, and a bar is always `beatsPerBar` of
+   * them however the meter is written.
+   */
+  bpm: number;
+  /** Counts to a bar. 4 is common time; 6 gets you 6/8 or 3/4 depending how you feel it. */
+  beatsPerBar: number;
+  /** Bars per chord step. Four of those to a progression. */
+  barsPerChord: number;
+}
+
+export const TEMPO: Tempo = { bpm: 101, beatsPerBar: 4, barsPerChord: 2 };
+
+/** One bar, however many counts that is. */
+export function barSeconds(t: Tempo): number {
+  return (60 / t.bpm) * t.beatsPerBar;
+}
+
+/** How long one chord is held. */
+export function stepSeconds(t: Tempo): number {
+  return barSeconds(t) * t.barsPerChord;
+}
+
+/** One turn of the four-chord progression — the figure to compare against a descent. */
+export function cycleSeconds(t: Tempo): number {
+  return stepSeconds(t) * 4;
+}
 
 /**
- * Glide between steps, as a `setTargetAtTime` time constant — so the move is about
- * three times this before it has effectively arrived. Quick enough to land as a change,
- * slow enough that it is still a slide rather than a cut. The earlier 1.9 took most of six
- * seconds and the chord spent more of its life arriving than being itself.
+ * Glide between steps, as a `setTargetAtTime` time constant — so the move is about three
+ * times this before it has effectively arrived. Quick enough to land as a change, slow
+ * enough that it is still a slide rather than a cut.
  *
- * Scaled with `STEP_SECONDS` rather than re-picked by ear: it was 0.7 against a 10.5-second
- * step, which is a fifth of the step spent arriving, and 0.47 is the same fifth of 7. The
- * proportion is the thing that was tuned; the number is a consequence of it.
+ * A fifteenth of the step, because the proportion is what was tuned and not the number:
+ * three time constants is a fifth of the step spent arriving, which held at the old
+ * 10.5-second step (0.7) and at the 7-second one after it (0.47). Deriving it means a
+ * tempo change cannot leave the chord spending most of its life on the way somewhere.
  */
-const GLIDE = 0.47;
+function glide(t: Tempo): number {
+  return stepSeconds(t) / 15;
+}
 
 /**
  * Bits in a mission ident. Twenty-nine missions need five, and `11101` is the last one.
  */
-const IDENT_BITS = 5;
-/** Time per bit. Quick — this is a machine transmitting, not a phrase being played. */
-const IDENT_BIT = 0.26;
+export const IDENT_BITS = 5;
+/**
+ * Time per bit in the epilogue's beacon — an eighth note.
+ *
+ * The only surviving user of a *pitched* callsign. The score's own word is the kit now, so
+ * this is no longer a second reading of anything: it is one machine, transmitting, and the
+ * beacon keeping the grid is what stops it sounding like a fault.
+ */
+function identBitSeconds(t: Tempo): number {
+  return barSeconds(t) / 8;
+}
 
 /**
  * The ident the epilogue's beacon transmits: mission 1, `00001`.
@@ -99,16 +297,6 @@ const IDENT_BIT = 0.26;
  * and picking any other value would answer a question the ending exists to leave open.
  */
 const DISTANT_IDENT = 1;
-
-/**
- * One bar per ident bit, so the word fills exactly one chord step: 1.4 seconds, about
- * 171 BPM in four.
- *
- * A five-bar phrase against a four-step progression is deliberate. The two cycle together
- * only every twenty bars, so the groove never sits square against the harmony — which is
- * the difference between a machine transmitting on a schedule and a song with a chorus.
- */
-const BAR_SECONDS = STEP_SECONDS / IDENT_BITS;
 
 /**
  * Sweeps per bar for the nth consecutive set bit: 1/4, 1/8, 1/8 triplet, 1/16.
@@ -181,16 +369,111 @@ export function wobbleBar(missionId: number, barIndex: number): WobbleBar | null
   };
 }
 
+/** One count. The percussion's grid, and what `bpm` counts. */
+export function beatSeconds(t: Tempo): number {
+  return 60 / t.bpm;
+}
+
 /**
- * Semitones above the chord tone for a one and for a zero.
+ * Counts in a percussion word: three leading zeros, then the five callsign bits.
  *
- * Exactly an octave apart, and that is the contract: anything inside an octave reads as
- * melody rather than as a value, and the interval is the only thing telling the player which
- * bit they just heard. Both are *above* the root so the figure sits over the pad rather than
- * inside it — the low bit is the quiet one, not a bass note.
+ * **Eight, because eight is what common time can hold.** Six was the first attempt and it
+ * never sat still: six against a four-count bar is a hemiola that only returns to the
+ * downbeat every three bars, so the word started on two different beats and the ear got no
+ * fixed place to count from. Eight is exactly two bars in four, or one in eight — the word
+ * begins on a downbeat every time, and the same is true against the sixteen-bar
+ * progression, which holds exactly eight of them.
+ *
+ * The extra counts go at the *front*, and they are zeros. A parity bit at the back was an
+ * earlier idea and is the more interesting number — it varies between missions, where a
+ * leading zero is the same hit every time — but it answers the wrong question. A percussion
+ * part's problem is not that it carries too little information, it is that a listener has
+ * to know where the word *starts* before any of it can be counted, and a beat that differs
+ * per mission cannot mark that. Three kicks can: every word opens on the same figure, so
+ * the downbeat is audible before you have learned anything else.
+ *
+ * It is also what a machine does. A run of zeros before the payload is how serial framing
+ * has always worked, and for the same reason — the receiver needs the edge, not the data.
+ *
+ * The cost is that the word is now square with everything: the bar, the chord and the
+ * progression. That is a deliberate move from *transmission* toward *groove*, and it is the
+ * one property the earlier five- and six-count versions had that this does not.
  */
-export const IDENT_HIGH = 24;
-export const IDENT_LOW = 12;
+export const PERCUSSION_BEATS = 8;
+
+/** Counts of lead-in before the word proper. Derived, so the two cannot disagree. */
+export const PERCUSSION_LEAD = PERCUSSION_BEATS - IDENT_BITS;
+
+/**
+ * Which drum the callsign asks for on a given beat, MSB first and wrapping.
+ *
+ * The **same encoding as the melody**, on a different instrument: a one is the high drum
+ * and a zero the low one — tom and kick. That is what makes it a percussion part rather
+ * than a rhythm that happens to be derived from a number: five hits each high or low is a
+ * word, and the player can count it. Rests were never an option here for the reason they
+ * were dropped from the melody — a gap pattern is a groove, not a value, and a kit that
+ * answers every beat is what lets the *pattern* carry the number instead of the spacing.
+ *
+ * One hit per count. An eight-count word is two bars of common time, so it opens on a
+ * downbeat every time; `beatsPerBar` is where that can be undone, and eight against a
+ * six-count bar takes four bars and three words to come back round.
+ *
+ * Pure and exported for the reason `wobbleBar` and `identBit` are: this mapping is the
+ * composition, and MSB ordering is inaudible as a bug — it merely sounds like a different
+ * mission.
+ */
+export function identStrike(missionId: number, beatIndex: number): 'tom' | 'kick' {
+  const i = ((beatIndex % PERCUSSION_BEATS) + PERCUSSION_BEATS) % PERCUSSION_BEATS;
+  // The lead-in is zeros and so always the bass drum; the rest is the word.
+  const set = i >= PERCUSSION_LEAD && identBit(missionId, i - PERCUSSION_LEAD);
+  return set ? 'tom' : 'kick';
+}
+
+/** Gate height for the kit, against the pad's ~0.10 and the wobble's ~0.045. */
+const PERCUSSION_LEVEL = VOICING.percussionLevel;
+
+/**
+ * How far above the tonic the high drum sits: a twelfth, an octave and a fifth.
+ *
+ * The two drums are **one membrane at two pitches**, which is the same trick the melody
+ * plays with its octave — the bit is the register, and using one synthesis path for both
+ * means the pair cannot drift apart in character the way a kick and a sampled snare would.
+ * A twelfth because it is the third harmonic: the widest unmistakable interval that is
+ * still consonant with whatever the kick just played.
+ */
+const TOM_INTERVAL = 19;
+
+/**
+ * How much of the high drum is noise: 0 is a bare tom, 1 is about a snare.
+ *
+ * It was a snare first — bandpassed noise with a tone under it — and a snare is the wrong
+ * instrument here twice over. It is unpitched, so it says nothing about the key while
+ * every other voice in the score does; and its attack is a crack, which under a pad that
+ * moves once every seven seconds reads as a different piece of music arriving. A tom is
+ * pitched, sits in the harmony, and still marks a beat.
+ *
+ * Kept as a knob rather than a decision because it is a taste, and the range is a genuine
+ * morph: noise level, noise decay, filter centre and the membrane's own decay all move
+ * with it, since a snare is not a tom with hiss added — it is shorter as well as noisier.
+ */
+const PERCUSSION_NOISE = VOICING.percussionNoise;
+
+/**
+ * Where the tom lands, as a fraction of a count after the kick.
+ *
+ * 0.5 is the **and**: kick on the number, tom on the off — tu-dum. Small values give a
+ * flam instead, and 0 puts the two on top of each other, which is the one setting that
+ * sounds like a mistake rather than a choice.
+ *
+ * **The kick now sounds on every count and the tom is what the bit adds.** That is a real
+ * change to the encoding and worth being honest about: it used to be *which* drum, one
+ * membrane at two pitches, and it is now *whether there is a tom on the and*. Presence
+ * encoding is what this score rejected the first time round, on the grounds that a gap
+ * pattern is a groove rather than a value — and the reason it works here is precisely what
+ * was missing then. The kick articulates every count, so the frame never disappears. It is
+ * a clock line and a data line, which is what a machine would have anyway.
+ */
+const TOM_OFFSET = VOICING.tomOffset;
 
 /**
  * Whether bit `index` of the mission's callsign is set, MSB first.
@@ -204,6 +487,153 @@ export const IDENT_LOW = 12;
 export function identBit(missionId: number, index: number): boolean {
   return ((missionId >> (IDENT_BITS - 1 - index)) & 1) === 1;
 }
+
+
+/**
+ * Where the vehicle is, in the only three terms the score cares about.
+ *
+ * All three are already computed every frame for other reasons — `altitude` and
+ * `abyssProximity` for the HUD, `heightAboveGround` for the gear and the wind — so the
+ * layering costs the simulation nothing. They are kept separate rather than reduced to one
+ * number because they genuinely disagree, and the disagreement is the point: on a raised
+ * deck you are high in the canyon and a few metres off the ground at the same time.
+ */
+export interface Sounding {
+  /** Metres above the canyon floor. Entry is around 1020, the rim 240. */
+  altitude: number;
+  /** Metres to whatever is directly below. `Infinity` with nothing under you. */
+  heightAboveGround: number;
+  /** 0 at the floor, 1 at the mission's `failDepth` — how far down a shaft you are. */
+  abyssProximity: number;
+}
+
+/** Gain per voice group, 0 to 1. */
+export interface LayerMix {
+  /** The tonic an octave down: a drone that belongs to the hole. */
+  sub: number;
+  /** The triad. The harmony itself, never absent. */
+  body: number;
+  /** The tonic an octave up: air, and it belongs to the sky. */
+  air: number;
+}
+
+/** Air is gone at the floor, full at the rim and above. Not quite gone: the chord keeps a
+ *  little top, or losing the sky reads as a filter closing rather than as a voice leaving. */
+const AIR_FLOOR = 0.1;
+
+/** The triad in open sky. It is the harmony, so it is never off — it only has somewhere
+ *  left to go. */
+const BODY_SKY = 0.5;
+
+/**
+ * Where the body starts swelling, in metres above whatever is below.
+ *
+ * About four seconds out: the reference pilot covers 1020 in 28 seconds, so it is moving
+ * near 36 m/s on average and 140 is roughly the last four of them. Short enough to read as
+ * arrival rather than as a long crescendo.
+ *
+ * The swell *finishes* at `GEAR_DEPLOY_HEIGHT` rather than at the ground, so the harmony
+ * lands full at the moment the legs come out. Deriving that end from the gear means a
+ * change to either cannot leave the two disagreeing about when a landing has begun.
+ */
+const BODY_REACH = 140;
+
+/** How high above the floor the sub starts arriving, and how much of it is there by the
+ *  time the floor does. The rest is the shaft's, below. */
+const SUB_ONSET = 60;
+const SUB_AT_FLOOR = 0.5;
+
+/**
+ * What each voice group is doing at a given position in the canyon.
+ *
+ * Pure and exported for the reason `wobbleBar` and `identBit` are: this mapping *is* the
+ * arrangement, and an arrangement that can only be checked by flying to it is one nobody
+ * checks. `synth.html` drives it from a slider and the tests assert its ends.
+ *
+ * The three curves read three different heights on purpose:
+ *
+ * - **Air answers `altitude`** — how high you are in the canyon, not how close the ground
+ *   is. It is the sky, and the sky does not come back because you flew over a deck.
+ * - **Body answers `heightAboveGround`** — the harmony swells at whatever you are actually
+ *   about to touch, which on a raised pad is the deck and not the floor 200 metres under it.
+ * - **Sub answers depth** — the floor, and then the shaft. It is the one voice that is
+ *   simply absent for most of a flight, which is what makes arriving underground an event
+ *   rather than a trend.
+ */
+export function layerMix(at: Sounding): LayerMix {
+  const air = AIR_FLOOR + (1 - AIR_FLOOR) * clamp01(at.altitude / CANYON.RIM_Y);
+
+  // `Infinity` over open sky, and `clamp01` of that is 1 — so an unmeasurable drop reads
+  // as "nothing near", which is exactly the sky value.
+  const closing = 1 - clamp01(
+    (at.heightAboveGround - LANDER.GEAR_DEPLOY_HEIGHT) / (BODY_REACH - LANDER.GEAR_DEPLOY_HEIGHT),
+  );
+  const body = BODY_SKY + (1 - BODY_SKY) * closing;
+
+  // Two stages end to end, not two candidates. `Math.max` of the pair was the first
+  // attempt and it plateaus: the approach already reads `SUB_AT_FLOOR` when the floor
+  // arrives, so the whole top half of a shaft added nothing and the sub simply sat still
+  // through the part of the descent it exists to describe. The shaft picks up the
+  // remaining travel instead, which is monotonic all the way down and exactly 1 at the
+  // bottom.
+  const approach = clamp01((SUB_ONSET - at.altitude) / SUB_ONSET) * SUB_AT_FLOOR;
+  const sub = clamp01(approach + (1 - SUB_AT_FLOOR) * clamp01(at.abyssProximity));
+
+  return { sub, body, air };
+}
+
+/** What the score does with no vehicle to follow — the menu, a brief. Open sky. */
+export const SKY: Sounding = { altitude: Infinity, heightAboveGround: Infinity, abyssProximity: 0 };
+
+/**
+ * Drawbar ratios above each voice's own fundamental — a Hammond's registration, minus the
+ * 8' the existing oscillator already provides.
+ *
+ * An organ is not "more notes", it is **more harmonics of the same note** at fixed ratios,
+ * which is why adding voices to the triad would only have made a thicker pad. These are
+ * the classic footages: 16′, 5⅓′, 4′, 2⅔′, 2′ and 1⅓′.
+ *
+ * They are added *per voice* and routed into that voice's own layer gain rather than mixed
+ * globally, and that is not a detail. The air layer is the tonic an octave up, and a body
+ * voice's 4′ partial is the same pitch — mix the partials anywhere but inside the group and
+ * the drawbars quietly fill the air register with body, so `layerMix` keeps moving the
+ * gains while the altitude stops being audible. Inside the group, a partial rises and falls
+ * with the voice it belongs to and the layering survives untouched.
+ */
+export const DRAWBARS = [0.5, 1.5, 2, 3, 4, 6] as const;
+
+/** Footages, for a panel that wants to look like an organ. */
+export const DRAWBAR_LABELS = ['16′', '5⅓′', '4′', '2⅔′', '2′', '1⅓′'] as const;
+
+/**
+ * Registration the score ships with — all off.
+ *
+ * The pad's own character is a lowpassed saw-and-triangle bed, and sine partials on top of
+ * it are a different instrument rather than a louder one. Shipping it silent means the
+ * game sounds exactly as it did and the choice is made on `synth.html`, by ear, where the
+ * headroom can be re-measured before anything changes.
+ */
+export const DRAWBARS_OFF: readonly number[] = DRAWBARS.map(() => 0);
+
+/** What the score actually opens with. See `VOICING`. */
+export const DRAWBARS_DEFAULT: readonly number[] = [0.4, 0.35, 0.2, 0.2, 0.5, 0.2];
+
+/** Which group each of the five pad oscillators belongs to, in voicing order. */
+const VOICE_GROUP: readonly (keyof LayerMix)[] = ['sub', 'body', 'body', 'body', 'air'];
+
+/** How loud each pad voice sits: the sub carries, the triad fills, the air colours. */
+function voiceWeight(voice: number): number {
+  return voice === 0 ? 0.25 : voice === 1 ? 0.2 : 0.14;
+}
+
+/**
+ * Smoothing on a layer move, as a `setTargetAtTime` time constant.
+ *
+ * Deliberately slower than the vehicle: a descent can cross the whole range in a couple of
+ * seconds, and a mix that tracked it exactly would pump on every correction the player
+ * makes rather than describe where they are. About a second to arrive.
+ */
+const LAYER_GLIDE = 0.35;
 
 /**
  * The score: one five-voice pad, one theme per client, and the mission's own callsign.
@@ -231,20 +661,160 @@ export class MusicComposer {
   private ambientFilter: BiquadFilterNode | null = null;
   private ambientLfo: OscillatorNode | null = null;
   private overtoneGain: GainNode | null = null;
+  /**
+   * One gain per voice group, between the oscillators and the filter.
+   *
+   * The pad is voiced `[a−12, a, b, c, a+12]` — a sub, the triad, and air — which was
+   * already three groups doing three jobs with no way to move them independently. These
+   * are what `setSounding` drives.
+   */
+  private layerGains: Record<keyof LayerMix, GainNode | null> = { sub: null, body: null, air: null };
+  /**
+   * Drawbar partials: one oscillator per voice per ratio, each on its own gain.
+   *
+   * Held flat rather than nested per voice because every use walks all of them — retuning
+   * on a chord change, and re-levelling on a registration change — and a flat list with the
+   * voice index on it says that more plainly than five arrays would.
+   */
+  private partials: { osc: OscillatorNode; gain: GainNode; voice: number; ratio: number }[] = [];
+  private drawbars: readonly number[] = VOICING.drawbars;
   private isPlaying = false;
 
   private activeTrack: MusicTrack = 'outpost';
+  /**
+   * A theme that is not one of the charters', or `null` to use the track's own.
+   *
+   * The game never sets this — its themes are per-charter and mean something. It exists so
+   * `synth.html` can be an instrument rather than a viewer: a key and a progression that no
+   * mission plays still has to be auditionable, or harmony cannot be worked out anywhere
+   * except by editing `THEMES` and reloading.
+   */
+  private customTheme: Theme | null = null;
   /** Read back only to sound the ident — the figure *is* this number. */
   private missionId = 1;
   private currentChordIdx = 0;
   private chordTimer: number | null = null;
 
+  /**
+   * The live grid. A copy rather than `TEMPO` itself, so `setTempo` cannot edit the
+   * default out from under a second composer — `synth.html` runs one beside the game's.
+   */
+  private tempo: Tempo = { ...TEMPO };
+
   private wobble = new WobbleBass();
   /** Next bar index not yet handed to the wobble. Negative means "resync to the clock". */
   private nextBar = -1;
+  /** Next count not yet struck. Same resync convention as `nextBar`. */
+  private nextBeat = -1;
+
+  /**
+   * One buffer of white noise, reused by every snare.
+   *
+   * A `BufferSource` is single-use — it cannot be restarted — so each hit gets its own
+   * node, but they can all read the same samples. Generating noise per strike would be
+   * hundreds of allocations a minute for a sound nobody can tell apart from this one.
+   */
+  private noise: AudioBuffer | null = null;
+  private percussionLevel = PERCUSSION_LEVEL;
+  private percussionNoise = PERCUSSION_NOISE;
+  private tomOffset = TOM_OFFSET;
 
   public get isActive(): boolean {
     return this.isPlaying;
+  }
+
+  /**
+   * Moves the grid under a running score. The tuning surface `synth.html` drives.
+   *
+   * Everything downstream is derived from the audio clock rather than counted, so a tempo
+   * change needs no transport work beyond dropping the bars already queued at the old
+   * bar length — `setValueCurveAtTime` throws on an overlap, and the first bar scheduled
+   * on the new grid would land inside one of them.
+   */
+  public setTempo(next: Partial<Tempo>): void {
+    this.tempo = { ...this.tempo, ...next };
+    this.dropWobble();
+    this.applyCurrentChord();
+  }
+
+  public getTempo(): Tempo {
+    return { ...this.tempo };
+  }
+
+  /**
+   * Sets the drawbar registration, one level per ratio in `DRAWBARS`.
+   *
+   * Scaled by the voice's own weight so a registration does not change the pad's internal
+   * balance — the sub is loudest, the triad quietest, and drawbars ride that rather than
+   * flattening it.
+   */
+  public setDrawbars(levels: readonly number[]): void {
+    this.drawbars = levels;
+    if (!this.ctx) return;
+    const now = this.ctx.currentTime;
+    for (const p of this.partials) {
+      const level = (levels[DRAWBARS.indexOf(p.ratio as (typeof DRAWBARS)[number])] ?? 0) * voiceWeight(p.voice);
+      p.gain.gain.setTargetAtTime(level, now, 0.08);
+    }
+  }
+
+  public getDrawbars(): readonly number[] {
+    return this.drawbars;
+  }
+
+  /** Kit level, 0 to silence it. The bench's mix knob. */
+  public setPercussionLevel(level: number): void {
+    this.percussionLevel = Math.max(0, level);
+  }
+
+  /** How much noise is on the high drum: 0 a bare tom, 1 about a snare. */
+  public setPercussionNoise(noise: number): void {
+    this.percussionNoise = Math.min(1, Math.max(0, noise));
+  }
+
+  /** Where the tom sits after its kick, as a fraction of a count. 0.5 is the and. */
+  public setTomOffset(offset: number): void {
+    this.tomOffset = Math.min(0.9, Math.max(0, offset));
+  }
+
+  /** Applies a charter's tone over the campaign default. */
+  public applyVoicing(voice: Partial<Voicing> | undefined): void {
+    const v = { ...VOICING, ...voice };
+    this.setDrawbars(v.drawbars);
+    this.setPercussionLevel(v.percussionLevel);
+    this.setPercussionNoise(v.percussionNoise);
+    this.setTomOffset(v.tomOffset);
+  }
+
+  /** Plays an arbitrary key and progression; `null` hands the score back to its track. */
+  public setTheme(theme: Theme | null): void {
+    this.customTheme = theme;
+    this.applyCurrentChord();
+  }
+
+  /** The theme actually sounding. */
+  public theme(): Theme {
+    return this.customTheme ?? THEMES[this.activeTrack] ?? THEMES.outpost;
+  }
+
+  /**
+   * Follows the vehicle down the canyon: air out of the sky, body onto the ground, sub
+   * into the hole.
+   *
+   * Safe to call every frame — `setTargetAtTime` is a running target rather than a
+   * scheduled event, so nothing accumulates on the timeline and there is no queue to
+   * outrun. `LAYER_GLIDE` is the whole smoothing; the caller passes raw position.
+   *
+   * This is a *mix*, not a pose, so it does not owe `missionTime` anything: it is a
+   * function of where the vehicle is, and a replay puts the vehicle in the same places.
+   */
+  public setSounding(at: Sounding): void {
+    if (!this.ctx) return;
+    const mix = layerMix(at);
+    const now = this.ctx.currentTime;
+    for (const group of ['sub', 'body', 'air'] as (keyof LayerMix)[]) {
+      this.layerGains[group]?.gain.setTargetAtTime(mix[group], now, LAYER_GLIDE);
+    }
   }
 
   public init(ctx: AudioContext, destination: GainNode): void {
@@ -274,7 +844,18 @@ export class MusicComposer {
     this.overtoneGain.gain.value = 0.04;
     this.overtoneGain.connect(this.ambientFilter);
 
-    // 5-Voice Synth Pad Array
+    // Opened at the sky mix rather than at 1, so a score that starts before anything is
+    // flying starts where a descent starts instead of jumping on the first frame.
+    const opening = layerMix(SKY);
+    for (const group of ['sub', 'body', 'air'] as (keyof LayerMix)[]) {
+      const gain = this.ctx.createGain();
+      gain.gain.value = opening[group];
+      gain.connect(this.ambientFilter);
+      this.layerGains[group] = gain;
+    }
+
+    // 5-Voice Synth Pad Array. Index picks the group: the octave below is the sub, the
+    // octave above is air, the triad between them is the body.
     for (let i = 0; i < 5; i++) {
       const osc = this.ctx.createOscillator();
       osc.type = i < 2 ? 'triangle' : 'sawtooth';
@@ -282,12 +863,26 @@ export class MusicComposer {
       osc.detune.value = (Math.random() * 2 - 1) * 10;
 
       const oscGain = this.ctx.createGain();
-      oscGain.gain.value = i === 0 ? 0.25 : i === 1 ? 0.20 : 0.14;
+      oscGain.gain.value = voiceWeight(i);
 
       osc.connect(oscGain);
-      oscGain.connect(this.ambientFilter);
+      oscGain.connect(this.layerGains[VOICE_GROUP[i]]!);
       osc.start();
       this.ambientOscs.push(osc);
+
+      // Sines, because a drawbar *is* a sine — the timbre is the sum of the ratios, not
+      // the shape of any one of them. Running silently until a registration is set.
+      for (const ratio of DRAWBARS) {
+        const partial = this.ctx.createOscillator();
+        partial.type = 'sine';
+        partial.frequency.value = 100 * ratio;
+        const gain = this.ctx.createGain();
+        gain.gain.value = 0;
+        partial.connect(gain);
+        gain.connect(this.layerGains[VOICE_GROUP[i]]!);
+        partial.start();
+        this.partials.push({ osc: partial, gain, voice: i, ratio });
+      }
     }
 
     this.ambientFilter.connect(this.ambientGain);
@@ -297,6 +892,11 @@ export class MusicComposer {
     // used for starting and stopping; the wobble needs its gate scheduled to the
     // millisecond and must not have a 0.4-second envelope in front of it.
     this.wobble.init(this.ctx, this.destination);
+
+    const frames = Math.floor(this.ctx.sampleRate * 0.4);
+    this.noise = this.ctx.createBuffer(1, frames, this.ctx.sampleRate);
+    const samples = this.noise.getChannelData(0);
+    for (let i = 0; i < frames; i++) samples[i] = Math.random() * 2 - 1;
 
     /**
      * Which step is live is *derived* from the audio clock rather than counted by the
@@ -312,7 +912,8 @@ export class MusicComposer {
   private followClock(): void {
     if (!this.ctx) return;
     this.scheduleWobble();
-    const idx = Math.floor(this.ctx.currentTime / STEP_SECONDS) % 4;
+    this.schedulePercussion();
+    const idx = Math.floor(this.ctx.currentTime / stepSeconds(this.tempo)) % 4;
     if (idx === this.currentChordIdx) return;
     this.currentChordIdx = idx;
     this.applyCurrentChord();
@@ -320,7 +921,6 @@ export class MusicComposer {
     // itself rather than as a hook. Closer together than the old 42 and now sounding every
     // bit rather than only the set ones, which is the point: a callsign heard once a run is
     // atmosphere, and one heard at the top of every cycle is a number the player can learn.
-    if (idx === 0) this.emitIdent();
   }
 
   /**
@@ -332,87 +932,129 @@ export class MusicComposer {
    * in the past. Falling behind resyncs instead — the pattern is a function of the bar
    * index, so skipping forward lands exactly where an uninterrupted tab would be.
    */
-  private scheduleWobble(): void {
-    if (!this.ctx || !this.isPlaying || this.isMuted) return;
-    const now = this.ctx.currentTime;
-    const current = Math.floor(now / BAR_SECONDS);
-    if (this.nextBar < current) this.nextBar = current + 1;
+  /**
+   * A kick, tuned to the key.
+   *
+   * A drop rather than a fixed pitch: the sine falls two octaves onto the tonic over 55 ms,
+   * which is what makes a sine read as a struck drum instead of a low beep. Landing *on*
+   * the tonic rather than near it keeps it inside the harmony — the pad's sub is the same
+   * note an octave down, so the kick reinforces the key rather than fighting whatever chord
+   * is live.
+   */
+  private kick(at: number, root: number, level: number): void {
+    if (!this.ctx || !this.destination) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(root * 4, at);
+    osc.frequency.exponentialRampToValueAtTime(root, at + 0.055);
 
-    const theme = THEMES[this.activeTrack] ?? THEMES.outpost;
-    while (this.nextBar * BAR_SECONDS < now + LOOKAHEAD) {
-      const at = this.nextBar * BAR_SECONDS;
-      const bar = wobbleBar(this.missionId, this.nextBar);
-      if (bar) {
-        // The chord is read from the bar's own start time, not from `currentChordIdx`.
-        // Scheduling runs ahead of the clock, so the step can turn over inside the
-        // lookahead and the bass would otherwise spend a bar under the wrong harmony.
-        const chord = theme.progression[Math.floor(at / STEP_SECONDS) % 4];
-        const freq = step(theme.root, chord[0] + bar.offset);
-        this.wobble.scheduleBar(at, BAR_SECONDS, freq, bar.cycles, bar.skew, WOBBLE_LEVEL);
-      }
-      this.nextBar++;
-    }
+    gain.gain.setValueAtTime(0, at);
+    gain.gain.linearRampToValueAtTime(level, at + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0004, at + 0.22);
+
+    osc.connect(gain);
+    gain.connect(this.destination);
+    osc.start(at);
+    osc.stop(at + 0.24);
   }
 
   /**
-   * Sounds the mission number, most significant bit first — **every bit, high for a one and
-   * an octave lower for a zero.**
+   * A tom: a pitched membrane, with as much stick or wire on it as `noise` asks for.
    *
-   * A clear bit used to be silence, which made the figure a rhythm that happened to be
-   * derived from a number rather than a number you could hear. Five strokes with gaps in
-   * them is a groove; five notes where each one is high or low is a *word*, and the player
-   * can count it. That is the whole change: the melody is the mission's callsign, and a
-   * callsign nobody can read is only atmosphere.
-   *
-   * The octave is the bit, so nothing else may use it. The old version climbed an octave
-   * halfway through the word "so five even strokes do not read as a flat line" — a cosmetic
-   * use of the exact axis that now carries the meaning, and it had to go. What keeps the
-   * figure from being flat instead is `chord[i % 3]`: pitches still walk the live chord, so
-   * the line moves and stays consonant whatever step it lands on, while the register alone
-   * says which bit it is.
-   *
-   * Timbre backs it up rather than carrying it. A zero is a sine and a one a triangle, so
-   * the low note is duller as well as lower — two cues for one distinction, which is what
-   * lets it survive a mix where the engine is deliberately the loudest thing.
-   *
-   * The **rhythm** is a separate encoding of the same number and keeps its rests: see
-   * `wobbleBar`, where a clear bit is a silent bar and the run length drives the ratchet.
-   * That is what the build and drop of mission 29 are made of, and it does not survive
-   * sounding every bar. Two readings of one word — one you count, one you feel.
-   *
-   * Every note is scheduled at an absolute time off the audio clock — no timers, nothing to
-   * drift.
+   * The same shape as the kick — a pitch drop onto a target, which is what makes a sine
+   * read as a struck head rather than a beep — an octave and a fifth higher and ringing
+   * longer, because a smaller head is brighter and a tom is *supposed* to ring. It stops
+   * short of the next count all the same: a hit still sounding when the following one
+   * lands smears the number, and the number is the point.
    */
-  private emitIdent(): void {
-    if (!this.ctx || !this.destination || this.isMuted || !this.isPlaying) return;
+  private tom(at: number, root: number, level: number, noise: number): void {
+    if (!this.ctx || !this.destination || !this.noise) return;
+    const target = semitone(root, TOM_INTERVAL);
 
-    const theme = THEMES[this.activeTrack] ?? THEMES.outpost;
-    const chord = theme.progression[this.currentChordIdx];
-    const start = this.ctx.currentTime + 0.4;
+    const head = this.ctx.createOscillator();
+    const headGain = this.ctx.createGain();
+    head.type = 'sine';
+    head.frequency.setValueAtTime(target * 2, at);
+    head.frequency.exponentialRampToValueAtTime(target, at + 0.045);
+    // A snare is shorter as well as noisier, so the ring shortens as the knob comes up.
+    const ring = 0.3 - 0.16 * noise;
+    headGain.gain.setValueAtTime(0, at);
+    headGain.gain.linearRampToValueAtTime(level, at + 0.003);
+    headGain.gain.exponentialRampToValueAtTime(0.0004, at + ring);
+    head.connect(headGain);
+    headGain.connect(this.destination);
+    head.start(at);
+    head.stop(at + ring + 0.02);
 
-    for (let i = 0; i < IDENT_BITS; i++) {
-      // MSB first, so the figure reads left to right the way the number is written.
-      const bit = identBit(this.missionId, i);
+    // At 0 this is the stick landing on the head — brief, and only there so the attack has
+    // an edge to it. Wound all the way up it is the wires.
+    const src = this.ctx.createBufferSource();
+    src.buffer = this.noise;
+    const band = this.ctx.createBiquadFilter();
+    band.type = 'bandpass';
+    band.frequency.value = 1500 + 500 * noise;
+    band.Q.value = 0.9;
+    const rattle = this.ctx.createGain();
+    const decay = 0.02 + 0.12 * noise;
+    rattle.gain.setValueAtTime(0, at);
+    rattle.gain.linearRampToValueAtTime(level * (0.12 + 0.75 * noise), at + 0.002);
+    rattle.gain.exponentialRampToValueAtTime(0.0004, at + decay);
+    src.connect(band);
+    band.connect(rattle);
+    rattle.connect(this.destination);
+    src.start(at);
+    src.stop(at + decay + 0.02);
+  }
 
-      const at = start + i * IDENT_BIT;
-      // The octave *is* the bit. See `IDENT_HIGH` / `IDENT_LOW`.
-      const semitones = chord[i % 3] + (bit ? IDENT_HIGH : IDENT_LOW);
+  /**
+   * Strikes every count inside the lookahead.
+   *
+   * Same discipline as `scheduleWobble` and for the same reason: the cursor is checked
+   * against the clock rather than trusted, so a throttled tab resyncs forward instead of
+   * trying to schedule a minute of drums in the past. The pattern is a pure function of the
+   * count index, so skipping lands exactly where an uninterrupted tab would be.
+   */
+  private schedulePercussion(): void {
+    if (!this.ctx || !this.isPlaying || this.isMuted || this.percussionLevel <= 0) return;
+    const now = this.ctx.currentTime;
+    const beat = beatSeconds(this.tempo);
+    const current = Math.floor(now / beat);
+    if (this.nextBeat < current) this.nextBeat = current + 1;
 
-      const osc = this.ctx.createOscillator();
-      const gain = this.ctx.createGain();
-      osc.type = bit ? 'triangle' : 'sine';
-      osc.frequency.setValueAtTime(step(theme.root, semitones), at);
+    const root = this.theme().root;
+    while (this.nextBeat * beat < now + LOOKAHEAD) {
+      const at = this.nextBeat * beat;
+      // The kick is the clock and lands on every count, set bit or not.
+      this.kick(at, root, this.percussionLevel);
+      if (identStrike(this.missionId, this.nextBeat) === 'tom') {
+        this.tom(at + beat * this.tomOffset, root, this.percussionLevel * 0.7, this.percussionNoise);
+      }
+      this.nextBeat++;
+    }
+  }
 
-      gain.gain.setValueAtTime(0, at);
-      // A zero sits slightly under a one — enough that the word has a shape when it is
-      // half-heard, not so much that it reads as silence again.
-      gain.gain.linearRampToValueAtTime(bit ? 0.045 : 0.034, at + 0.012);
-      gain.gain.exponentialRampToValueAtTime(0.0004, at + 0.42);
+  private scheduleWobble(): void {
+    if (!this.ctx || !this.isPlaying || this.isMuted) return;
+    const now = this.ctx.currentTime;
+    const bar = barSeconds(this.tempo);
+    const step = stepSeconds(this.tempo);
+    const current = Math.floor(now / bar);
+    if (this.nextBar < current) this.nextBar = current + 1;
 
-      osc.connect(gain);
-      gain.connect(this.destination);
-      osc.start(at);
-      osc.stop(at + 0.45);
+    const theme = this.theme();
+    while (this.nextBar * bar < now + LOOKAHEAD) {
+      const at = this.nextBar * bar;
+      const slot = wobbleBar(this.missionId, this.nextBar);
+      if (slot) {
+        // The chord is read from the bar's own start time, not from `currentChordIdx`.
+        // Scheduling runs ahead of the clock, so the step can turn over inside the
+        // lookahead and the bass would otherwise spend a bar under the wrong harmony.
+        const chord = theme.progression[Math.floor(at / step) % 4];
+        const freq = semitone(theme.root, chord[0] + slot.offset);
+        this.wobble.scheduleBar(at, bar, freq, slot.cycles, slot.skew, WOBBLE_LEVEL);
+      }
+      this.nextBar++;
     }
   }
 
@@ -439,21 +1081,22 @@ export class MusicComposer {
   public emitDistantIdent(repeats = 4): void {
     if (!this.ctx || !this.destination || this.isMuted || !this.isPlaying) return;
 
-    const theme = THEMES[this.activeTrack] ?? THEMES.outpost;
+    const theme = this.theme();
     const chord = theme.progression[this.currentChordIdx];
     const start = this.ctx.currentTime + 0.3;
-    const word = IDENT_BITS * IDENT_BIT;
+    const bit = identBitSeconds(this.tempo);
+    const word = IDENT_BITS * bit;
 
     for (let r = 0; r < repeats; r++) {
       for (let i = 0; i < IDENT_BITS; i++) {
         // The ident of mission 1, not of the mission that was just flown.
         if (((DISTANT_IDENT >> (IDENT_BITS - 1 - i)) & 1) === 0) continue;
 
-        const at = start + r * word + i * IDENT_BIT;
+        const at = start + r * word + i * bit;
         const osc = this.ctx.createOscillator();
         const gain = this.ctx.createGain();
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(step(theme.root, chord[i % 3] + 24), at);
+        osc.frequency.setValueAtTime(semitone(theme.root, chord[i % 3] + 24), at);
         osc.detune.setValueAtTime(-22, at);
 
         // Fades across the repeats rather than holding level: the vehicle carrying the
@@ -491,10 +1134,17 @@ export class MusicComposer {
   private dropWobble(): void {
     if (this.ctx) this.wobble.silence(this.ctx.currentTime);
     this.nextBar = -1;
+    // Drums already on the timeline play out — they are one-shot nodes and cannot be
+    // recalled — but the cursor must not carry a stale grid across a tempo change.
+    this.nextBeat = -1;
   }
 
   public setMissionContext(track: MusicTrack, missionId: number): void {
     this.activeTrack = track;
+    // A charter's tone follows its harmony. Applied here rather than in `setTheme`, which
+    // `synth.html` drives: on the bench the sliders are the authority, and a theme change
+    // that snapped them back would make the thing uneditable.
+    this.applyVoicing(THEMES[track]?.voice);
     this.missionId = missionId;
     this.currentChordIdx = 0;
     // Bars for the outgoing mission may already be queued a second ahead. Drop them, or
@@ -512,41 +1162,43 @@ export class MusicComposer {
     }
 
     this.applyCurrentChord();
-    // Sound the new callsign immediately rather than waiting out a cycle — this is the
-    // moment the mission identifies itself.
-    this.emitIdent();
   }
 
   /**
    * Voices the live step across the five oscillators: the triad, with the tonic doubled
    * an octave below as a sub and an octave above as air. Absolute frequencies are built
    * from the theme's root rather than tabulated, so a progression is written as degrees
-   * — `I iv iv I` — and stays readable as the thing it actually is.
+   * — `V ii IV I` — and stays readable as the thing it actually is.
    */
   private applyCurrentChord(): void {
     if (!this.ctx || this.ambientOscs.length < 5) return;
-    const theme = THEMES[this.activeTrack] ?? THEMES.outpost;
+    const theme = this.theme();
     const [a, b, c] = theme.progression[this.currentChordIdx];
     const voicing = [a - 12, a, b, c, a + 12];
 
     const now = this.ctx.currentTime;
+    const glideTime = glide(this.tempo);
     voicing.forEach((semitones, idx) => {
       this.ambientOscs[idx]?.frequency.setTargetAtTime(
-        step(theme.root, semitones),
+        semitone(theme.root, semitones),
         now,
-        GLIDE,
+        glideTime,
       );
     });
+    // Partials follow their own voice, on the same glide — a drawbar that did not move
+    // with the chord would be a drone sitting under a progression.
+    for (const p of this.partials) {
+      p.osc.frequency.setTargetAtTime(
+        semitone(theme.root, voicing[p.voice]) * p.ratio,
+        now,
+        glideTime,
+      );
+    }
   }
 
 
 
   public start(): void {
-    // Edge-triggered, so the callsign lands once as the mission opens rather than again
-    // on every resume. It matters on a cold load: the context does not exist until the
-    // player's first gesture, so `setMissionContext` has nothing to sound through and
-    // this is the first moment the ident can actually be heard.
-    const wasSilent = !this.isPlaying;
     this.isPlaying = true;
     if (!this.ctx || !this.ambientGain || this.isMuted) return;
     // `stop` tears the timer down, and until the wobble arrived nothing put it back — the
@@ -556,7 +1208,6 @@ export class MusicComposer {
     if (this.chordTimer === null) {
       this.chordTimer = window.setInterval(() => this.followClock(), 500);
     }
-    if (wasSilent) this.emitIdent();
     const now = this.ctx.currentTime;
     this.ambientGain.gain.cancelScheduledValues(now);
     this.ambientGain.gain.setValueAtTime(this.ambientGain.gain.value, now);

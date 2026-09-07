@@ -37,7 +37,7 @@ alternative that was rejected, and the measurement that settled it.
 ### The world
 
 - **[Environment](docs/environment.md)**: Canyon geometry & orientation, uniform lattice sampling, terracing, level shelves, and terrain noise generation.
-- **[Excavations](docs/excavations.md)**: Why the holes are drawn as characters rather than generated, what that buys in assertions, and why the cell pitch is 6.
+- **[Excavations](docs/excavations.md)**: Why the holes are drawn as characters rather than generated, what that buys in assertions, why the cell pitch is 6, and what measuring the hole says about its shape.
 - **[Colony](docs/colony.md)**: Colony progression over 29 missions, layout resolver rules, navigation radar exemption, landmark system, and open design notes.
 - **[Vehicles](docs/vehicles.md)**: Flatbed vehicle design, leg & nozzle geometry, comparative specifications for the TD-4 Lander, KD-9 Shaft Hauler and HD-7 Sidewinder airframes, and the one-frame-per-charter assignment rule.
 

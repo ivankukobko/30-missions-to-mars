@@ -1,4 +1,4 @@
-import { MusicComposer, type MusicTrack } from './MusicComposer.ts';
+import { MusicComposer, SKY, type MusicTrack, type Sounding } from './MusicComposer.ts';
 import { SoundSynthesizer } from './SoundSynthesizer.ts';
 
 /** Master level when not muted. */
@@ -132,6 +132,21 @@ export class AudioManager {
 
   public setMissionContext(track: MusicTrack, missionId: number): void {
     this.composer.setMissionContext(track, missionId);
+  }
+
+  /**
+   * Where the vehicle is, so the score can follow it down.
+   *
+   * Called every frame while a descent is running, and reset to `SKY` when nothing is
+   * flying — a paused or finished mission that left the mix underground would still be
+   * sounding a sub drone over a menu.
+   */
+  public setSounding(at: Sounding): void {
+    this.composer.setSounding(at);
+  }
+
+  public resetSounding(): void {
+    this.composer.setSounding(SKY);
   }
 
   /** No-op with music muted: a mission load must not restart a score the player turned
