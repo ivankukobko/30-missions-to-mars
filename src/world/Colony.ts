@@ -8,7 +8,7 @@ import type { CanyonGenerator } from './CanyonGenerator.ts';
 import { buildColonyCells, buildColonyGizmos } from './ColonyRender.ts';
 import { COLONY_LAYERS, COLONY_LAYER_SPACING, COLONY_VESSEL_DIAMETER } from './ColonyLattice.ts';
 import { setLanderFocus } from './LanderFade.ts';
-import type { PlacedCell } from './ColonyOrganism.ts';
+import { LANE, LINK, TRAIT, type PlacedCell } from './ColonyOrganism.ts';
 import type { ColonyDebug } from './ColonyRender.ts';
 
 /**
@@ -263,6 +263,32 @@ const DEAD_RELAY_CLEARANCE = 25;
  * `HEIGHT` is short on purpose — it is one vehicle standing on its legs, not a tower.
  * The silhouette does the work, not the scale.
  */
+/**
+ * Obstruction lights on whatever stands beside the way in.
+ *
+ * The steady guides say *where the lane is*; these say *where it starts*. A pilot on entry
+ * is looking for the opening, not for its walls, and the steady marks only become legible
+ * once you are far enough down to be committed. A flash carries at a distance the way a
+ * lit edge does not.
+ *
+ * **Crowning cells only** — a cell that fronts a lane and has nothing on top of it, which
+ * is the top course of every structure around the approach and nothing else. Derived from
+ * the cell's own `LINK.up` rather than authored, so a colony that grows another storey next
+ * mission moves its lights up with it and cannot leave them buried mid-mass.
+ */
+const CROWN = {
+  /** Seconds per flash. Faster than the radar's 2.4 double-tap and the relay's 2.6 single,
+   *  because a fourth pulsing thing in a dark canyon has to be told apart by rate. */
+  STROBE_PERIOD: 1.1,
+  /** Fraction of the cycle lit. Short — a blink, not a pulse. */
+  DUTY: 0.14,
+  /** Height above the cell's own top face. Clear of the frame, not floating off it. */
+  LIFT: 1.6,
+  BASE_SIZE: 1.5,
+  /** Smallest apparent size, as a fraction of camera distance. See `RADAR.MIN_ANGULAR`. */
+  MIN_ANGULAR: 0.006,
+} as const;
+
 const RELAY = {
   Z: 0,
   DEAD_Z:
@@ -593,6 +619,8 @@ export class Colony {
    * beacon to pose, which is the entire difference between them.
    */
   private relays: { beacon: THREE.Sprite; world: THREE.Vector3 }[] = [];
+  /** Approach lights on the top course of everything fronting a lane. See `CROWN`. */
+  private crowns: { beacon: THREE.Sprite; world: THREE.Vector3 }[] = [];
   private lattices: LatticeEntry[] = [];
   /** Round-robin cursor, so the rebuild budget cannot starve the same structures. */
   private latticeCursor = 0;
@@ -621,6 +649,7 @@ export class Colony {
   ): void {
     this.updateRadar(dt, camera);
     this.updateRelays(missionTime, camera);
+    this.updateCrowns(missionTime, camera);
     if (camera) this.updateLattices(camera);
     // Where the foreground layer thins out, so it never hides the vehicle. Left at its
     // default — far above the canyon, so the layer stays solid — when there is no lander,
@@ -755,10 +784,31 @@ export class Colony {
     }
   }
 
+  /**
+   * Blinks the approach lights.
+   *
+   * Posed from `missionTime` for the same reason the relays are: `CLAUDE.md` requires
+   * anything that moves to come off the fixed 120 Hz step, and these are on screen for the
+   * whole of every descent. All of them flash together — they mark one opening, and a
+   * sequence would read as several.
+   */
+  private updateCrowns(missionTime: number, camera?: THREE.Camera): void {
+    if (this.crowns.length === 0) return;
+    const t = (((missionTime / CROWN.STROBE_PERIOD) % 1) + 1) % 1;
+    const opacity = t < CROWN.DUTY ? 1 : 0.1;
+    for (const crown of this.crowns) {
+      (crown.beacon.material as THREE.SpriteMaterial).opacity = opacity;
+      if (!camera) continue;
+      const dist = camera.position.distanceTo(crown.world);
+      crown.beacon.scale.setScalar(Math.max(CROWN.BASE_SIZE, dist * CROWN.MIN_ANGULAR));
+    }
+  }
+
   build(props: Prop[], canyon: CanyonGenerator, debug?: ColonyDebug): void {
     this.dispose();
     this.pads = [];
     this.rings = [];
+    this.crowns = [];
     this.lattices = [];
     this.latticeCursor = 0;
     this.radar = null;
@@ -1170,6 +1220,64 @@ export class Colony {
     for (const obj of built) obj.userData.corp = prop.corp;
     this.objects.push(...built);
 
+    /**
+     * An approach light on every crowning cell that fronts a lane.
+     *
+     * `LINK.up` unset is "nothing on top of me", so this selects the top course and only
+     * the top course — the roofline around the way in. A cell buried under another gets
+     * nothing, which is what keeps the lights on the silhouette instead of inside the mass.
+     *
+     * A sprite rather than geometry, and outside the merged buckets, because it has to
+     * blink: the merge is what makes the steady marks affordable and it is exactly what
+     * makes per-frame opacity impossible.
+     */
+    const glow = this.glowTexture();
+    const crownLift = prop.cellSize / 2 + CROWN.LIFT;
+    // Nothing to hang a light on without the sprite's texture, and nothing to look at it
+    // either — this is the headless path, which has no renderer at all.
+    for (const cell of glow === null ? [] : prop.cells) {
+      if ((cell.traits & LANE) === 0) continue;
+      if (cell.links & LINK.up) continue;
+      const beacon = new THREE.Sprite(
+        new THREE.SpriteMaterial({
+          color: CORPS[prop.corp].color,
+          map: glow,
+          transparent: true,
+          depthWrite: false,
+          // Unfogged like the radar's and the relay's: the whole job is being findable
+          // from entry altitude, which is precisely where fog would erase it.
+          fog: false,
+        }),
+      );
+      /**
+       * On the corner that overlooks the lane, not the middle of the roof.
+       *
+       * A light centred on a roof belongs to the building. One on the edge above the lane
+       * belongs to the *opening* — which is what it is for, and it is also where a real
+       * obstruction light goes, because the hazard is the corner somebody can fly into
+       * rather than the middle of a slab nobody can.
+       *
+       * The trait bits already say which side: `laneWest`/`laneEast` name the flank the
+       * lane runs past, and `laneBehind` means the lane is the play plane, so the light
+       * leans toward z = 0 by the same rule the wall markings use. A pillar between two
+       * approaches carries both bits, the offsets cancel, and it correctly ends up back in
+       * the middle — there is no one edge for it to prefer.
+       */
+      const edgeX =
+        ((cell.traits & TRAIT.laneEast) !== 0 ? 1 : 0) - ((cell.traits & TRAIT.laneWest) !== 0 ? 1 : 0);
+      const edgeZ = (cell.traits & TRAIT.laneBehind) !== 0 ? -Math.sign(cell.z) : 0;
+      const world = new THREE.Vector3(
+        cell.x + edgeX * (prop.cellSize / 2),
+        cell.y + crownLift,
+        z + cell.z + edgeZ * (DEPTH.colony / 2),
+      );
+      beacon.position.copy(world);
+      beacon.scale.setScalar(CROWN.BASE_SIZE);
+      this.scene.add(beacon);
+      this.objects.push(beacon);
+      this.crowns.push({ beacon, world });
+    }
+
     // One collider per cell, sized to the *full* cell rather than the leaner module or
     // open frame drawn inside it — the same "the frame is see-through, not fly-through"
     // rule every other structure's collider already keeps: what you see is allowed to be
@@ -1199,7 +1307,27 @@ export class Colony {
    * with no image assets. Tiny on purpose — it is never drawn larger than a few pixels
    * at the distances that matter, and a bigger canvas would only cost memory.
    */
-  private glowTexture(): THREE.Texture {
+  /**
+   * The shared glow sprite, built once per colony and `null` where there is no DOM.
+   *
+   * It used to build a fresh 32×32 canvas on every call, which was invisible while the
+   * only callers were one radar and a handful of relays. The approach lights put one on
+   * every crowning cell that fronts a lane, so the same code would have allocated a canvas
+   * and a texture per light — and `ColonyBalance` and `ReferencePilot` run headless, where
+   * `document` does not exist at all and the first colony to grow beside a lane took the
+   * whole suite down with `document is not defined`.
+   *
+   * `undefined` means not yet asked, `null` means asked and unavailable — the two have to
+   * be distinguishable or a headless build retries the lookup once per light.
+   */
+  private glow: THREE.Texture | null | undefined;
+
+  private glowTexture(): THREE.Texture | null {
+    if (this.glow !== undefined) return this.glow;
+    if (typeof document === 'undefined') {
+      this.glow = null;
+      return null;
+    }
     const size = 32;
     const canvas = document.createElement('canvas');
     canvas.width = size;
@@ -1215,6 +1343,7 @@ export class Colony {
     }
     const texture = new THREE.CanvasTexture(canvas);
     this.textures.push(texture);
+    this.glow = texture;
     return texture;
   }
 
@@ -1519,6 +1648,9 @@ export class Colony {
   }
 
   dispose(): void {
+    // The texture itself is disposed with the rest below; this is the cache handle, and
+    // leaving it set would hand the next build a disposed texture.
+    this.glow = undefined;
     for (const obj of this.objects) {
       this.scene.remove(obj);
       // Traversed rather than treated as a single mesh: the radar head is a group with

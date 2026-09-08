@@ -940,10 +940,9 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       // The *scratch* reach below is a different question: whether this cell is legal
       // footing for something new this mission. Carried-forward cells are load-bearing by
       // the fact that they are standing — their own reach was checked the mission they
-      // were built, and nothing has been removed from under them (growth is strictly
-      // additive — see `ColonyPlan`) — so this is unconditionally 0 regardless of what
-      // `cell.reach` says, and must stay that way or a colony resuming from a genuinely
-      // cantilevered edge would refuse to grow from it a second time.
+      // were built — so this is unconditionally 0 regardless of what `cell.reach` says, or
+      // a colony resuming from a genuinely cantilevered edge would refuse to grow from it
+      // a second time.
       reach.set(key, 0);
       built.set(cell.corp, Math.max(built.get(cell.corp) ?? 0, cell.order + 1));
     }
@@ -1098,6 +1097,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
      * moved the same failure onto a different seed.
      */
     if (at(spore.col, spore.row, 0)) continue; // a rival got here first
+
     claim(spore.corp, spore.col, spore.row, 0, 0);
     // Added to whatever the corp is already working on rather than replacing it — a
     // rescue nucleus is a second front, not a restart.

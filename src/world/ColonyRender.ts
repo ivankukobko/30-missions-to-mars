@@ -138,6 +138,7 @@ function box(w: number, h: number, d: number, x: number, y: number, z: number): 
 }
 
 
+
 /**
  * A pressure vessel, which is what a module on Mars actually is.
  *
@@ -318,6 +319,115 @@ const LAYER_DIM = 0.34;
  * a bright blob and every module ends up wearing one.
  */
 const LAMP_THICK = 0.09;
+
+/**
+ * How far the pair of lane stripes sits from the middle of the face it is on, as a
+ * fraction of that face's width.
+ *
+ * They were at 0.46 — hard against the corners, which is where an outline goes and where
+ * they started life as one. Standing them up changed what they are: a pair of verticals
+ * near the middle reads as one marking with a gap in it, while the same pair on the corners
+ * reads as the *edges of the block*, and a colony is nothing but blocks. Bringing them in
+ * separates the marking from the massing it is painted on.
+ *
+ * It now sets the marking's **whole width** rather than a gap: each half is exactly as wide
+ * as its own offset from centre, so the pair abuts on the centreline whatever this is, and
+ * raising it widens the arrows without ever reopening the seam that makes them arrows.
+ * About half the face at 0.24, which leaves the block's own edges reading as edges.
+ */
+const MARK_SPREAD = 0.24;
+
+/**
+ * How far the marking stands off the face it is painted on, as a fraction of its own width.
+ *
+ * Almost nothing. These began as fittings — boxes bolted to a frame — and a projected
+ * marking is not bolted to anything: it lies *on* the surface. Any real depth also gives
+ * the pair four lit side faces the chevrons run around, which is what stopped the two
+ * halves reading as one arrow.
+ */
+const MARK_FLAT = 0.18;
+
+/**
+ * Diagonal hazard striping for the lane markings, as an emissive mask.
+ *
+ * The bars were solid light. A solid bar says *there is an edge here*; a striped one says
+ * the same thing and reads as a **barrier**, which is the association every road and every
+ * racetrack already trained into the player. It is also the one pattern that survives this
+ * game's viewing conditions — coarse, high-contrast and repeating, so foreshortening turns
+ * it into a texture rather than into mush the way fine detail would.
+ *
+ * An `emissiveMap` rather than a colour map, so it costs **nothing**: the beacons material
+ * already runs a dark housing under a corp-coloured emissive, and masking the emissive
+ * leaves the unlit stripes as that housing. No second material, no transparency, no
+ * sorting, and the charter's own colour survives — which a literal yellow-and-black would
+ * have thrown away, since colour is how this canyon says who built a thing.
+ *
+ * Built in code and shared for the life of the process. Every texture in this game is
+ * canvas-drawn — nothing ships as an asset — and this one has no per-build state, so it is
+ * made once rather than per colony. `null` where there is no DOM, which is the headless
+ * path the tests run on.
+ */
+let chevronTexture: THREE.Texture | null | undefined;
+
+function chevrons(): THREE.Texture | null {
+  if (chevronTexture !== undefined) return chevronTexture;
+  if (typeof document === 'undefined') {
+    chevronTexture = null;
+    return null;
+  }
+  const size = 32;
+  const canvas = document.createElement('canvas');
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    chevronTexture = null;
+    return null;
+  }
+  // Diagonals rather than plain bands: a bar crossed at 45° reads as a barrier from any
+  // approach angle, where horizontal banding vanishes as the bar turns edge-on.
+  /**
+   * A `∨` baked into the texture, rather than two mirrored halves meeting at a seam.
+   *
+   * The seam version worked and was fragile for a reason worth keeping: it made the arrow
+   * out of `u` handedness, and `BoxGeometry` gives every face its own `udir` — so the same
+   * rule produced `∨` on one face and `∧` on the one opposite, and each fix only moved
+   * which faces disagreed.
+   *
+   * A chevron is symmetric about its own vertical axis, so mirroring `u` leaves it
+   * unchanged. Handedness stops mattering entirely, and the direction is carried by `v`
+   * alone — which *is* consistent across all four side faces of a box, because they share
+   * `vdir`. That turns a whole class of bug into one that cannot be expressed.
+   */
+  const image = ctx.createImageData(size, size);
+  const band = size / 4;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Distance from the centreline decides how far down the stripe has travelled, so the
+      // two sides of the band are mirror images and meet as a point.
+      const fold = Math.abs(x - (size - 1) / 2);
+      const lit = Math.floor((fold + y) / (band / 2)) % 2 === 0 ? 255 : 0;
+      const i = (y * size + x) * 4;
+      image.data[i] = lit;
+      image.data[i + 1] = lit;
+      image.data[i + 2] = lit;
+      image.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  // Box faces carry 0..1 UVs, and every bar is now exactly one cell long, so a fixed
+  // repeat gives the same stripe pitch on every marking in the canyon.
+  texture.repeat.set(1, 4);
+  // A mask, not a colour: decoding it as sRGB would bend the duty cycle of the stripes.
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.magFilter = THREE.NearestFilter;
+  chevronTexture = texture;
+  return texture;
+}
 
 /**
  * The corp colour as a *light* rather than as paint.
@@ -559,9 +669,6 @@ export function buildColonyCells(
         const deep = moduleDepth(radius * 2, depth);
         const faceZ = deep / 2;
         const face = radius * 2;
-        // The building's own extent across the flank the lane lamps hang on: its diameter
-        // when it stands, its full length when it lies.
-        const width = vertical ? face : length;
         const bare = span === 1 && first.scaffold;
         /**
          * Mast bodies are fabricated steelwork rather than a cast pressure hull, and the
@@ -715,8 +822,8 @@ export function buildColonyCells(
            * channel is flying straight at this face, which makes it the single most useful
            * surface in the colony for navigation and, until now, the only unlit one.
            *
-           * Square to the camera, generous, and in the bright bucket: it tells you where the
-           * corridor *goes*, where a flank vane only tells you that you are beside one.
+           * Square to the *lane*, generous, and in the bright bucket: it tells you where the
+           * corridor goes, where a flank vane only tells you that you are beside one.
            * Deliberately no yaw and no diagonal blending when a flank bit is also set — two
            * fittings each square to their own face read better than one facing neither.
            */
@@ -727,11 +834,78 @@ export function buildColonyCells(
             // which side of it you were: one alphabet for beside, another for ahead. One
             // marking that simply appears on whichever face the lane is on is both easier
             // to learn and honest about being the same thing.
-            const half = bare ? cellSize * 0.86 * 0.46 : radius * 0.62;
-            const along = bare ? cellSize * 0.86 * 0.5 : deep * 0.7;
-            for (const sy of [-1, 1]) {
-              beacons.push(box(along, t, t, cell.x, cell.y + sy * half, at + faceZ + t / 2));
-            }
+            /**
+             * **The cell's own edge, whatever is drawn inside it.**
+             *
+             * This read `bare ? cellSize * 0.86 * 0.46 : radius * 0.62` — the frame's leg
+             * spacing on a scaffold, the vessel's flank on a hull. Two different fittings
+             * for the same fact, and a colony is a mixed run of both, so a vertical line
+             * stepped in and out at every storey where the massing changed. It also undid
+             * the continuity above: bars that meet only when consecutive cells happen to
+             * be the same kind are still a column of dashes.
+             *
+             * A lane marking marks the *cell face* — the cell is the same size either way,
+             * so the marking is too, and a run of them lines up through scaffold and hull
+             * alike.
+             */
+            const half = cellSize * 0.86 * MARK_SPREAD;
+            /**
+             * **A full cell pitch, so the bars on stacked cells meet.**
+             *
+             * They were about half a cell, which left a gap at every storey and drew the
+             * approach as a column of dashes. A run of dashes reads as several separate
+             * fittings; an unbroken line reads as the edge of the opening, which is the
+             * thing actually being navigated. Exactly `cellSize` and centred on the cell,
+             * so a bar spans its own cell and abuts its neighbour's with nothing between.
+             */
+            const along = cellSize;
+            /**
+             * **On the face that looks at the lane, which is not always the camera's.**
+             *
+             * This was pinned to `+faceZ` — the front of the cell — on the reasoning that a
+             * marking wants to be square to the viewer. It is right exactly half the time.
+             * `laneBehind` is only ever set on layers ±1, and the lane it marks is the play
+             * plane between them: a cell one layer *back* does face the lane with its front,
+             * and a cell one layer *forward* faces the lane with its back. Pinning the front
+             * mounted every marking on the near layer onto its camera side, where it floats
+             * in front of the structure it belongs to and lights nothing a pilot in the
+             * channel can use.
+             *
+             * The sign of the layer is the whole fix: the lit face is the one pointing at
+             * z = 0, so the offset runs *against* the layer's own displacement.
+             */
+            const toward = -Math.sign(layerZ) * (faceZ + t / 2);
+            /**
+             * **Vertical bars, on the left and right edges.**
+             *
+             * They were horizontal — one along the top edge, one along the bottom — on the
+             * argument that a foreshortened building reads by its outline. True, and it
+             * still lost: a pilot coming down a channel is moving *vertically*, so a
+             * horizontal bar is a line crossing their path that grows and passes in a
+             * frame, while a vertical one is a line running *with* it that stays on screen
+             * the whole descent. The same amount of light does much more work stood up.
+             */
+            /**
+             * One of the pair mirrored, so the two chevron runs meet as arrows — see
+             * `mirrorUv`.
+             *
+             * **Which one is not arbitrary.** Mirroring the near bar instead of the far one
+             * turns every `∨` into a `∧`, and the marking then points a descending pilot
+             * back the way they came. It was that way round first, and it reads as clearly
+             * wrong the moment you are inside the lane.
+             */
+            /**
+             * The pair **abuts**: each half is exactly as wide as its offset from centre, so
+             * the two meet on the centreline with no gap.
+             *
+             * That is what turns them into arrows rather than into two bars leaning at each
+             * other. The chevrons run opposite ways either side of the seam, so each stripe
+             * crossing it completes as a single `∨` — the shape only exists at the join, and
+             * a gap of any size breaks every one of them in half.
+             */
+            // One band carrying the whole arrow — see `chevrons`. The pair of mirrored
+            // halves this replaced is what made the direction depend on the face.
+            beacons.push(box(half * 2, along, t * MARK_FLAT, cell.x, cell.y, at + toward));
           }
 
           /**
@@ -770,12 +944,18 @@ export function buildColonyCells(
             // where there is a hull — either way the strip sits *on* the structure. A lying
             // pipe is flanked along its whole length, a standing one only at its diameter,
             // which is why this reads `width` rather than assuming one of the two.
-            const edgeX = bare ? cell.x + (sx * h) / 2 : cx + sx * (width / 2) * 0.94;
-            const half = bare ? h * 0.46 : radius * 0.62;
-            const along = bare ? h * 0.5 : deep * 0.7;
-            for (const sy of [-1, 1]) {
-              beacons.push(box(t, t, along, edgeX, cell.y + sy * half, at));
-            }
+            // The cell's own flank and the cell's own edges, on scaffold and hull alike —
+            // see the wall marking above for why the massing must not change the fitting.
+            const edgeX = cell.x + (sx * h) / 2;
+            const half = h * MARK_SPREAD;
+            // A full pitch, for the reason the wall's carry: stacked cells join into one
+            // line instead of a column of dashes.
+            const along = cellSize;
+            // Stood up for the same reason as the wall's, and at the flank's own front and
+            // back edges rather than its top and bottom — so the pair frames the opening
+            // the pilot is descending through instead of underlining it.
+            // One band, exactly as the wall marking above.
+            beacons.push(box(t * MARK_FLAT, along, half * 2, edgeX, cell.y, at));
           }
 
           // Walkways, drawn once per edge: only the +x and +y halves of each link pair. Links
@@ -885,6 +1065,9 @@ export function buildColonyCells(
         // perspective — the far side of a canyon full of lit frontage reading as bright as
         // the near side is the exact cue that flattened the three layers into one before.
         emissive: neon(theme.color, 0.42),
+        // Striped rather than solid — see `chevrons`. The unlit stripes fall through to
+        // `color` above, which is why this needs no second material.
+        emissiveMap: chevrons(),
         /**
          * **Beacons lead, marks identify** — and the two get separate materials because
          * that is a difference in what the light is *for*, not a difference in decoration.
@@ -901,6 +1084,21 @@ export function buildColonyCells(
          * this is the one case where two fittings mean opposite things to a pilot.
          */
         emissiveIntensity: 3.2,
+        /**
+         * **Semi-transparent, because this is projected rather than painted.**
+         *
+         * Nothing in the canyon is signage — the charters fly cargo, they do not send
+         * someone out with a brush — so a solid marking on a hull raises a question the
+         * fiction has no answer to. A translucent one reads as thrown onto the structure by
+         * the same augmented layer that draws brackets on the vehicle, which is a thing the
+         * game already establishes and the player already believes.
+         *
+         * `depthWrite` is deliberately left alone: `fade` below turns it off for structures
+         * near the vehicle and leaves it on elsewhere, and that split is tuned. Forcing it
+         * off everywhere would let far markings sort through the mass they are painted on.
+         */
+        transparent: true,
+        opacity: 0.62,
         roughness: 0.5,
         metalness: 0,
         flatShading: true,
