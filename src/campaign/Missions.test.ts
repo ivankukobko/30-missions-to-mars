@@ -19,6 +19,7 @@ import {
   debriefLine,
 } from './Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
+import { THEMES } from '../audio/MusicComposer.ts';
 import { CORPS } from '../world/CanyonSpec.ts';
 import { checkLayout } from './Layout.ts';
 import { mergeDigs, type Excavation } from '../world/CanyonGenerator.ts';
@@ -351,11 +352,22 @@ describe('worldAt accumulation', () => {
     }
   });
 
-  it('plants the radar from mission 2 once the mast is known', () => {
-    expect(worldAt(2, null).props.some((p) => p.kind === 'radar')).toBe(false);
+  it('plants the radar from mission 3 once the mast is known', () => {
+    expect(worldAt(3, null).props.some((p) => p.kind === 'radar')).toBe(false);
     expect(worldAt(1, 12).props.some((p) => p.kind === 'radar')).toBe(false);
 
-    const radar = worldAt(2, 12).props.find((p) => p.kind === 'radar');
+    /**
+     * **Not during mission 2, which is the run that carries it.**
+     *
+     * This assertion ran at `id: 2` and passed, because the gate was `id >= 2`. Mission 2's
+     * payload is the radar and `Game` writes `mastX` from its landing, so the mast was
+     * being drawn standing on the floor while it was still strapped under the vehicle —
+     * only visible on a replay, since `mastX` is null until that landing happens.
+     * `docs/lore.md` has said "from mission 3, once the mast is standing" throughout.
+     */
+    expect(worldAt(2, 12).props.some((p) => p.kind === 'radar')).toBe(false);
+
+    const radar = worldAt(3, 12).props.find((p) => p.kind === 'radar');
     expect(radar).toBeDefined();
     if (radar?.kind === 'radar') expect(radar.x).toBe(12);
   });
@@ -367,7 +379,7 @@ describe('worldAt accumulation', () => {
   });
 
   it('carries the exact touchdown height when it is known', () => {
-    const radar = worldAt(2, 12, -3.4).props.find((p) => p.kind === 'radar');
+    const radar = worldAt(3, 12, -3.4).props.find((p) => p.kind === 'radar');
     if (radar?.kind === 'radar') expect(radar.y).toBe(-3.4);
     else throw new Error('radar missing');
   });
@@ -375,7 +387,7 @@ describe('worldAt accumulation', () => {
   it('omits y for a save from before the height was tracked, not a guess', () => {
     // Distinct from y=0, which is a real height: `buildRadar` tells the two apart by
     // whether the field exists at all, not by its value.
-    const radar = worldAt(2, 12).props.find((p) => p.kind === 'radar');
+    const radar = worldAt(3, 12).props.find((p) => p.kind === 'radar');
     if (radar?.kind === 'radar') expect(radar.y).toBeUndefined();
     else throw new Error('radar missing');
   });
@@ -589,9 +601,19 @@ describe('music track', () => {
   });
 
   it('names a track that actually has a theme', () => {
+    // Against `THEMES` rather than `CORPS`. It used to check the corp table, which worked
+    // only while every track was a charter — `shutdown` is a track with no client, and the
+    // question this asks has always been whether the score can play it.
     for (const m of MISSIONS) {
-      expect(CORPS[musicTrackFor(m)]).toBeDefined();
+      expect(THEMES[musicTrackFor(m)]).toBeDefined();
     }
+  });
+
+  it('leaves the shutdown cue to the epilogue', () => {
+    // A mission scored by `shutdown` would be a delivery with no employer in the music.
+    // The track exists for the one flight that has no client, and `beginEpilogueFall` is
+    // the only place allowed to ask for it.
+    for (const m of MISSIONS) expect(musicTrackFor(m)).not.toBe('shutdown');
   });
 });
 
@@ -1262,12 +1284,28 @@ describe('the relays', () => {
     expect(relays(1).filter((p) => p.kind === 'relay' && p.live)).toHaveLength(0);
   });
 
-  it('stands the live one wherever the prologue put it, from mission 1 on', () => {
-    // No `id >=` gate, unlike the radar's `id >= 2`. The mast is cargo mission 1 is still
-    // carrying; the relay is already on the rim before mission 1 begins.
-    const live = relays(1, { x: 148, y: 239 }).filter((p) => p.kind === 'relay' && p.live);
-    expect(live).toHaveLength(1);
-    expect(live[0]).toMatchObject({ x: 148, y: 239, live: true });
+  it('stands the live one wherever the prologue put it, from mission 2 on', () => {
+    const live = (id: number) =>
+      relays(id, { x: 148, y: 239 }).filter((p) => p.kind === 'relay' && p.live);
+
+    /**
+     * **Absent during mission 1, even on a save that has one.**
+     *
+     * This assertion used to run the other way, with a comment claiming "the relay is
+     * already on the rim before mission 1 begins". The repo says otherwise in two places:
+     * the prologue's payload is `UL-5 Relay`, and its debrief is the outpost hearing a
+     * voice on that relay for the first time. It is the thing mission 1 delivers, so it
+     * cannot be standing there during mission 1 — the same argument the radar's `id >= 3`
+     * gate makes one mission later.
+     *
+     * On a fresh save the bug was invisible: `relayX` is null until the prologue lands.
+     * It only appeared on a **replay**, with the antenna standing on the target pad.
+     */
+    expect(live(1)).toHaveLength(0);
+
+    expect(live(2)).toHaveLength(1);
+    expect(live(2)[0]).toMatchObject({ x: 148, y: 239, live: true });
+    expect(live(29)).toHaveLength(1);
   });
 
   it('is the one prop in the game that belongs to nobody', () => {

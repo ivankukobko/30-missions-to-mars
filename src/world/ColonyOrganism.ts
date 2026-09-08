@@ -1,6 +1,6 @@
 import { hash01 } from './Noise.ts';
 import type { CorpId } from './CanyonSpec.ts';
-import { COLONY_LAYERS as LAYERS, type Lattice, type Layer } from './ColonyLattice.ts';
+import { COLONY_LAYERS as LAYERS, type Lattice, type Layer, COLONY_LAYER_SPACING } from './ColonyLattice.ts';
 import type { SubstrateField } from './ColonySubstrate.ts';
 
 /**
@@ -393,6 +393,57 @@ export const MAX_CANTILEVER = 2;
  */
 const MIN_SCORE = -0.3;
 
+/**
+ * Pull toward the colony's own centre of mass — what makes a young colony a *ball*.
+ *
+ * The term the model did not have, and the reason it needed a tier order instead. Every
+ * other weight names a direction: `W_APEX` pulls up-and-in, `W_LATERAL` pushes sideways,
+ * `W_HEIGHT` pushes down, `W_DEPTH` pushes back. A colony grown from directional weights
+ * alone always has a favourite, and the measured history is the record of finding out
+ * which one: climbing in the first pass gave width/height 0.27 across six seeds, and depth
+ * at 0.45 collapsed the visible face from about 40 cells to 12 on 121 of 441 corp-missions.
+ * Tiering fixed both by *forbidding* the losing directions until the winning one was spent.
+ *
+ * This is isotropic instead. It has no favourite direction at all — it only ever objects to
+ * being far from the middle — so growth spreads evenly in x, y and z and the shape that
+ * falls out is a mass rather than a wall or a tower.
+ *
+ * **The stalactite comes free.** Nothing here says "grow down": when rock or a rival takes
+ * the sideways cells away, the only legal moves left that stay near the centre are the
+ * vertical ones, so a colony under lateral pressure elongates on its own. That is the
+ * difference between a shape a rule produces and a shape a situation produces.
+ *
+ * Normalised by the colony's own radius, so the penalty is a *proportion* of how big it
+ * already is. Without that a fixed distance cost stops mattering the moment a colony is
+ * bigger than the cost, and the ball becomes a wall again at exactly the size where anybody
+ * would notice.
+ */
+const W_COMPACT = 3.4;
+
+/**
+ * A cost for standing off the play plane — what makes a settlement *face the canyon*.
+ *
+ * `W_COMPACT` is isotropic by design, and that turns out to be one property too few. It
+ * pulls a colony toward its own centre of mass and has no opinion about where that centre
+ * should be, so a colony pushed off the plane by `reservePlane` on its opening missions
+ * keeps its centre wherever it was pushed to and never comes back: from a centroid at −1.2
+ * the cell at layer −2 is *nearer* than the cell at layer 0, so growth drifts backward
+ * monotonically and the play plane stays empty for the rest of the campaign.
+ *
+ * This is the anchor that stops it. Flat per layer of depth and symmetric, so it is not a
+ * push toward the camera — a colony at +1 pays exactly what one at −1 pays. What it says is
+ * that the plane is the good ground: it is where the light is, where the canyon is, and
+ * where every pad the settlement exists to service stands. A colony straddling it is what
+ * the fiction describes and what the player should read.
+ *
+ * Sized against `W_COMPACT`'s own gradient. One layer of eccentricity on a thirty-cell mass
+ * is worth about 0.25 to the compactness term, so anything under that loses the argument
+ * and the plane stays empty; this sits just above it and no higher, because it is meant to
+ * decide which side of a tie a colony falls on rather than to flatten it back into a face.
+ */
+const W_PLANE = 0.35;
+
+
 /** A tip stops after this many moves. Bounded growth without a distance clamp: a colony
  *  that runs out of tips re-buds from somewhere it already stands (see `rebud`). */
 const TIP_LIFE = 22;
@@ -598,13 +649,77 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     return !at(col, row, layer);
   }
 
+  /**
+   * Rival cells touching this one — **including the two directly in front of and behind
+   * it**, which used to cost nothing.
+   *
+   * `depthMoves` still carries the note that "depth never encroaches: the cell in front of
+   * or behind your own is your own building's other side, and no rival has a claim on it."
+   * That was true while depth was a last resort, reached only once a colony had filled its
+   * own layer — the cell behind you really was yours. It stops being true the moment depth
+   * is offered from the start, and the consequence is visible on seed 462126776 at mission
+   * 22: rivalry was priced *within* a layer and free *across* one, so a colony hemmed
+   * sideways found its cheapest move was a different plane. Ixion took one layer, Helion
+   * took the next, and the two grew side by side as flat sheets — segregated by depth,
+   * which is the opposite of both the old flat face and the intended mass.
+   *
+   * Counting depth neighbours makes the cell behind a rival cost what it actually is:
+   * building into somebody else's volume.
+   */
   function rivals(corp: CorpId, col: number, row: number, layer: number): number {
     let n = 0;
     for (const d of DIRS) {
       const other = at(col + d.dc, row + d.dr, layer);
       if (other && other.corp !== corp) n++;
     }
+    for (const d of DEPTH_DIRS) {
+      const other = at(col, row, layer + d.dl);
+      if (other && other.corp !== corp) n++;
+    }
     return n;
+  }
+
+  /**
+   * Running centre of mass per corp, in lattice units, and the count behind it.
+   *
+   * A sum rather than a re-scan: `centroid` is asked once per candidate per step, and
+   * walking every cell of a sixty-cell colony to answer it would make the scoring
+   * quadratic in colony size for a number that changes by one cell at a time.
+   *
+   * Seeded from `existing` as well as from new claims, or a colony resuming next mission
+   * would measure its compactness against only the cells it added this season and drift
+   * away from the mass it is actually attached to.
+   */
+  const mass = new Map<CorpId, { col: number; row: number; layer: number; n: number }>();
+
+  function addToMass(corp: CorpId, col: number, row: number, layer: number): void {
+    const m = mass.get(corp) ?? { col: 0, row: 0, layer: 0, n: 0 };
+    m.col += col;
+    m.row += row;
+    m.layer += layer;
+    m.n += 1;
+    mass.set(corp, m);
+  }
+
+  /**
+   * How far a cell sits from its colony's centre, as a fraction of the colony's own radius.
+   *
+   * Radius from the cube root of the count, because the shape being aimed at is a ball: a
+   * mass of `n` cells has a radius of about `n^(1/3)`, so dividing by it makes the penalty
+   * scale-free — a cell one radius out costs the same whether the colony is eight cells or
+   * eighty. The `+ 1` keeps the very first cells from dividing by nothing.
+   *
+   * Layers are weighted by their real spacing relative to the cell size, so a step
+   * backwards costs what it geometrically is rather than counting as one unit like a step
+   * sideways does — the lattice is not cubic and treating it as one would squash the ball.
+   */
+  function eccentricity(corp: CorpId, col: number, row: number, layer: number): number {
+    const m = mass.get(corp);
+    if (!m || m.n === 0) return 0;
+    const dc = col - m.col / m.n;
+    const dr = row - m.row / m.n;
+    const dl = (layer - m.layer / m.n) * (COLONY_LAYER_SPACING / lattice.cellSize);
+    return Math.hypot(dc, dr, dl) / (Math.cbrt(m.n) + 1);
   }
 
   function claim(corp: CorpId, col: number, row: number, layer: number, cellReach: number): void {
@@ -612,6 +727,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     cells.set(lattice.key(col, row, layer), { corp, order, links: 0, reach: cellReach });
     reach.set(lattice.key(col, row, layer), cellReach);
     built.set(corp, order + 1);
+    addToMass(corp, col, row, layer);
   }
 
   /**
@@ -619,7 +735,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
    * merely penalised — for being out of bounds, rock, forbidden, already claimed, or
    * unsupported, so no weight tuning can ever talk the organism into a channel.
    */
-  function candidates(tip: Tip, step: number, allowDepth = false): Move[] {
+  function candidates(tip: Tip, step: number): Move[] {
     const here = pull(tip.corp, tip.col, tip.row);
     /**
      * The pull toward a corp's own hardware fades once it has arrived. Without this a
@@ -673,7 +789,11 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
         W_APEX *
           (shape[tip.corp]?.gravity ?? 1) *
           ((apexPull(tip.corp, tip.col, tip.row) - apexPull(tip.corp, col, row)) / lattice.cellSize) +
-        W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(col, row, tip.layer), step, 1);
+        W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(col, row, tip.layer), step, 1) -
+        // The shaping term for the whole of a colony's life — it is what replaced the
+        // tier order, so it cannot be switched off partway through one.
+        W_COMPACT * eccentricity(tip.corp, col, row, tip.layer) -
+        W_PLANE * Math.abs(tip.layer);
       return { col, row, layer: tip.layer, link: d.link, back: d.back, score, reach: cellReach, encroach: adjacentRivals > 0 };
     };
 
@@ -684,78 +804,36 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
     }
 
     /**
-     * Climbing onto real rock is ground-tier too, gate and all — hugging a face the corp
-     * did not build is thigmotropism, the same reason `footing` already prices standing
-     * against a wall like standing on the floor. What the gate below holds back is climbing
-     * onto *nothing but the corp's own roof*, which is a different act with a different
-     * cost: rock was always there for free; a storey exists only because the one under it
-     * does, so it is manufactured floor before it is anything to build on. `cliff` in
-     * `ColonyOrganism.test.ts` is the fixture for exactly this distinction — a colony
-     * spored against a wall keeps creeping up it from the first tier, budget allowing,
-     * while one on open ground defers to the ballooning rule below.
+     * **Depth and height are offered with width, always — there is no tier order.**
+     *
+     * What stood here was a strict sequence: fill the ground, then thicken, then climb.
+     * Each stage was unlocked only when the one before it had nothing viable left, and the
+     * reason was sound — a weight cannot express an order, and every attempt to price depth
+     * as a constant either drowned the face (`W_DEPTH` at 0.45 collapsed it from about 40
+     * cells to 12 on 121 of 441 corp-missions) or did nothing (0.05 moved the total by one).
+     *
+     * The order was the wrong shape for the answer. It produces a settlement that is a
+     * *sequence of stages* rather than a thing that grew: a face, then a thickening, then a
+     * tower, each visible as a separate event. A colony is none of those — it is a mass, and
+     * a mass grows in every direction it can at once.
+     *
+     * What makes that expressible now is `W_COMPACT`, which the old model did not have. An
+     * order was necessary while every weight named a direction and the only question was
+     * which one won. Compactness names no direction at all — it objects to being far from
+     * the middle — so growth can be offered every move it has and still come out as a mass
+     * rather than as whichever axis happened to score highest. `W_PLANE` then says which
+     * middle: the play plane, because that is where the light, the canyon and every pad the
+     * settlement services are.
+     *
+     * The two constants the order used to stand in for are still doing their jobs inside
+     * this single pass — `W_LATERAL` prefers sideways to down, `W_HEIGHT` prices altitude —
+     * they simply argue against depth and climbing now instead of being consulted after
+     * them.
      */
-    const climbsOntoRock =
-      substrate.at(tip.col + CLIMB_DIR.dc, tip.row + CLIMB_DIR.dr, tip.layer) === 'surface';
-    if (climbsOntoRock) {
-      const onRock = scoreDir(CLIMB_DIR);
-      if (onRock) scored.push(onRock);
-    }
+    scored.push(...depthMoves(tip, step));
+    const climb = scoreDir(CLIMB_DIR);
+    if (climb) scored.push(climb);
 
-    /**
-     * **Depth is offered only when the layer a tip is on has nowhere worth going on the
-     * ground, and climbing away from rock only when neither the ground nor any layer
-     * does.**
-     *
-     * A rule rather than a weight, because a weight cannot express it. None of the terms
-     * above means anything across a layer — the cell behind is the same column, the same
-     * row, the same distance from every attractor and every apex — so a depth move can
-     * only ever be scored as a flat constant, and a flat constant competes with the
-     * *average* in-plane score rather than the best one. Tuned to 0.45 that filled the
-     * canyon with volume nobody can see: colonies reached 65 cells while the play-plane
-     * face collapsed from about 40 to 12, on 121 of 441 corp-missions under ten. Dropping
-     * it to 0.05 only moved the number (66).
-     *
-     * The real requirement was never a preference, it was an order: fill the ground, then
-     * thicken, then climb. Gating on viability says exactly that and needs no constant to
-     * hold the line — a tip goes backwards, or up, when it is finished or fenced, which is
-     * precisely where the canyon has no width left to give it.
-     *
-     * Climbing used to compete in the very first pass, scored against the ground by the
-     * same terms — and lost only to `W_LATERAL`, a plain constant added specifically
-     * because open air above a tip is legal almost everywhere, so "the ground is not
-     * viable" was true so rarely that depth, and every corp's own `shape.height`, were
-     * fighting a move that had already usually won. Climbing behind the same gate as depth
-     * is what makes width and depth a colony's first instinct and height its last one: a
-     * settlement's own footprint fills in — a genuine `x`/`z` spread, not girth hidden
-     * behind a face nobody sees — before it ever reads as a tower.
-     *
-     * **A rival's seam counts as fenced.** "Nowhere worth going" originally meant no legal
-     * move scoring above `MIN_SCORE`, and a move onto ground a competitor is already
-     * standing on clears that bar easily — `W_RIVAL` docks it 0.7 and a surface bonus pays
-     * that straight back. So a colony boxed in by *neighbours* rather than by rock never
-     * discovered it had a third dimension: on seed 631729407 Ixion spent mission after
-     * mission pushing east into Kessler along a seam, with the whole depth of the canyon
-     * behind it untouched. Free ground now means free of rivals too, so the choice a hemmed
-     * colony faces is between the seam and the layer behind — and both stay on the table,
-     * scored against each other, because a seam does have to get built by somebody.
-     */
-    // The questions below read the *first* option, so the sort has to happen before they
-    // are asked rather than once at the end.
-    scored.sort((a, b) => b.score - a.score);
-    if (viableFace(scored)) return scored;
-
-    if (allowDepth) {
-      scored.push(...depthMoves(tip, step));
-      scored.sort((a, b) => b.score - a.score);
-      if (viableFace(scored)) return scored;
-    }
-
-    // Already offered above if it lands on rock — this is only the open-air case, held
-    // back until here.
-    if (!climbsOntoRock) {
-      const climb = scoreDir(CLIMB_DIR);
-      if (climb) scored.push(climb);
-    }
     return scored.sort((a, b) => b.score - a.score);
   }
 
@@ -769,14 +847,20 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       if (!openAt(tip.col, tip.row, layer)) continue;
       const cellReach = reachOf(tip.corp, tip.col, tip.row, layer);
       if (cellReach === null) continue;
+      const adjacentRivals = rivals(tip.corp, tip.col, tip.row, layer);
       const score =
         W_DEPTH * (shape[tip.corp]?.depth ?? 1) +
         layerSurface(layer) * (substrate.at(tip.col, tip.row, layer) === 'surface' ? 1 : 0) -
+        W_RIVAL * adjacentRivals -
         W_HEIGHT * (shape[tip.corp]?.height ?? 1) * (tip.row / lattice.rows) ** 2 +
-        W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(tip.col, tip.row, layer), step, 3);
-      // Depth never encroaches: the cell in front of or behind your own is your own
-      // building's other side, and no rival has a claim on it.
-      out.push({ col: tip.col, row: tip.row, layer, link: 0, back: 0, score, reach: cellReach, encroach: false });
+        W_JITTER * hash01(seed + CORP_SALT[tip.corp], lattice.key(tip.col, tip.row, layer), step, 3) -
+        W_COMPACT * eccentricity(tip.corp, tip.col, tip.row, layer) -
+        W_PLANE * Math.abs(layer);
+      // Depth *can* encroach now — see `rivals`. It used to be reached only once a colony
+      // had filled its own layer, when the cell behind really was its own building's other
+      // side; offered from the start it is just as capable of landing in somebody else's
+      // volume as a sideways move is.
+      out.push({ col: tip.col, row: tip.row, layer, link: 0, back: 0, score, reach: cellReach, encroach: adjacentRivals > 0 });
     }
     return out.sort((a, b) => b.score - a.score);
   }
@@ -809,7 +893,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       const col = lattice.keyCol(key);
       const row = lattice.keyRow(key);
       const layer = lattice.keyLayer(key);
-      const options = candidates({ col, row, layer, corp, life: 1, lastDir: 0, depth: allowDepth }, step, allowDepth);
+      const options = candidates({ col, row, layer, corp, life: 1, lastDir: 0, depth: allowDepth }, step);
       // The face-first pass asks for *unclaimed* ground, matching the depth gate in
       // `candidates`. Accepting a cell whose only prospects are a rival's seam would let
       // this pass always succeed, and the depth pass below it would never be reached.
@@ -849,6 +933,10 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
       // actually built on, which the renderer reads to decide its shape and must not
       // change just because a mission has passed.
       cells.set(key, { ...cell });
+      // Carried cells count toward the centre of mass. Without this a colony resuming next
+      // season measures its own compactness against only what it added this one, and drifts
+      // away from the mass it is actually attached to.
+      addToMass(cell.corp, col, row, layer);
       // The *scratch* reach below is a different question: whether this cell is legal
       // footing for something new this mission. Carried-forward cells are load-bearing by
       // the fact that they are standing — their own reach was checked the mission they
@@ -994,9 +1082,21 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
   for (const spore of spores) {
     if (!lattice.inBounds(spore.col, spore.row)) continue;
     if (substrate.isSolid(spore.col, spore.row) || forbidden(spore.col, spore.row)) continue;
-    // A nucleus always lands on the play plane — that is where the ground the spore search
-    // measured actually is, and a colony that started behind the camera would appear from
-    // nowhere as far as the player is concerned.
+    /**
+     * A nucleus always lands on the play plane — that is where the ground the spore search
+     * measured actually is, and a colony that started behind the camera would appear from
+     * nowhere as far as the player is concerned.
+     *
+     * There was a reservation here for a while: the play plane held clear on the two
+     * missions with no target pad, so the player could not collide with a colony on a run
+     * where they may set down anywhere. It is gone, and volumetric growth is why. A colony
+     * that grows as a mass rather than a sheet is about two columns across on its opening
+     * missions — ten cells against a floor a hundred and twenty units wide — so a landing
+     * site is never in question, and the reservation was answering a threat the growth
+     * model had already removed. Every version of it cost more than it bought: holding the
+     * whole plane pushed colonies into slots and grew them as pipes, and holding a band
+     * moved the same failure onto a different seed.
+     */
     if (at(spore.col, spore.row, 0)) continue; // a rival got here first
     claim(spore.corp, spore.col, spore.row, 0, 0);
     // Added to whatever the corp is already working on rather than replacing it — a
@@ -1032,7 +1132,7 @@ export function growColony(input: GrowthInput): Map<number, OrganismCell> {
           next.push(tip);
           continue;
         }
-        const options = candidates(tip, step, tip.depth);
+        const options = candidates(tip, step);
         if (!viable(options) || tip.life <= 0) continue; // tip dies
 
         const move = options[0];

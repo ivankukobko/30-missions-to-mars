@@ -653,6 +653,7 @@ export class Interface {
     score: LandingScore,
     onNext: () => void,
     onRetry: () => void,
+    onMenu: () => void,
   ): void {
     const corp = CORPS[mission.client];
     const card = el('div', 'card');
@@ -726,6 +727,28 @@ export class Interface {
     });
     card.append(button);
 
+    /**
+     * The way out, which this card did not have.
+     *
+     * `showFailure` already claims in its own comment that "every other terminal state in
+     * the game offers the menu" — and it was wrong about this one. A wreck could be walked
+     * away from and a *success* could not: the only routes off a delivered payload were
+     * flying it again or flying the next one, which makes finishing a mission the most
+     * trapping screen in the game.
+     *
+     * Last and secondary. The order is deliberate and matches the failure card's: the
+     * qualifier on the result you are looking at, then the bright thing most runs do, then
+     * the exit. Nothing here needs confirmation — the rank is banked by `Progress.complete`
+     * before the card is built, so there is no unsaved work to lose.
+     */
+    const menu = el('button', 'secondary', 'MAIN MENU');
+    menu.addEventListener('click', () => {
+      audio.init();
+      audio.playUiBeep(700, 'square', 0.03);
+      onMenu();
+    });
+    card.append(menu);
+
     this.showPanel(card);
     button.focus();
   }
@@ -748,9 +771,10 @@ export class Interface {
     });
     card.append(button);
 
-    // A wreck used to be the one screen with no way out but flying again. Every other
+    // A wreck used to be the one screen with no way out but flying again, and for a while
+    // afterwards the *result* card was — see `showResult`, which now offers this too. Every
     // terminal state in the game offers the menu, and this is the one a player is most
-    // likely to want to leave from — it is the screen you reach by having a bad time.
+    // likely to want to leave from: it is the screen you reach by having a bad time.
     const menu = el('button', 'secondary', 'MAIN MENU');
     menu.addEventListener('click', onMenu);
     card.append(menu);
@@ -875,12 +899,40 @@ export class Interface {
     // turns the HUD on for every run, and the relay is the one that must not get one.
     this.hud.classList.toggle('hidden', !visible || this.noConsole);
     this.marker.classList.toggle('hidden', !visible || !this.navOnline);
-    this.reticle.setVisible(visible);
+    // A vehicle with no augmented layer stays bare for the same reason the relay stays
+    // dark. Without this the brackets flash for the frame between `Game.begin` turning
+    // the HUD on and `updateOverlays` deciding they should never have been there.
+    this.reticle.setVisible(visible && !this.noOverlay);
     // A live transmission belongs to a flight in progress. Every path that takes the
     // console down — a landing, a wreck, the pause overlay, the menu — is a path that
     // should not leave somebody mid-sentence on the glass behind a card.
     if (!visible) this.radio.clear();
   }
+
+  /**
+   * Whether the augmented layer is on screen at all.
+   *
+   * Distinct from `acquired`, which *stows* it — a stowed layer is still a layer, and the
+   * two vehicles that must not have one need it gone. See `Game.updateOverlays`.
+   */
+  setReticleVisible(visible: boolean): void {
+    this.reticle.setVisible(visible && !this.noOverlay);
+  }
+
+  /**
+   * Whether the loaded vehicle projects an augmented layer at all.
+   *
+   * The capability half of the pair, beside `setConsole` and set from the same place. The
+   * per-frame half — whether the player has actually been handed the vehicle yet — is
+   * `setReticleVisible`.
+   */
+  setOverlay(present: boolean): void {
+    this.noOverlay = !present;
+    if (!present) this.reticle.setVisible(false);
+  }
+
+  /** Set while the loaded vehicle has no augmented layer, so nothing can restore one. */
+  private noOverlay = false;
 
   /**
    * Paints the augmented layer on the vehicle. Needs the camera, so it rides with

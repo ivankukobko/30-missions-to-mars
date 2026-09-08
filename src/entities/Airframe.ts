@@ -66,6 +66,26 @@ interface Common {
    * mission 1 while leaving the panel itself in place. This turns off the panel.
    */
   hasConsole: boolean;
+  /**
+   * Whether this vehicle projects an augmented layer at all — the hull brackets, the
+   * attitude arc, the speed numeral.
+   *
+   * Beside `hasConsole` and for the same reason: it is a fact about the vehicle rather
+   * than about the moment. The relay has neither. Its cargo *is* the channel every later
+   * brief arrives on, so the prologue flies before anything exists to project a layer or
+   * anybody exists to project it for.
+   *
+   * **Capability, not permission.** A frame that can draw one still only does when the
+   * player has actually been handed the vehicle — see `Game.updateOverlays`, which keeps
+   * the layer off through the uplink handshake and through the epilogue's fall. The two
+   * gates answer different questions and a vehicle that owned both would have to claim
+   * the ending was about its instruments.
+   *
+   * The landing light is deliberately *not* here. It is a lamp rather than a readout:
+   * every frame carries one, including the relay, because knowing you are coming in too
+   * hot is not a ranging readout and mission one would be unfair without it.
+   */
+  overlay: boolean;
 }
 
 export type Airframe =
@@ -130,6 +150,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     id: 'lander',
     name: 'TD-4 LANDER',
     hasConsole: true,
+    overlay: true,
     scheme: 'attitude',
     thrust: 36,
     fuelScale: 1,
@@ -147,6 +168,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     id: 'hauler',
     name: 'KD-9 SHAFT HAULER',
     hasConsole: true,
+    overlay: true,
     scheme: 'differential',
     thrust: 36,
     fuelScale: 1.1547,
@@ -168,6 +190,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     id: 'helion',
     name: 'HD-7 SIDEWINDER',
     hasConsole: true,
+    overlay: true,
     scheme: 'translation',
     thrust: 36,
     sideThrust: 18,
@@ -206,6 +229,7 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
     id: 'relay',
     name: 'UL-5 RELAY',
     hasConsole: false,
+    overlay: false,
     scheme: 'attitude',
     thrust: 36,
     fuelScale: 2.4,

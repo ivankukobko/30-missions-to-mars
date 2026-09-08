@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MISSIONS } from './Missions.ts';
-import { simulateGrowth, formatGrowth, ROCK_PER_CELL } from '../testing/GrowthModel.ts';
+import { simulateGrowth, formatGrowth, formatShape, ROCK_PER_CELL } from '../testing/GrowthModel.ts';
 import { LANDER } from '../entities/LanderBody.ts';
 
 /**
@@ -26,7 +26,16 @@ const REPORT =
     ?.COLONY_REPORT === '1';
 
 /** Kept small: each entry walks the campaign and rebuilds terrain at every dig stage. */
-const SEEDS = [0, 12345, 631729407];
+/**
+ * Seeds the report walks. Overridable, because a canyon is only ever wrong on a
+ * particular one — `COLONY_SEEDS=462126776 npm run growth:report` points it at whichever
+ * seed somebody is actually looking at, instead of at three that happen to be fine.
+ */
+const SEED_OVERRIDE = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+  .process?.env?.COLONY_SEEDS;
+const SEEDS = SEED_OVERRIDE
+  ? SEED_OVERRIDE.split(',').map((part) => Number(part.trim()))
+  : [0, 12345, 631729407];
 
 const walked = new Map<number, ReturnType<typeof simulateGrowth>>();
 function growth(seed: number) {
@@ -43,6 +52,7 @@ describe('the excavation, measured', () => {
       const steps = growth(seed);
       expect(steps).toHaveLength(MISSIONS.length);
       if (REPORT) console.log(`\n${formatGrowth(steps, seed)}\n`);
+      if (REPORT) console.log(`${formatShape(steps, seed)}\n`);
     }
   });
 

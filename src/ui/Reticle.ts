@@ -24,8 +24,7 @@
 
 import * as THREE from 'three';
 import { LANDER } from '../entities/Lander.ts';
-import { VELOCITY_SPAN } from './HudData.ts';
-import { driftAngle, drifting, vectorReach } from './Instruments.ts';
+import { drifting } from './Instruments.ts';
 
 export interface ReticleState {
   x: number;
@@ -89,10 +88,6 @@ const BRACKET_MARGIN = 1.3;
 /** Smallest half-extent the overlay is allowed to draw, in px. */
 const MIN_HALF = 11;
 
-/** Arrow length at a standstill and at full scale, in px. */
-const REACH_MIN = 14;
-const REACH_MAX = 46;
-
 function el(className: string, html?: string): HTMLElement {
   const node = document.createElement('div');
   node.className = className;
@@ -104,8 +99,6 @@ export class Reticle {
   readonly root = el('ar hidden');
 
   private box = el('ar-box');
-  private vector = el('ar-vector');
-  private vectorStem = el('ar-vector-stem');
   private speed = el('ar-speed');
   private tilt = el('ar-tilt');
   private tiltIndex = el('ar-tilt-index');
@@ -116,13 +109,8 @@ export class Reticle {
   constructor() {
     for (const corner of ['tl', 'tr', 'bl', 'br']) this.box.append(el(`ar-bracket ar-${corner}`));
 
-    // The speed rides on the arrow rather than at a fixed spot under the vehicle, where
-    // it collided with the arrow on the commonest heading of all — straight down.
-    this.vectorStem.append(this.speed);
-    this.vector.append(this.vectorStem);
     this.tilt.append(this.tiltIndex);
-
-    this.root.append(this.box, this.tilt, this.vector);
+    this.root.append(this.box, this.tilt, this.speed);
   }
 
   setVisible(visible: boolean): void {
@@ -189,29 +177,32 @@ export class Reticle {
       this.tilt.classList.toggle('danger', Math.abs(s.tilt) > LANDER.MAX_LANDING_TILT);
     }
 
-    // -------------------------------------------------------------- vector
+    /**
+     * ---------------------------------------------------------------- speed
+     *
+     * **The arrow is gone; only its numeral is left.** It carried direction and danger at
+     * once, and both moved elsewhere: the exhaust trails show which way the vehicle is
+     * actually sliding, which is the motion rather than a projection of it, and
+     * `LandingLight` turns red at the same tolerance the arrow used to. What remained was
+     * a compass standing off the hull at a fixed radius, crossing the vehicle on the
+     * commonest heading there is.
+     *
+     * The numeral is a *ranging* readout and stays gated on `ranging` — printing a figure
+     * in u/s on mission one would undo the lesson that mission is built to teach, more
+     * thoroughly than the panel ever could, because it would sit exactly where the player
+     * is already looking.
+     *
+     * It sits at a fixed spot under the hull now. It used to ride the arrow, precisely to
+     * avoid colliding with it on a straight-down heading — an objection that goes away
+     * with the arrow, and a fixed position is steadier to read than one that orbits.
+     */
     const speed = Math.hypot(s.vx, s.vy);
     const moving = drifting(s.vx, s.vy);
-    this.vector.classList.toggle('hidden', !moving);
     this.speed.classList.toggle('hidden', !moving || !s.ranging);
-    if (!moving) return;
+    if (!moving || !s.ranging) return;
 
-    const heading = driftAngle(s.vx, s.vy);
-    this.vector.style.transform = `rotate(${heading}deg)`;
-    this.vectorStem.style.width = `${vectorReach(speed, VELOCITY_SPAN, REACH_MIN, REACH_MAX)}px`;
-    // The label rides the arrow, so it has to be turned back the other way or the digits
-    // read sideways — and upside down on the half of the compass that matters most.
-    this.speed.style.transform = `translate(-50%, -50%) rotate(${-heading}deg)`;
-
-    // The overlay's own warning threshold is the landing tolerance, so the arrow turns
-    // at the moment the approach stops being survivable rather than at a figure chosen
-    // to look tense.
-    // The arrow still reddens without a radar. Knowing you are coming in too hot is not
-    // a ranging readout — it is the thing the vehicle's own gear screams about — and
-    // withholding it would make mission one unfair rather than merely bare.
-    const fast = speed > LANDER.MAX_LANDING_SPEED;
-    this.vector.classList.toggle('danger', fast);
-    this.speed.classList.toggle('danger', fast);
-    if (s.ranging) this.speed.innerText = speed.toFixed(1);
+    this.speed.style.transform = 'translate(-50%, -50%)';
+    this.speed.classList.toggle('danger', speed > LANDER.MAX_LANDING_SPEED);
+    this.speed.innerText = speed.toFixed(1);
   }
 }

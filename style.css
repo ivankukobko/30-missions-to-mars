@@ -783,46 +783,16 @@ body {
   background: var(--danger);
 }
 
-/* The vector arrow. Rotated to the heading; the stem grows with speed. */
-.ar-vector {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  height: 0;
-  transform-origin: 0 0;
-}
-
-.ar-vector-stem {
-  position: absolute;
-  left: var(--ar-r);
-  top: -1px;
-  height: 2px;
-  background: currentColor;
-}
-
-/* Head, drawn at the far end of the stem. */
-.ar-vector-stem::after {
-  content: '';
-  position: absolute;
-  right: -7px;
-  top: -4px;
-  border-top: 5px solid transparent;
-  border-bottom: 5px solid transparent;
-  border-left: 8px solid currentColor;
-}
-
-.ar-vector.danger {
-  color: var(--danger);
-}
-
-/* Rides the stem, halfway along, counter-rotated in JS so the digits stay upright
-   whichever way the vehicle is going. */
+/* A fixed spot under the hull. It used to ride the vector arrow's stem, counter-rotated
+   in JS to keep the digits upright — which existed only to avoid colliding with the arrow
+   on a straight-down heading. The arrow is gone (see `LandingLight`), so the numeral can
+   sit still, which is steadier to read than one that orbits the vehicle. */
 .ar-speed {
   position: absolute;
   left: 50%;
-  /* Offset perpendicular to the stem, so it always sits beside the line rather than on
-     it. The offset rotates with the arrow, so it stays on the same side at any heading. */
-  top: -11px;
+  /* Clear of the frame's own corner radius, so it never crosses the hull whatever shape
+     the cargo is. */
+  top: calc(var(--ar-r) + 10px);
   font-size: 10px;
   letter-spacing: 0.06em;
   font-variant-numeric: tabular-nums;

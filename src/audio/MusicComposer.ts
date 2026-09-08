@@ -11,7 +11,7 @@ import { WobbleBass } from './WobbleBass.ts';
  * music says *what* it is overriding, and so a track that is not a charter — a finale
  * cue, a shutdown drone — can be added here without touching the mission schema.
  */
-export type MusicTrack = CorpId;
+export type MusicTrack = CorpId | 'shutdown';
 
 /** A triad as semitone offsets from the key's tonic. */
 export type Chord = readonly [number, number, number];
@@ -114,6 +114,8 @@ export interface Voicing {
   percussionNoise: number;
   /** Where the tom sits after its kick, as a fraction of a count. 0.5 is the &. */
   tomOffset: number;
+  /** Wobble-bass gate height. 0 removes the bass entirely. */
+  wobbleLevel: number;
 }
 
 export interface Theme {
@@ -139,6 +141,7 @@ export const VOICING: Voicing = {
   percussionLevel: 0.12,
   percussionNoise: 0.25,
   tomOffset: 0.5,
+  wobbleLevel: 0.11,
 };
 
 /**
@@ -192,6 +195,39 @@ export const THEMES: Record<MusicTrack, Theme> = {
   outpost: { root: 55.0, progression: [vi, ii, iii, V] }, // A1
   helion: { root: 32.7, progression: [iii, iv, ii, vi] }, // C1
   kessler: { root: 36.71, progression: [V, ii, IV, I] }, // D1
+
+  /**
+   * The epilogue. Not a charter, and the one track nobody is being paid by.
+   *
+   * **Everything with a pulse is gone**: no kit, no wobble bass, and the organ down to its
+   * bottom three stops. What is left is the pad, walking a progression, and that is the
+   * whole statement — the machine that kept time has stopped and the room it was in has
+   * not. Twenty-nine missions of groove and then a held chord is a louder event than
+   * either.
+   *
+   * Total silence was the alternative and it is one line away (`stopAmbient` in
+   * `beginEpilogueFall` instead of this). Two things argue against it. The beacon is
+   * detuned **twenty-two cents flat so that it sits outside the harmony** — that is the
+   * documented reason it reads as a machine rather than a voice in the score, and with
+   * nothing playing it has nothing to be outside of. And the epilogue is three transmission
+   * cards before a three-and-a-half second fall; silence across all of it is long enough to
+   * read as a fault rather than a choice.
+   *
+   * It stays in **Ixion's key and progression**, which is where mission 29 already put the
+   * campaign by overriding its own client. A is the key and `vi ii iii V` never reaches it,
+   * closing on the dominant and turning away — for an ending built entirely around a
+   * question it refuses to answer, a progression that is permanently about to arrive is the
+   * one already in the game.
+   */
+  shutdown: {
+    root: 55.0, // A1, the same key mission 29 ends in
+    progression: [vi, ii, iii, V],
+    voice: {
+      drawbars: [0.4, 0.2, 0.1, 0, 0, 0],
+      percussionLevel: 0,
+      wobbleLevel: 0,
+    },
+  },
 };
 
 /** Semitones above a root, in Hz. */
@@ -323,8 +359,9 @@ const RATCHET = [4, 8, 12, 16] as const;
 const RATCHET_SKEW = [1.0, 1.3, 1.7, 2.2] as const;
 
 /** Gate height for the wobble. Deliberately under the pad: the engine is a control
- *  surface and has to stay the loudest thing the player is steering by. */
-const WOBBLE_LEVEL = 0.11;
+ *  surface and has to stay the loudest thing the player is steering by. Per-charter, so a
+ *  track can drop the bass entirely — see `THEMES.shutdown`. */
+const WOBBLE_LEVEL = VOICING.wobbleLevel;
 
 /** How far ahead bars are scheduled. Comfortably over the 500 ms poll, comfortably under
  *  a bar, so a mission change is never more than one bar from taking effect. */
@@ -717,6 +754,7 @@ export class MusicComposer {
   private noise: AudioBuffer | null = null;
   private percussionLevel = PERCUSSION_LEVEL;
   private percussionNoise = PERCUSSION_NOISE;
+  private wobbleLevel = WOBBLE_LEVEL;
   private tomOffset = TOM_OFFSET;
 
   public get isActive(): boolean {
@@ -772,6 +810,11 @@ export class MusicComposer {
     this.percussionNoise = Math.min(1, Math.max(0, noise));
   }
 
+  /** Wobble-bass gate height. 0 removes the bass entirely. */
+  public setWobbleLevel(level: number): void {
+    this.wobbleLevel = Math.max(0, level);
+  }
+
   /** Where the tom sits after its kick, as a fraction of a count. 0.5 is the and. */
   public setTomOffset(offset: number): void {
     this.tomOffset = Math.min(0.9, Math.max(0, offset));
@@ -784,6 +827,7 @@ export class MusicComposer {
     this.setPercussionLevel(v.percussionLevel);
     this.setPercussionNoise(v.percussionNoise);
     this.setTomOffset(v.tomOffset);
+    this.setWobbleLevel(v.wobbleLevel);
   }
 
   /** Plays an arbitrary key and progression; `null` hands the score back to its track. */
@@ -1035,7 +1079,7 @@ export class MusicComposer {
   }
 
   private scheduleWobble(): void {
-    if (!this.ctx || !this.isPlaying || this.isMuted) return;
+    if (!this.ctx || !this.isPlaying || this.isMuted || this.wobbleLevel <= 0) return;
     const now = this.ctx.currentTime;
     const bar = barSeconds(this.tempo);
     const step = stepSeconds(this.tempo);
@@ -1052,7 +1096,7 @@ export class MusicComposer {
         // lookahead and the bass would otherwise spend a bar under the wrong harmony.
         const chord = theme.progression[Math.floor(at / step) % 4];
         const freq = semitone(theme.root, chord[0] + slot.offset);
-        this.wobble.scheduleBar(at, bar, freq, slot.cycles, slot.skew, WOBBLE_LEVEL);
+        this.wobble.scheduleBar(at, bar, freq, slot.cycles, slot.skew, this.wobbleLevel);
       }
       this.nextBar++;
     }

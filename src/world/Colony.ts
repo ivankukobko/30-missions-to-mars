@@ -6,6 +6,7 @@ import { hash01 } from './Noise.ts';
 import { buildRubble, type RubbleSite } from './Rubble.ts';
 import type { CanyonGenerator } from './CanyonGenerator.ts';
 import { buildColonyCells, buildColonyGizmos } from './ColonyRender.ts';
+import { COLONY_LAYERS, COLONY_LAYER_SPACING, COLONY_VESSEL_DIAMETER } from './ColonyLattice.ts';
 import { setLanderFocus } from './LanderFade.ts';
 import type { PlacedCell } from './ColonyOrganism.ts';
 import type { ColonyDebug } from './ColonyRender.ts';
@@ -237,17 +238,37 @@ const RADAR = {
 } as const;
 
 /**
+ * Clearance between the deepest colony geometry and the dead relays behind it.
+ *
+ * The colony grows backwards as well as sideways — `COLONY_LAYERS` runs to −2 — and its
+ * rearmost face lands at about −24.8 today. A corpse parked nearer than that gets grown
+ * over and then in front of, which is the one thing these four must never do: they
+ * predate every charter in this canyon, and a colony rising *past* them says the
+ * opposite.
+ *
+ * Derived from the lattice rather than typed, so a change to the layer count, the layer
+ * spacing or the vessel size cannot quietly bring the settlement out past the wrecks.
+ */
+const DEAD_RELAY_CLEARANCE = 25;
+
+/**
  * The relay, which is a landed vehicle rather than a structure the colony poured.
  *
- * `Z` is the play plane, unlike `RADAR.Z`'s −35. The mast is set back because it is
- * scenery the outpost erected; this is the thing the *player* set down, and putting it
- * in the background would say it happened somewhere else.
+ * **`Z` is the play plane and `DEAD_Z` is not**, and the split is the whole point. The
+ * live one is the thing the *player* set down: putting it in the background would say it
+ * happened somewhere else. The four dead ones were never anybody's delivery — they
+ * predate every charter here — so they belong where the radar is, back in the scenery,
+ * and at −50 they clear both the deepest colony layer and `RADAR.Z` itself.
  *
  * `HEIGHT` is short on purpose — it is one vehicle standing on its legs, not a tower.
  * The silhouette does the work, not the scale.
  */
 const RELAY = {
   Z: 0,
+  DEAD_Z:
+    Math.min(...COLONY_LAYERS) * COLONY_LAYER_SPACING -
+    COLONY_VESSEL_DIAMETER / 2 -
+    DEAD_RELAY_CLEARANCE,
   HEIGHT: 13,
   /** Seconds per blink. Slow, and a single flash: unlike the radar's double-tap. */
   STROBE_PERIOD: 2.6,
@@ -923,7 +944,20 @@ export class Colony {
    * scenery, which is the correct outcome for a player who never flew the prologue.
    */
   private buildRelay(prop: Extract<Prop, { kind: 'relay' }>, canyon: CanyonGenerator): void {
-    const groundY = prop.y ?? canyon.floorAt(prop.x);
+    const z = prop.live ? RELAY.Z : RELAY.DEAD_Z;
+
+    /**
+     * A dead relay is sampled at **its own z**, not at the play plane.
+     *
+     * The opposite of what `buildRadar` does, and for a reason that does not apply here.
+     * The mast has a `prop.y` — the exact height a lander settled at on the z=0 profile —
+     * so for it the far cross-section is a *worse* answer than the truth it already holds.
+     * These have no `y` and never did: they are authored x positions and nothing more, so
+     * the ground under them is simply the ground where they stand. Sampling the play plane
+     * instead would leave a fifty-unit-distant wreck floating over, or buried in, terrain
+     * it has nothing to do with.
+     */
+    const groundY = prop.y ?? (prop.live ? canyon.floorAt(prop.x) : canyon.heightAt(prop.x, z));
 
     /**
      * A dead relay stands in its own dust.
@@ -947,7 +981,7 @@ export class Colony {
     // One pivot for the lot, so the lean tips the whole machine about its feet rather
     // than shearing the mast off the legs it is standing on.
     const frame = new THREE.Group();
-    frame.position.set(prop.x, baseY, RELAY.Z);
+    frame.position.set(prop.x, baseY, z);
     frame.rotation.z = lean;
     this.scene.add(frame);
     this.objects.push(frame);
@@ -996,7 +1030,7 @@ export class Colony {
     beacon.scale.setScalar(RELAY.BASE_SIZE);
     frame.add(beacon);
 
-    this.relays.push({ beacon, world: new THREE.Vector3(prop.x, baseY + RELAY.HEIGHT + 1.1, RELAY.Z) });
+    this.relays.push({ beacon, world: new THREE.Vector3(prop.x, baseY + RELAY.HEIGHT + 1.1, z) });
   }
 
   private buildRadar(prop: Extract<Prop, { kind: 'radar' }>, canyon: CanyonGenerator): void {

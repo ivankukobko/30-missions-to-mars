@@ -41,6 +41,8 @@ missions:
     target: null
     failDepth: -60
     airframe: relay
+    colonyBudget:
+      outpost: 10
     messages: []
 
     debrief:
@@ -59,7 +61,7 @@ missions:
     target: null
     failDepth: -60
     colonyBudget:
-      outpost: 3
+      outpost: 10
     messages:
       - sender: IXION OUTPOST
         content: >-

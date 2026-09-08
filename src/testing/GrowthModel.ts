@@ -2,7 +2,7 @@ import { CanyonGenerator, mergeDigs, type Excavation } from '../world/CanyonGene
 import { FRONT_Z, BACK_Z } from '../world/AntFarm.ts';
 import { SHAFT_CELL, carveFromDig, type ShaftCarve } from '../world/ShaftGrid.ts';
 import { boreDirection, isFloorMounted } from '../world/Shaft.ts';
-import { COLONY_CELL_SIZE } from '../world/ColonyLattice.ts';
+import { COLONY_CELL_SIZE, COLONY_LAYERS } from '../world/ColonyLattice.ts';
 import type { CorpId } from '../world/CanyonSpec.ts';
 import type { Prop } from '../world/Colony.ts';
 import { MISSIONS } from '../campaign/Missions.ts';
@@ -104,12 +104,31 @@ export interface ExcavationMeasure {
   galleryRows: number;
 }
 
+/** One charter's distribution through the lattice at a given mission. */
+export interface ColonyShape {
+  /** Cells per layer, ordered by `COLONY_LAYERS`. */
+  byLayer: number[];
+  /** Extent in columns, rows and layers — a mass is wide in all three. */
+  span: { col: number; row: number; layer: number };
+}
+
 export interface GrowthStep {
   mission: number;
   /** The sol it flies on, so a rate can be read against the fiction's own clock rather
    *  than against mission number, which is not time. */
   sol: number;
   colony: Record<CorpId, number>;
+  /**
+   * How each charter's cells are distributed through the lattice — the measurement the
+   * report could not make.
+   *
+   * A cell count says how *much* a colony built and nothing about what shape it is, and
+   * shape is the whole question once growth is volumetric. Two colonies of forty cells can
+   * be a flat sheet on one layer or a mass across four, and only one of those is what the
+   * model is now trying to produce. `byLayer` catches the failure mode directly: a charter
+   * with everything in one bucket has segregated into a plane.
+   */
+  shape: Record<CorpId, ColonyShape>;
   colonyTotal: number;
   /** Cells the settlement gained, or lost to a route that opened this mission. */
   colonyDelta: number;
@@ -274,15 +293,39 @@ export function simulateGrowth(seed: number, options: GrowthOptions = {}): Growt
   const scores = options.scores ?? {};
 
   const colonyAt = new Map<number, Record<CorpId, number>>();
+  const shapeAt = new Map<number, Record<CorpId, ColonyShape>>();
   {
     // Any mission's fixture carries the same `worlds` resolver and the same generator; the
     // walk only needs the resolver, and `planColonies` reads terrain through pure
     // seed-derived functions (see `missionWorlds`) rather than through the built mesh.
     const { canyon, worlds } = builtCanyon(seed, through);
-    planColonies(through, worlds, scores, seed, canyon, (m, cells) => {
+    planColonies(through, worlds, scores, seed, canyon, (m, cells, lattice) => {
       const by = { outpost: 0, helion: 0, kessler: 0 } as Record<CorpId, number>;
-      for (const cell of cells.values()) by[cell.corp]++;
+      const bounds = {} as Record<CorpId, { c: number[]; r: number[]; l: number[]; layers: number[] }>;
+      for (const corp of ['outpost', 'helion', 'kessler'] as CorpId[]) {
+        bounds[corp] = { c: [], r: [], l: [], layers: COLONY_LAYERS.map(() => 0) };
+      }
+      for (const [key, cell] of cells) {
+        by[cell.corp]++;
+        const b = bounds[cell.corp];
+        const layer = lattice.keyLayer(key);
+        b.c.push(lattice.keyCol(key));
+        b.r.push(lattice.keyRow(key));
+        b.l.push(layer);
+        const slot = COLONY_LAYERS.indexOf(layer as (typeof COLONY_LAYERS)[number]);
+        if (slot >= 0) b.layers[slot]++;
+      }
+      const extent = (xs: number[]) => (xs.length ? Math.max(...xs) - Math.min(...xs) + 1 : 0);
+      const shape = {} as Record<CorpId, ColonyShape>;
+      for (const corp of ['outpost', 'helion', 'kessler'] as CorpId[]) {
+        const b = bounds[corp];
+        shape[corp] = {
+          byLayer: b.layers,
+          span: { col: extent(b.c), row: extent(b.r), layer: extent(b.l) },
+        };
+      }
       colonyAt.set(m, by);
+      shapeAt.set(m, shape);
     });
   }
 
@@ -330,6 +373,11 @@ export function simulateGrowth(seed: number, options: GrowthOptions = {}): Growt
       sol: mission?.sol ?? 0,
       colony,
       colonyTotal,
+      shape: shapeAt.get(m) ?? {
+        outpost: { byLayer: COLONY_LAYERS.map(() => 0), span: { col: 0, row: 0, layer: 0 } },
+        helion: { byLayer: COLONY_LAYERS.map(() => 0), span: { col: 0, row: 0, layer: 0 } },
+        kessler: { byLayer: COLONY_LAYERS.map(() => 0), span: { col: 0, row: 0, layer: 0 } },
+      },
       colonyDelta: colonyTotal - lastColony,
       excavation,
       spoil: rock - lastRock,
@@ -352,6 +400,38 @@ export function simulateGrowth(seed: number, options: GrowthOptions = {}): Growt
  * 1. **A column that reads the same all the way down is the finding**, and that is a thing
  * you see in a monospaced block and not in a spreadsheet you have to open.
  */
+/**
+ * The shape table — cells per layer and the extent in each axis, per charter.
+ *
+ * Separate from the main table because it answers a different question. That one asks how
+ * *big* the settlement is; this asks what it *is*. `layers` reading `0/0/40/0` is a colony
+ * that has segregated into a plane, which is the failure volumetric growth introduced and
+ * the one a cell count cannot see.
+ */
+export function formatShape(steps: GrowthStep[], seed: number): string {
+  const out: string[] = [];
+  out.push(`seed ${seed} — colony shape, layers ${COLONY_LAYERS.join('/')}`);
+  out.push('');
+  out.push('  m  charter    cells   layers          span c/r/l');
+  for (const s of steps) {
+    for (const corp of ['outpost', 'helion', 'kessler'] as CorpId[]) {
+      const sh = s.shape[corp];
+      const total = sh.byLayer.reduce((a, b) => a + b, 0);
+      if (total === 0) continue;
+      out.push(
+        [
+          String(s.mission).padStart(3),
+          corp.padEnd(9),
+          String(total).padStart(6),
+          sh.byLayer.map((n) => String(n).padStart(3)).join('/').padStart(16),
+          `${sh.span.col}/${sh.span.row}/${sh.span.layer}`.padStart(14),
+        ].join('  '),
+      );
+    }
+  }
+  return out.join('\n');
+}
+
 export function formatGrowth(steps: GrowthStep[], seed: number): string {
   const out: string[] = [];
   out.push(

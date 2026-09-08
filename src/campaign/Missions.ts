@@ -669,14 +669,21 @@ export function worldAt(
   const resolved = resolveLayout(props);
 
   /**
-   * The radar goes in after the resolver, deliberately.
+   * The radar goes in after the resolver, deliberately — and from mission **3**.
+   *
+   * Mission 2 is the run that carries it: its payload is `Navigation Radar`, its debrief is
+   * the mast standing for the first time, and `Game` writes `mastX` from that landing. So
+   * `id >= 2` drew it on the floor while it was still strapped under the vehicle. Invisible
+   * on a fresh save, because `mastX` is null until mission 2 lands — it only showed on a
+   * **replay**, which is the same way its twin on the relay showed. `docs/lore.md` has said
+   * "from mission 3, once the mast is standing" the whole time.
    *
    * It carries no collider — it is a landmark, and landmarks are never the thing that
    * kills you — so it has nothing to clear and nothing to be relocated for. Which also
    * means the player is free to plant it somewhere a later Helion tower will grow
    * through: they overlap, and neither one changes how the canyon flies.
    */
-  if (id >= 2 && mastX !== null) {
+  if (id >= 3 && mastX !== null) {
     resolved.push({
       kind: 'radar',
       corp: 'outpost',
@@ -695,13 +702,19 @@ export function worldAt(
    * are at mission 29, and a player who never flies the prologue simply reads them as
    * scenery, which is the correct outcome.
    *
-   * The live one appears from the moment it is planted, which is what `relay !== null`
-   * means. There is no `id >=` gate on it, unlike the radar's `id >= 2`: the mast is a
-   * thing mission 1 delivers and so cannot exist during mission 1, whereas the relay is
-   * standing on the rim before mission 1 begins.
+   * The live one is gated at `id >= 2`, exactly as the radar is, and for exactly the same
+   * reason: **it is what mission 1 delivers.** `UL-5 Relay` is the prologue's payload and
+   * the prologue's debrief is the outpost hearing a voice on it for the first time, so it
+   * cannot be standing on the rim during the run that puts it there.
+   *
+   * It had no gate, on the stated grounds that the relay "is standing on the rim before
+   * mission 1 begins" — which is simply not what mission 1 is. On a fresh save that was
+   * invisible, because `relayX` is null until the prologue lands and a null relay draws
+   * nothing. It only showed on a **replay**: fly the prologue again on a save that has
+   * already flown it and the antenna is standing on the pad you are aiming at.
    */
   for (const x of DEAD_RELAYS) resolved.push({ kind: 'relay', x, live: false });
-  if (relay !== null) {
+  if (id >= 2 && relay !== null) {
     resolved.push({
       kind: 'relay',
       x: relay.x,

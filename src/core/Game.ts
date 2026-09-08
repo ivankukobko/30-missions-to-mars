@@ -10,7 +10,9 @@ import { forgetFadedMaterials } from '../world/LanderFade.ts';
 import { CANYON, CORPS, PALETTE, applyColorScheme, currentColorScheme } from '../world/CanyonSpec.ts';
 import type { Sounding } from '../audio/MusicComposer.ts';
 import { Lander, LANDER } from '../entities/Lander.ts';
+import { ContactShadow } from '../world/ContactShadow.ts';
 import { Effects } from '../entities/Effects.ts';
+import { LandingLight } from '../entities/LandingLight.ts';
 import { Interface, type GameSettings } from '../ui/Interface.ts';
 import type { HudCommon, HudData } from '../ui/HudData.ts';
 import { Progress, scoreLanding, summarise } from '../campaign/Progress.ts';
@@ -192,6 +194,8 @@ export class Game implements MenuHost {
   private pendingScore: ReturnType<typeof scoreLanding> | null = null;
   private blasts: Blast[] = [];
   private effects!: Effects;
+  private shadow!: ContactShadow;
+  private landingLight!: LandingLight;
   /** Previous frame's engine state, for detecting ignition. */
   private wasThrusting = false;
   private inspector: Inspector | null = null;
@@ -278,6 +282,19 @@ export class Game implements MenuHost {
     this.director.groundAt = (x, z) => this.canyon.heightAt(x, z);
     this.colony = new Colony(this.scene, this.physics);
     this.effects = new Effects(this.scene);
+    /**
+     * Reach is `GEAR_DEPLOY_HEIGHT`, derived rather than picked.
+     *
+     * ~20 units was the number asked for and the gear's own trigger is 20, so the two are
+     * the same cue: the blob appears as the legs come out and the exhaust starts marking
+     * the surface, all three keyed to one height. Picking 20 separately would have made
+     * that agreement a coincidence that the next change to either could quietly end.
+     *
+     * The blob is wider than the hull at touchdown — a shadow the size of the vehicle
+     * disappears under it exactly when it is most wanted.
+     */
+    this.shadow = new ContactShadow(this.scene, LANDER.RADIUS * 1.9, LANDER.GEAR_DEPLOY_HEIGHT);
+    this.landingLight = new LandingLight(this.scene, LANDER.GEAR_DEPLOY_HEIGHT);
 
     window.addEventListener('resize', () => this.onResize());
     window.addEventListener('keydown', (e) => this.onKey(e));
@@ -460,21 +477,14 @@ export class Game implements MenuHost {
     // while it is being flown. The relay has no panel to put rows on at all — see
     // `Airframe.hasConsole`.
     this.ui.setConsole(this.lander.airframe.hasConsole);
+    this.ui.setOverlay(this.lander.airframe.overlay);
     this.ui.setInstruments(this.lander.airframe.hasConsole && id > 2);
     // The panel belongs to the vehicle; the colours belong to whoever chartered it.
     this.ui.setAirframe(this.lander.airframe.scheme, CORPS[mission.client].color);
     this.ui.setMission(mission, this.targetPad);
     if (present) this.beginUplink();
 
-    /**
-     * The prologue is engine and wind, and nothing else.
-     *
-     * It is the one mission with no charter to be scored for, so there is no theme that
-     * would be honest to play — every track in `THEMES` belongs to somebody who cannot
-     * reach you yet. The score arriving with the first voice, at mission 1, is worth more
-     * than a theme here.
-     */
-    if (mission.id !== PROLOGUE.id) {
+    if (this.hasScore) {
       audio.setMissionContext(musicTrackFor(mission), mission.id);
       audio.startAmbient();
     } else {
@@ -708,6 +718,20 @@ export class Game implements MenuHost {
     this.radioLastAt = null;
     this.lastFrame = performance.now();
 
+    /**
+     * The one flight with no client, and the score says so.
+     *
+     * Until this existed the ending simply inherited whatever mission 29 left running —
+     * which is a full charter theme, wobble bass and drum kit included, playing under a
+     * vehicle with dead controls falling past a colony with its lights off. The kit is a
+     * groove and the fall is not.
+     *
+     * `shutdown` keeps the pad and drops everything with a pulse. See its note in
+     * `MusicComposer`, which also records why this is not simply silence.
+     */
+    audio.setMissionContext('shutdown', 1);
+    audio.startAmbient();
+
     this.state = 'FALL';
     this.ui.hidePanel();
     this.ui.setHudVisible(false);
@@ -795,9 +819,29 @@ export class Game implements MenuHost {
     this.lastBriefed = mission.id;
   }
 
+  /**
+   * Whether this flight has a score at all.
+   *
+   * **The prologue is engine and wind, and nothing else.** It is the one mission with no
+   * charter to be scored for, so there is no theme that would be honest to play — every
+   * track in `THEMES` belongs to somebody who cannot reach you yet, and the score arriving
+   * with the first voice at mission 2 is worth more than a theme here.
+   *
+   * A getter rather than a flag, and read by everything that starts the score, because the
+   * bug this replaced was two call sites answering the same question separately.
+   */
+  private get hasScore(): boolean {
+    return this.mission?.id !== PROLOGUE.id;
+  }
+
   private begin(): void {
     audio.init();
-    audio.startAmbient();
+    // Gated, and it was not. This ran unconditionally and so undid `loadMission`'s prologue
+    // guard a moment after it took effect: mission 1 was correctly silent through its brief
+    // and then started Ixion's theme the instant the player dismissed the card. Two call
+    // sites deciding the same thing, one of which had never been told — which is why the
+    // question now lives in exactly one place.
+    if (this.hasScore) audio.startAmbient();
     this.ui.hidePanel();
     this.ui.setHudVisible(true);
     // The console comes up here, so this is where its boot sweep starts. Set on `begin`
@@ -1138,6 +1182,23 @@ export class Game implements MenuHost {
     this.heightAboveGround = above;
     lander.updateGear(dt, above);
 
+    // Fed the same sample the gear just used, so the two cannot disagree about the ground.
+    //
+    // Gated on the vehicle actually flying, and `null` is how it is put away — the same
+    // path a shaft mouth with nothing under it takes. Without this the blob outlives the
+    // lander: a crash leaves the wreck's shadow sitting on the sand under the failure card.
+    const flying = this.state === 'PLAYING' || this.state === 'UPLINK' || this.state === 'FALL';
+    this.shadow.update(lander.x, flying ? ground : null, above);
+
+    // The lamp that replaced the drift arrow. Same ground sample again, and the same speed
+    // the scoring reads, so the colour turns at the moment the approach stops being
+    // survivable rather than at a figure picked to look tense.
+    if (flying) {
+      this.landingLight.update(lander.x, lander.y, ground, above, Math.hypot(lander.vx, lander.vy));
+    } else {
+      this.landingLight.hide();
+    }
+
     const thrusting = lander.thrusting;
     if (thrusting && !this.wasThrusting) this.effects.ignite(lander.x, lander.y);
     this.wasThrusting = thrusting;
@@ -1197,6 +1258,7 @@ export class Game implements MenuHost {
         // The rank is already banked — `Progress.complete` keeps the best of each
         // measure — so re-flying can only improve it.
         () => this.loadMission(this.mission.id),
+        () => this.openMenu(),
       );
     }
   }
@@ -1283,6 +1345,25 @@ export class Game implements MenuHost {
    */
   private updateOverlays(lander: Lander): void {
     this.ui.updateMarker(this.director.camera, lander.renderX, lander.renderY);
+
+    /**
+     * Two gates, because they answer two different questions.
+     *
+     * `overlay` is the **vehicle's** — the relay has no augmented layer for the same
+     * reason it has no console, and that is a fact about the airframe rather than about
+     * the moment. `handed` is the **player's**: the layer is the thing that says you have
+     * the vehicle, so it stays off through the uplink handshake and through the epilogue's
+     * fall, where the handshake never completes and nobody is connected to it at all.
+     *
+     * `FALL` was missing from the second test and the overlay was drawn over the ending
+     * in full — which `beginEpilogueFall` and the state-machine note both already said it
+     * must not be. `acquired` alone could not have caught it: it only stows the layer, and
+     * a stowed layer is still a layer.
+     */
+    const handed = this.state !== 'UPLINK' && this.state !== 'FALL';
+    this.ui.setReticleVisible(lander.airframe.overlay && handed);
+    if (!lander.airframe.overlay || !handed) return;
+
     this.ui.updateReticle(this.director.camera, {
       // Drawn position, so the brackets sit on the hull rather than a step behind it.
       x: lander.renderX,

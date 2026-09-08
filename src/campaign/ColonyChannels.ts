@@ -640,12 +640,25 @@ export function buildChannels(
   for (const dig of digs) {
     const mouth = mouthOf(dig, terrain);
     const half = dig.halfWidth + MOUTH_LANE;
-    // Only a bore somebody is actually sent down. `Layout.ts`'s own mouth rule asks the
-    // same question first, and for the same reason — a hole with no pad in it is a hole
-    // nobody is flying into, and reserving over every bore the campaign ever drives is
-    // what starved the colonies when this was written without the test.
-    const occupied = pads.some((p) => Math.abs(p.x - mouth.x) < half && (p.y === undefined || p.y < 0));
-    if (!occupied) continue;
+    /**
+     * **Every bore, not only the ones with a pad in them.**
+     *
+     * This asked `Layout.ts`'s question first — a hole nobody is flying into is a hole
+     * nobody can be trapped in — and the reservation was skipped for an unoccupied bore.
+     * The cost is visible before the pad arrives: Ixion's opening cut is driven at mission
+     * 3 and gets its first deck around fifteen, so for a dozen missions the mouth is
+     * unreserved and the colony grows straight over it. Reported on seed 462126776 at
+     * mission 5 — a settlement roofing a shaft that is plainly open in the terrain.
+     *
+     * It also self-corrects in the ugliest available way. When the deck finally lands the
+     * reservation appears, and `growColony` drops the cells a new route runs through — so
+     * the player watches a dozen missions of Ixion's frontage get demolished by a hole that
+     * was always there.
+     *
+     * Skipping it was the right call when the reservation was `halfWidth + MOUTH_LANE`
+     * either side and the widest in the canyon. It is roughly the mouth's own columns now,
+     * which is cheap enough to hold from the moment the hole exists.
+     */
     const from = Math.max(0, lattice.rowAt(mouth.y));
     const to = lattice.rowAt(mouth.y + dig.halfWidth * 2);
     for (let col = lattice.colAt(mouth.x - half); col <= lattice.colAt(mouth.x + half); col++) {

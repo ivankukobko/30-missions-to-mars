@@ -79,7 +79,21 @@ function cellBudget(flown: number, points: number, isOpeningMission: boolean): n
  * nowhere to put. Raising these changes *which* of the two limits binds, and that is the
  * whole intent: space should decide a colony's size, not a coefficient.
  */
-const BASE_CELLS = 10;
+/**
+ * Raised from 10 to clear the opening budget.
+ *
+ * `colonyBudget` in `missions.yaml` is a hard *set*, not a cap — `earned = cap ?? curve` —
+ * so an opening of 24 cells put missions 1 and 2 above what the curve reached at mission 3
+ * (19 at zero points). A colony that starts above its own curve cannot grow: `budget` comes
+ * out below `standing` and the charter builds nothing, which is what `ColonyBalance`'s
+ * "moves a charter on its own missions" was reporting. At 20 the curve reads 29 by mission
+ * 3, so the opening is somewhere the campaign can grow *from* rather than a ceiling it
+ * spends three missions underneath.
+ *
+ * The endgame moves least of the options measured: a charter ten missions in goes from 60
+ * cells to 70, where raising the ramp instead would have taken it to 78.
+ */
+const BASE_CELLS = 20;
 const PER_MISSION_CELLS = 7;
 /**
  * A slower rate for a corp's own first few missions, so the jump off `FIRST_MISSION_CELLS`
@@ -592,7 +606,11 @@ export function planColonies(
    * that wants to keep anything must measure it now. Cheap by construction — the counting
    * every caller so far does costs nothing against the growth step it follows.
    */
-  onMission?: (missionId: number, cells: ReadonlyMap<number, OrganismCell>) => void,
+  onMission?: (
+    missionId: number,
+    cells: ReadonlyMap<number, OrganismCell>,
+    lattice: Lattice,
+  ) => void,
 ): ColonyPlan {
   const lattice = buildLattice(terrain, COLONY_CELL_SIZE, COLONY_ROWS);
   const substrate = buildSubstrate(terrain, lattice);
@@ -875,7 +893,7 @@ export function planColonies(
       spine,
     });
 
-    onMission?.(m, cells);
+    onMission?.(m, cells, lattice);
   }
 
   // Split the one shared cell map into a prop per corp — `Layout.ts` wants per-corp

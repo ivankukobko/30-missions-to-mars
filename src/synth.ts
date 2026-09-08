@@ -284,7 +284,9 @@ tracksEl.innerHTML = (Object.keys(THEMES) as MusicTrack[])
   .join('');
 
 need('track-note').innerHTML =
-  'Loads that charter\'s key and progression into the editor above, as a starting point. ' +
+  'Loads that track\'s key and progression into the editor above, as a starting point. ' +
+  '<code>shutdown</code> is the epilogue: no kit, no bass, the organ down to its bottom ' +
+  'three stops, in Ixion\'s key. ' +
   'Ixion is A and Kessler is D, a fifth below — so Ixion\'s tonic is Kessler\'s dominant, ' +
   'and Kessler\'s progression opens on it. Kessler is also the only one of the three that ' +
   'ever reaches its own tonic: Ixion ends on the dominant and turns away, and Helion has ' +

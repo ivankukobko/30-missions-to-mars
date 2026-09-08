@@ -91,11 +91,12 @@ score, prints the cycle against the 28.0 median, and exports the literal to past
 Composed on `synth.html` and pasted back. They arrived as three separate patches, and what
 follows fell out of them rather than being designed as a set.
 
-| Charter | Key | Progression | Chords | Reaches its tonic |
+| Track | Key | Progression | Chords | Reaches its tonic |
 | --- | --- | --- | --- | --- |
 | Ixion | A | `vi ii iii V` | F♯m Bm C♯m E | never |
 | Helion | C | `iii iv ii vi` | Em Fm Dm Am | never |
 | Kessler | D | `V ii IV I` | A Em G D | **every cycle, on the last step** |
+| `shutdown` | A | `vi ii iii V` | *(Ixion's, with no pulse)* | never |
 
 **Ixion never arrives.** It closes on the dominant — the one chord whose entire job is to
 demand the tonic — and then turns back to F♯m instead. A is the key and A never comes. For
@@ -126,6 +127,53 @@ on the chord Kessler starts from, playing the progression that never comes home.
 Which theme plays comes from the mission's client by default, and a mission can override it
 with `musicTrack` — resolved by `musicTrackFor`, the same shape as `airframeFor`. Exactly
 one mission uses it, and it is 29.
+
+## The two flights with no client
+
+The campaign's ends are not scored like its middle, and neither of them is a charter.
+
+**The prologue is silent, and always was.** `Game.loadMission` runs `stopAmbient` for
+mission 1: engine and wind, nothing else. It is the one mission with no charter to be
+scored for, so there is no theme that would be honest to play — every other track belongs to
+somebody who cannot reach you yet, and the score arriving with the first voice at mission 2
+is worth more than a theme here.
+
+**The epilogue now has a track of its own.** Until it did, it simply inherited whatever
+mission 29 left running — a full charter theme, wobble bass and drum kit included, playing
+under a vehicle with dead controls falling past a colony with its lights off. The kit is a
+groove and the fall is not.
+
+`shutdown` keeps the pad and drops **everything with a pulse**: no kit, no wobble bass, and
+the organ down to its bottom three stops. Measured over six seconds, Ixion schedules twelve
+kicks, five toms and two bass bars; `shutdown` schedules nothing. What is left is a
+progression walking under a held-sounding chord, and that is the statement — the machine
+that kept time has stopped, and the room it was in has not. Twenty-nine missions of groove
+and then no groove is a louder event than either.
+
+It stays in **Ixion's key and progression**, which is where mission 29 already put the
+campaign by overriding its own client. `vi ii iii V` never reaches A: it closes on the
+dominant and turns away. For an ending built entirely around a question it refuses to
+answer, a progression permanently about to arrive was already in the game.
+
+### Why not silence
+
+Total silence was the alternative and it is one line away — `stopAmbient` in
+`beginEpilogueFall` instead of `setMissionContext('shutdown', 1)`. Two things argue against
+it:
+
+- **The beacon is detuned twenty-two cents flat so that it sits outside the harmony.** That
+  is the documented reason it reads as a machine rather than as a voice in the score, and
+  with nothing playing it has nothing to be outside of.
+- The epilogue is three transmission cards and then a three-and-a-half second fall. Silence
+  across all of it is long enough to read as a fault rather than as a choice.
+
+The prologue can be silent because it is the *opening* of a game that has not started
+making noise yet. The ending cannot borrow that, because by then the player knows exactly
+what absence sounds like.
+
+`MusicTrack` was always `CorpId | something`: its own note anticipated "a finale cue, a
+shutdown drone" as the reason the alias exists. `Missions.test.ts` asserts no mission ever
+names it — a delivery scored by `shutdown` would be one with no employer in the music.
 
 ### Tone is separate from harmony
 

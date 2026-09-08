@@ -117,6 +117,45 @@ Two kinds, doing different jobs:
   derived from the mission index, which is why it stays strictly cosmetic: it may be
   remembered, but nothing about correctness may depend on it.
 
+## The relays sit on two different planes
+
+There are five relays in the canyon and they are not drawn at the same depth.
+
+**The live one stays on the play plane, z = 0.** It is the thing the *player* set down in
+the prologue, and putting it in the background would say it happened somewhere else. It is
+also the only one with a beacon.
+
+**The four dead ones sit at z ≈ −50**, back with the radar. They were never anybody's
+delivery — they predate every charter here, which is the entire claim they make — so they
+belong in the scenery. They were on the play plane, which put them in the path of the
+colony: `COLONY_LAYERS` runs to −2 and the settlement's rearmost face reaches about −24.8,
+so a growing colony would eventually stand level with, and then in front of, wrecks that are
+supposed to have been there before any of it. A colony rising *past* them says the opposite
+of what they are for.
+
+`RELAY.DEAD_Z` is derived from the lattice — deepest layer, minus half a vessel, minus a
+25-unit clearance — rather than typed, so a change to the layer count, the layer spacing or
+the vessel size cannot quietly bring the settlement back out past them. Today that lands at
+−49.8, which also clears `RADAR.Z`'s −35.
+
+**A dead relay is sampled at its own z**, which is the opposite of what `buildRadar` does.
+The mast carries a `prop.y` — the exact height a lander settled at, on the z = 0 profile —
+so for it the far cross-section is a *worse* answer than the truth it already holds. The
+dead relays have no `y` and never did; they are authored x positions and nothing more, so
+the ground under them is simply the ground where they stand. Sampling the play plane instead
+would leave a fifty-unit-distant wreck floating over, or buried in, terrain it has nothing to
+do with.
+
+Measured on seed 462126776 after the move: all four stand on terrain at −49.8, none floating
+and none buried, and the local slope under each is close to what it was on the play plane
+(−56.5° → −69.6°, −1.5° → −2.1°, 32.3° → 42.2°, 68.6° → 68.5°). Three of the four were
+already on steep ground, which is what half-buried and leaned-over is *for* — the move
+preserves their character rather than changing it. The canyon is barely narrower that far
+back either: the gently-sloped floor spans −60…58 at z = 0 and −56…60 at −50.
+
+None of this can touch flight. Relays carry no collider — see `hasCollider` in `Layout.ts`
+— so they occupy nothing and there is nothing to clear or relocate for.
+
 ## Deliberately Unsettled
 
 Everything above describes what the game does now and what each decision cost. These are
