@@ -1074,6 +1074,18 @@ body {
   margin-bottom: 14px;
 }
 
+/* The root menu's second line — prose under the shell's own prompt, not another thing it
+   "types". Italic and unspaced on purpose: everywhere else in this card is caps and
+   tracking, and a subtitle set the same way would read as a second heading rather than
+   as the line under one. Opacity matches `.menu-detail`, this card's one other dim text. */
+.card-subtitle {
+  font-size: 12px;
+  font-style: italic;
+  color: var(--corp);
+  opacity: 0.62;
+  margin: -8px 0 14px;
+}
+
 .card-body {
   font-size: 14px;
   line-height: 1.65;

@@ -465,9 +465,13 @@ export class Interface {
    * same shape with different rows. Writing four cards would have meant four places for
    * the register to drift.
    */
-  private showList(title: string, entries: MenuEntry[], onBack?: () => void): void {
+  private showList(title: string, entries: MenuEntry[], onBack?: () => void, subtitle?: string): void {
     const card = el('div', 'card card-sys card-menu');
     card.append(el('div', 'card-eyebrow', title));
+    // Only the root menu carries a subtitle — it is the game's own name (never shipped
+    // anywhere but the README until now), and every other list here is a destination
+    // inside it, not a second occasion to introduce the thing.
+    if (subtitle) card.append(el('div', 'card-subtitle', subtitle));
 
     const list = el('div', 'menu-list');
     let first: HTMLButtonElement | null = null;
@@ -510,7 +514,10 @@ export class Interface {
   }
 
   showMenu(entries: MenuEntry[]): void {
-    this.showList('30 MISSIONS TO MARS', entries);
+    // The game's actual title. It has stood in README.md since before there was a menu
+    // to put it on and never once reached the game itself — the campaign's own name
+    // called it "30 Missions to Mars" everywhere a player could see it.
+    this.showList('THE ONLY THING AT THE BOTTOM', entries, undefined, 'a story about 30 missions to Mars');
   }
 
   /** The campaigns a player has going at once, one canyon each. */
