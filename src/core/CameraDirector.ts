@@ -82,6 +82,47 @@ const SHAFT_CLOSE = 20;
 const MAX_LIFT_ABOVE_TARGET = 26;
 const FULL_SPEED = 45;
 
+/**
+ * The aspect ratio every `framingFor` keyframe was composed against — 16:10, a MacBook
+ * window with the dev tools closed. It is the pivot for `compensatedVerticalFov`.
+ */
+const REFERENCE_ASPECT = 1.6;
+
+/**
+ * The vertical FOV to actually hand three.js, given the authored one and the live aspect.
+ *
+ * `PerspectiveCamera.fov` is vertical, and holding it fixed means a wider-than-reference
+ * window keeps the same vertical slice and simply opens up sideways: the vehicle holds
+ * its pixel height but shrinks against the frame, with dead canyon filling the margins. A
+ * 19.5:9 phone held in landscape (aspect ≈ 2.17) is the case that made this unignorable.
+ *
+ * At or below `REFERENCE_ASPECT` this is the identity — narrower screens keep the vertical
+ * composition the keyframes were measured for (the sky shot's "58° below the horizon" and
+ * the rest) and just see less to the sides. Above it, the vertical FOV is pulled in so the
+ * *horizontal* FOV matches what the authored value would have shown at the reference: the
+ * canyon slice you thread stays the width it was tuned to, and the vehicle keeps its
+ * on-screen size. `keepFramed` reads the live `fov`, so its safe cone follows for free.
+ *
+ * Rejected alternatives: authoring the keyframes as horizontal FOV and re-deriving every
+ * one against a reference (re-tunes a dozen measured shots at once); scaling the distance
+ * rig with aspect (pulls the camera into wall-clip and eats the lookahead the framing
+ * logic assumes). The shaft's wide `fov: 80` is about seeing both walls — horizontal — so
+ * pinning horizontal keeps that intent; the vertical it gives up on an ultrawide screen
+ * is not the axis carrying information down a bore.
+ */
+export function compensatedVerticalFov(
+  authoredVFovDeg: number,
+  aspect: number,
+  referenceAspect: number = REFERENCE_ASPECT,
+): number {
+  if (aspect <= referenceAspect) return authoredVFovDeg;
+  const halfV = THREE.MathUtils.degToRad(authoredVFovDeg) / 2;
+  // tan(halfV') · aspect  =  tan(halfV) · referenceAspect, so the horizontal half-angle
+  // is unchanged from what it was at the reference.
+  const pinnedHalfV = Math.atan((Math.tan(halfV) * referenceAspect) / aspect);
+  return THREE.MathUtils.radToDeg(pinnedHalfV * 2);
+}
+
 export class CameraDirector {
   camera: THREE.PerspectiveCamera;
   /** Sampled to keep the camera from burying itself in the canyon wall. */
@@ -123,6 +164,10 @@ export class CameraDirector {
 
   resize(width: number, height: number): void {
     this.camera.aspect = width / height;
+    // The authored FOV target has not moved, but its compensation depends on aspect, so a
+    // resize has to re-apply it — otherwise a window widened mid-mission keeps the old,
+    // too-wide framing until the next phase change nudges `now.fov`.
+    this.camera.fov = compensatedVerticalFov(this.now.fov, this.camera.aspect);
     this.camera.updateProjectionMatrix();
   }
 
@@ -310,7 +355,7 @@ export class CameraDirector {
     this.yaw = 0;
     this.camera.position.set(this.clampX(x), y + this.now.offsetY, this.now.distance);
     this.camera.rotation.set(this.now.pitch, 0, 0);
-    this.camera.fov = this.now.fov;
+    this.camera.fov = compensatedVerticalFov(this.now.fov, this.camera.aspect);
     this.camera.updateProjectionMatrix();
     this.liftAboveGround(y);
   }
@@ -401,8 +446,13 @@ export class CameraDirector {
     this.now.posRate = damp(this.now.posRate, want.posRate, blend, dt);
     this.now.rotRate = damp(this.now.rotRate, want.rotRate, blend, dt);
 
-    if (Math.abs(this.camera.fov - this.now.fov) > 0.01) {
-      this.camera.fov = this.now.fov;
+    // `now.fov` is the authored vertical FOV, still easing between keyframes; what three.js
+    // gets is that value with the wide-screen compensation folded in — see
+    // `compensatedVerticalFov`. Compared against the compensated target, not the authored
+    // one, or the two scales never agree and this writes every frame.
+    const targetFov = compensatedVerticalFov(this.now.fov, this.camera.aspect);
+    if (Math.abs(this.camera.fov - targetFov) > 0.01) {
+      this.camera.fov = targetFov;
       this.camera.updateProjectionMatrix();
     }
 

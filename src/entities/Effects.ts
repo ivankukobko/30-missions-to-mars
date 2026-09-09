@@ -100,7 +100,14 @@ export class Effects {
         sizeAttenuation: true,
         transparent: false,
         opacity: 1.0,
-        depthWrite: true,
+        // Reads depth, never writes it. These are atmospheric motes, not geometry, and on
+        // the entry shot the camera sits 3.8 units back: `sizeAttenuation` then blows the
+        // nearest motes up to ~100px splats, and every one was stamping a near value into
+        // the depth buffer. The additive entry trail is `depthTest: true`, so it was being
+        // culled everywhere it lay behind one of those splats — which is most of the
+        // frame, leaving the streaks visible only in the tight cluster at the hull. Still
+        // depth-tested, so terrain and the hull occlude the dust as before.
+        depthWrite: false,
         fog: true,
       }),
     );
@@ -143,12 +150,23 @@ export class Effects {
         // and so a colour faded to black is simply gone — there is no alpha to animate.
         blending: THREE.AdditiveBlending,
         depthWrite: false,
+        // Reads nothing from the depth buffer either. Both emitters live within a few
+        // units of the hull, at z ≈ 0, and in the canyon the camera routinely looks past
+        // — or grazes — a wall, a terrace lip or a colony deck that then owns the depth
+        // for most of the frame. With the test on, every streak behind that rock was
+        // culled and the trail survived only in the sliver drawn over the vehicle itself.
+        // It is a speed-and-heading read that has to be legible before the panel is, so
+        // it composites on top, like the near colony layer.
+        depthTest: false,
         // Fog would pull these toward the dust colour and kill the heat, and they are
         // only ever a few units from the lens anyway.
         fog: false,
       }),
     );
     this.trail.frustumCulled = false;
+    // After the hull and after the other depth-free near-camera layers (contact shadow 1,
+    // landing light 2), so the streaks read against whatever the frame ended up showing.
+    this.trail.renderOrder = 3;
     scene.add(this.trail);
 
     for (let i = 0; i < TRAIL_POOL; i++) {

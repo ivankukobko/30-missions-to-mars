@@ -77,6 +77,17 @@ halves the range without touching the composition: the vehicle sits in the same 
 frame at twice the size, and the leads still show the same angular slice of what is coming.
 Pitch and fov are angles and do not scale. A retune should move them as a set.
 
+**The `fov` column is vertical, authored at 16:10.** three.js holds vertical FOV constant,
+so a wider window keeps the same vertical slice and just opens up sideways — the vehicle
+holds its pixel height but shrinks against the frame, worst on a phone held in landscape.
+`compensatedVerticalFov` is the fix: at or below `REFERENCE_ASPECT` (1.6) it does nothing,
+and above it the vertical FOV is pulled in so the *horizontal* FOV matches what the
+authored value showed at 1.6. Every keyframe number is therefore "the vertical FOV at
+16:10"; the canyon slice you thread is the same width on every screen. Applied in the
+three places `camera.fov` is set — `snapTo`, the per-frame update, and `resize` (aspect
+changed, authored target did not). Aspect is not part of the simulation, so this does not
+touch replay.
+
 Three things the names do not say:
 
 - **`shaft` is the close-quarters framing, not the bore framing.** It was built for a bore,
