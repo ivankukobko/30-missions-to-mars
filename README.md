@@ -69,3 +69,7 @@ prologue and epilogue, different reason for all of it.
 
 - **[Alternative Plots](docs/alternative_plots.md)**: Three campaigns against the same baseline, and what each one would cost.
 - **[Alternative Plot & Narrative Concepts](docs/alternative_plots2.md)**: An earlier pass at the same question.
+
+## License
+
+[MIT](LICENSE). The code, the canyon and the campaign written on it are all yours to take.
