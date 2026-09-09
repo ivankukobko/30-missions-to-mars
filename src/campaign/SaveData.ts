@@ -172,6 +172,14 @@ export interface PreferenceData {
   mutedSfx: boolean;
   mutedMusic: boolean;
   invertThrusters: boolean;
+  /**
+   * Whether the player has been shown the touch-zone hint over an uplink hold. A fact
+   * about the person, not the campaign — which thirds of the screen do what does not
+   * reset when they roll a new canyon — so it sits here beside `invertThrusters` rather
+   * than in a slot. Never surfaced in the settings block: it is written once, by the
+   * first flight that reaches `begin`, and only ever read to suppress a repeat.
+   */
+  touchHintSeen: boolean;
 }
 
 /**
@@ -207,6 +215,9 @@ export class Preferences {
       mutedSfx: source.mutedSfx === true,
       mutedMusic: source.mutedMusic === true,
       invertThrusters: source.invertThrusters === true,
+      // Absent on every save written before the hint existed, which reads as "not seen"
+      // — so a returning player gets it once, on their next uplink, and not again.
+      touchHintSeen: source.touchHintSeen === true,
     };
   }
 
@@ -220,6 +231,10 @@ export class Preferences {
 
   get invertThrusters(): boolean {
     return this.data.invertThrusters;
+  }
+
+  get touchHintSeen(): boolean {
+    return this.data.touchHintSeen;
   }
 
   set(patch: Partial<PreferenceData>): void {

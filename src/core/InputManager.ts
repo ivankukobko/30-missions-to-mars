@@ -7,6 +7,22 @@ export interface InputState {
 }
 
 /**
+ * Whether this device flies the game by touch, so the caller can decide if the first-run
+ * zone hint is worth showing. `maxTouchPoints` is the load-bearing signal — a trackpad
+ * reports 0, a phone reports 5 — and the coarse-pointer query is a fallback for engines
+ * that leave `maxTouchPoints` at 0. Guarded for a non-browser context so a test can
+ * import this module without a DOM.
+ */
+export function hasTouchPointer(): boolean {
+  if (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) return true;
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches
+  );
+}
+
+/**
  * Keyboard and multi-touch, normalised to one state object.
  *
  * Touch layout: three vertical thirds of the screen, each its own zone rather than a

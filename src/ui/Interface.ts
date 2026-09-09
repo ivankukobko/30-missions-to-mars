@@ -11,6 +11,7 @@ import { createInstrument, type InstrumentPanel, type Scheme } from './Instrumen
 import { Reticle, type HullBounds, type ReticleState } from './Reticle.ts';
 import { buildBrief, buildEpilogue } from './Brief.ts';
 import { Radio } from './Radio.ts';
+import { TouchHint } from './TouchHint.ts';
 
 /** The handshake's own status line, on every mission that has one to complete. */
 const UPLINK_DEFAULT = 'UPLINK ESTABLISHING';
@@ -103,6 +104,7 @@ export class Interface {
   private panel: HTMLElement;
   private reticle = new Reticle();
   private radio = new Radio();
+  private touchHint = new TouchHint();
 
   private pauseButton: HTMLElement;
   private onPauseRequested: (() => void) | null = null;
@@ -196,7 +198,17 @@ export class Interface {
     // The overlay is a sibling of `.hud`, deliberately. `setAirframe` sets the client's
     // livery on `.hud`, and the augmented layer is the player's rather than the
     // charter's — being outside that subtree is what stops `--corp` inheriting into it.
-    root.append(this.hud, this.reticle.root, this.uplink, this.marker, this.radio.root, this.panel);
+    // `touchHint` before `panel` so a brief card renders over it rather than under it —
+    // the hint stays up through the brief and is taken down when control is handed over.
+    root.append(
+      this.hud,
+      this.reticle.root,
+      this.uplink,
+      this.marker,
+      this.radio.root,
+      this.touchHint.root,
+      this.panel,
+    );
 
     this.installKeyboardNav();
   }
@@ -892,6 +904,20 @@ export class Interface {
    *  callbacks `showPause` takes fresh each time the overlay it builds is a new one. */
   setOnPause(cb: () => void): void {
     this.onPauseRequested = cb;
+  }
+
+  /**
+   * The first-run touch-zone hint, over the uplink hold. `scheme` picks what the side
+   * zones are labelled — rotation on the lander, lateral thrust on the other two; the
+   * middle is always the lift engine. `Game` gates this on the device being touch and
+   * the hint being unseen, so here it only shows and hides.
+   */
+  showTouchHint(scheme: Scheme): void {
+    this.touchHint.show(scheme);
+  }
+
+  hideTouchHint(): void {
+    this.touchHint.hide();
   }
 
   setHudVisible(visible: boolean): void {

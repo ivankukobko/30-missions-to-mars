@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { InputManager, type InputState } from './InputManager.ts';
+import { InputManager, hasTouchPointer, type InputState } from './InputManager.ts';
 import { CameraDirector } from './CameraDirector.ts';
 import { Inspector } from './Inspector.ts';
 import { PhysicsWorld } from '../physics/PhysicsWorld.ts';
@@ -250,13 +250,22 @@ export class Game implements MenuHost {
     }
     this.applyResolution();
 
-    const initAudioOnUserGesture = () => {
+    const onFirstGesture = () => {
       audio.init();
-      window.removeEventListener('pointerdown', initAudioOnUserGesture);
-      window.removeEventListener('keydown', initAudioOnUserGesture);
+      // A gesture is also the one moment the Fullscreen API will accept a call. Touch
+      // only — on a phone it drops the address bar, which is the whole game's worth of
+      // vertical real estate; on desktop, throwing the browser into fullscreen on a
+      // stray click is the wrong surprise. iPhone Safari has no such API and no-ops here;
+      // the home-screen metas in `index.html` are what cover it there. Rejections
+      // (policy, not-really-a-gesture) are expected and swallowed.
+      if (hasTouchPointer()) {
+        void document.documentElement.requestFullscreen?.().catch(() => {});
+      }
+      window.removeEventListener('pointerdown', onFirstGesture);
+      window.removeEventListener('keydown', onFirstGesture);
     };
-    window.addEventListener('pointerdown', initAudioOnUserGesture);
-    window.addEventListener('keydown', initAudioOnUserGesture);
+    window.addEventListener('pointerdown', onFirstGesture);
+    window.addEventListener('keydown', onFirstGesture);
 
     // Dim, cool fill. The canyon is meant to be a dark place lit by its tenants. Held
     // rather than dropped into the scene, because the season tints both — see `applySky`.
@@ -519,6 +528,31 @@ export class Game implements MenuHost {
     this.ui.hidePanel();
     this.ui.setHudVisible(false);
     this.ui.setUplink(0);
+
+    // The three-zone touch layout, shown once ever, over the dead time before control is
+    // handed over — the uplink and any brief. It costs no altitude budget (the uplink is
+    // free fall regardless) and it is gone the instant `begin` wakes the controls. Only
+    // on a device that flies by touch, and only until the first flight reaches `begin`.
+    this.touchHintShowing =
+      this.lander !== null && hasTouchPointer() && !this.progress.touchHintSeen;
+    if (this.touchHintShowing) this.ui.showTouchHint(this.lander!.airframe.scheme);
+  }
+
+  /**
+   * Whether the touch-zone hint is on screen right now. The uplink hold has exactly one
+   * ordinary exit — `begin` — so this tracks that window rather than reading it off the
+   * state, and the two places that end it early (a hand-off, a drop back to the menu)
+   * clear it through `dismissTouchHint`.
+   */
+  private touchHintShowing = false;
+
+  private dismissTouchHint(markSeen: boolean): void {
+    if (!this.touchHintShowing) return;
+    this.touchHintShowing = false;
+    this.ui.hideTouchHint();
+    // Marked seen only when the player actually took the vehicle. Bailing to the menu
+    // leaves the flag unset, so the hint gets another showing on the next uplink.
+    if (markSeen) this.progress.markTouchHintSeen();
   }
 
   /**
@@ -844,6 +878,9 @@ export class Game implements MenuHost {
     if (this.hasScore) audio.startAmbient();
     this.ui.hidePanel();
     this.ui.setHudVisible(true);
+    // Control is live from here, so the zone hint has done its job — and this is the one
+    // path that has it record that it was shown.
+    this.dismissTouchHint(true);
     // The console comes up here, so this is where its boot sweep starts. Set on `begin`
     // rather than when the uplink completes because the brief sits between the two, and
     // the panel is behind it — a sweep started at the handshake would be over before the
@@ -1620,6 +1657,9 @@ export class Game implements MenuHost {
   presentBackdrop(): void {
     this.state = 'MENU';
     this.ui.setHudVisible(false);
+    // A retry or a menu trip can land here mid-handshake, before `begin` ever ran. Take
+    // the hint down without marking it seen — the player has not flown yet.
+    this.dismissTouchHint(false);
     if (this.lander) this.lander.group.visible = false;
     this.frameCanyon();
   }

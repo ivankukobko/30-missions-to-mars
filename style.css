@@ -22,6 +22,17 @@ body {
   -webkit-font-smoothing: antialiased;
   overscroll-behavior: none;
   touch-action: none;
+  /*
+   * This is a game, not a document — nothing on screen is meant to be selected. Without
+   * this, a press-and-hold in a flight zone raises the iOS selection magnifier and the
+   * "Copy" callout over any HUD text under the thumb, and every tap flashes the grey
+   * tap-highlight box. `touch-action: none` already kills double-tap zoom; these kill the
+   * rest. Re-enable per element if anything ever genuinely needs to be copied.
+   */
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 #app,
@@ -858,6 +869,76 @@ body {
   height: 100%;
   background: var(--sys);
   box-shadow: 0 0 10px color-mix(in srgb, var(--sys) 60%, transparent);
+}
+
+/* --------------------------------------------------------- touch hint */
+
+/*
+ * The first-run "here are the controls" hint, over the uplink hold — see `TouchHint`.
+ *
+ * Three full-height columns so the whole screen third reads as live, not just a button.
+ * Equal flex children of a viewport-width row put their edges exactly on `InputManager`'s
+ * `width / 3` splits with no shared constant. `pointer-events: none` end to end: the
+ * flight touches are read off raw coordinates by a window listener, and this must not sit
+ * in front of them even while the controls are dead.
+ *
+ * `--sys`, square, no client livery — this is the AI's own projection, the same register
+ * as the uplink line above it, not anything the vehicle or a charter drew.
+ *
+ * Opacity-only fade, driven by a class rather than `missionTime`: it teaches a layout
+ * that never moves, so unlike the uplink bar it has nothing to stay frame-accurate to,
+ * and it is gone before the simulation matters.
+ */
+.touch-hint {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 420ms ease, visibility 0s linear 420ms;
+}
+
+.touch-hint.visible {
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 420ms ease;
+}
+
+.touch-hint-zone {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  /* Labels sit low, where the thumbs actually are on a phone held in landscape — clear
+     of the home indicator, like the HUD blocks. */
+  padding-bottom: calc(clamp(48px, 16vh, 180px) + env(safe-area-inset-bottom));
+  background: color-mix(in srgb, var(--sys) 4%, transparent);
+}
+
+.touch-hint-zone--main {
+  background: color-mix(in srgb, var(--sys) 7%, transparent);
+}
+
+.touch-hint-zone + .touch-hint-zone {
+  border-left: 1px dashed color-mix(in srgb, var(--sys) 32%, transparent);
+}
+
+.touch-hint-label {
+  color: var(--sys);
+  font-size: 12px;
+  letter-spacing: 0.22em;
+  text-shadow: 0 0 12px color-mix(in srgb, var(--sys) 45%, transparent);
+}
+
+.touch-hint-caption {
+  position: absolute;
+  left: 50%;
+  bottom: calc(clamp(96px, 27vh, 300px) + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  color: color-mix(in srgb, var(--sys) 62%, transparent);
+  font-size: 10px;
+  letter-spacing: 0.32em;
 }
 
 /* ------------------------------------------------------------- debrief */

@@ -40,24 +40,62 @@ included — at this length that is a beat rather than a toll.
 
 ## Controls
 
-The same three inputs drive both vehicles; what they mean depends on which one you are
-flying.
+The same three inputs drive all three vehicles; what each one *does* depends on which one
+you are flying.
 
-| | Desktop | Touch | TD-4 LANDER | KD-9 HAULER |
-| --- | --- | --- | --- | --- |
-| Left | `←` / `A` | left half | rotate left | go left |
-| Right | `→` / `D` | right half | rotate right | go right |
-| Both / main | `↑` / `W` / `Space` | both halves | main engine | both engines, straight up |
-| Pause | `P` / `Esc` | — | | |
+| | Desktop | Touch | TD-4 LANDER | KD-9 HAULER | HD-7 SIDEWINDER |
+| --- | --- | --- | --- | --- | --- |
+| Left | `←` / `A` | left third | rotate left | go left | slide left |
+| Right | `→` / `D` | right third | rotate right | go right | slide right |
+| Main | `↑` / `W` / `Space` | middle third | main engine | both engines, straight up | lift engine |
+| Pause | `P` / `Esc` | corner button | | | |
 
 On the lander, attitude control stays available under main thrust — fighting the two
-against each other is the whole skill. On the hauler there is no attitude to fight; the
-skill is that you cannot go sideways without also going up, so descending across the
-canyon is a matter of pulsing one engine against gravity.
+against each other is the whole skill. The hauler has no attitude to fight; its skill is
+that you cannot go sideways without also going up, so crossing the canyon is a matter of
+pulsing one engine against gravity. The sidewinder's side jets are dedicated, so its axes
+are genuinely independent: it holds altitude while it translates and neither input
+disturbs the other. Which engine a side lights on the hauler is itself a setting — "go
+where I point" against "fire the thruster I point at" — offered in the brief of any
+mission that flies the twin.
 
-The touch layout needed no changes for the second scheme. It was already left-half,
-right-half and both-halves-for-up, which is the twin-engine mental model — the physics
-had simply been contradicting it.
+### The touch layout is three thirds, not two halves
+
+It was left-half, right-half, and both-halves-at-once for main. That scheme derived `main`
+from two touches, so a hand was either wholly on one half or straddling both, and it could
+not hold one side *and* main as separate inputs — there was no touch equivalent of the
+keyboard's Left+Up, which `applyAttitude` calls the whole skill of a lander. Three
+vertical thirds — left, middle, right, read off raw x and never drawn — make a side touch
+and a middle touch independent, so they combine exactly like two keys. Every frame needed
+that: the lander's fight and the sidewinder's hold-altitude-while-translating both want a
+side and main at once, and the hauler's middle third now fires both engines directly
+rather than the physics inferring it from "both halves." Flight stays gesture-only
+otherwise — no on-screen sticks stealing canyon — the one exception being a corner pause
+button, because a phone has no Escape key to fall back to.
+
+### Teaching the zones once
+
+Because nothing is drawn, a first-time touch player has no way to see where the thirds
+are. So on a touch device, the **first** uplink hold shows them: three faint full-height
+columns labelled for the airframe on the glass — `ROTATE / THRUST / ROTATE` on the
+lander, `SLIDE / LIFT / SLIDE` on the sidewinder — under the caption `HOLD TO FLY`. It
+fills the dead time before `BEGIN DESCENT` that costs no altitude anyway, and it is gone
+the instant control is handed over. Shown once, ever: `Preferences.touchHintSeen` is
+written by the first flight that reaches `begin` and the hint is never offered again —
+it teaches a layout that does not move, and the vehicle's own response teaches the rest.
+It is `pointer-events: none`, so a finger resting on it during the hold still reaches the
+window listener the flight zones are read from. The columns are equal flex children of a
+viewport-width row, so their edges land on `merge()`'s `width / 3` splits with no shared
+constant to drift.
+
+### On a phone
+
+`index.html` carries the home-screen web-app metas, so a launch from the home screen runs
+chromeless on both platforms. In a browser tab, the first user gesture also asks for the
+Fullscreen API — touch devices only, and swallowed if refused; iPhone Safari has no such
+API, which is what the home-screen route is for. The page suppresses text selection, the
+callout menu and the tap-highlight box globally: a press-and-hold in a flight zone would
+otherwise raise the iOS selection magnifier over whatever HUD text sat under the thumb.
 
 ## Payload and Scoring
 
