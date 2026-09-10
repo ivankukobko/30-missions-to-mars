@@ -1,3 +1,4 @@
+import { copyShareLink, readSharedSeed, writeSharedSeed } from '../campaign/CanyonLink.ts';
 import { CAMPAIGN_FLIGHTS, EPILOGUE_ID, MISSION_COUNT } from '../campaign/Missions.ts';
 import { Progress } from '../campaign/Progress.ts';
 import {
@@ -7,7 +8,7 @@ import {
   SLOT_COUNT,
   type ProgressStore,
 } from '../campaign/SaveData.ts';
-import type { GameSettings, Interface } from '../ui/Interface.ts';
+import type { GameSettings, Interface, MenuNote } from '../ui/Interface.ts';
 
 /**
  * Every screen the player reaches without flying: the main menu, the mission grid, the
@@ -44,6 +45,16 @@ export interface MenuHost {
 
 export class MenuController {
   private host: MenuHost;
+  /**
+   * What the last SHARE CANYON press did, shown once and then forgotten.
+   *
+   * Held here rather than pushed into `Interface` because it is menu state, and the menu
+   * is rebuilt from scratch on every `open()` — a row cannot report its own outcome when
+   * the row is thrown away and rebuilt. Cleared by the render that shows it, so stepping
+   * into CANYONS and back does not resurrect a message about something the player did a
+   * minute ago.
+   */
+  private linkNote: string | null = null;
 
   constructor(host: MenuHost) {
     this.host = host;
@@ -113,9 +124,60 @@ export class MenuController {
         onSelect: () => this.openSlots(),
       },
       { label: 'HISTORY', detail: this.historyDetail(), onSelect: () => this.openHistory() },
+      /**
+       * The seed is on the row rather than behind it because it is the thing being
+       * shared, and a player on itch cannot see the address bar to read it off — the
+       * game is in an iframe there, so the URL the hash is written into is invisible.
+       * That is also why this copies rather than merely displaying: on the one platform
+       * where sharing needs help, reading the number back is all the player could do.
+       */
+      {
+        label: 'SHARE CANYON',
+        detail: `SEED ${this.progress.seed}`,
+        onSelect: () => this.copyLink(),
+      },
       { label: 'SETTINGS', onSelect: () => this.openSettings() },
       { label: 'NEW CANYON', danger: true, onSelect: () => this.confirmNewCanyon() },
-    ]);
+    ], this.notes());
+    // Consumed by the render above: the copy result is about the press that caused it.
+    this.linkNote = null;
+  }
+
+  /**
+   * What the menu has to say that is not a choice.
+   *
+   * The storage warning is unconditional and permanent while it applies, because the
+   * failure it describes is silent otherwise — the campaign plays perfectly and rolls a
+   * different canyon on every load, which reads as a bug in the generator rather than as
+   * a browser refusing to store anything. Measured: with storage blocked, four
+   * consecutive loads produced four seeds and no error of any kind.
+   */
+  private notes(): MenuNote[] {
+    const notes: MenuNote[] = [];
+    if (this.host.store === null) {
+      notes.push({
+        text: 'STORAGE UNAVAILABLE — THIS CAMPAIGN WILL NOT SURVIVE A RELOAD, AND THE CANYON IS REROLLED EACH TIME. SHARE CANYON COPIES A LINK THAT COMES BACK TO THIS ONE.',
+        warn: true,
+      });
+    }
+    if (this.linkNote) notes.push({ text: this.linkNote });
+    return notes;
+  }
+
+  /**
+   * Puts the canyon on the clipboard, and says whether it landed.
+   *
+   * Reporting failure matters more than it looks: the Clipboard API needs a secure
+   * context, so a player running the built game off a plain-HTTP LAN address gets nothing
+   * and would otherwise have no idea whether to paste.
+   */
+  private copyLink(): void {
+    void copyShareLink(this.progress.seed).then((copied) => {
+      this.linkNote = copied
+        ? 'LINK COPIED. ANYONE WHO OPENS IT CAN FLY THIS CANYON.'
+        : 'COULD NOT REACH THE CLIPBOARD — THE SEED IS ON THE ROW ABOVE.';
+      this.open();
+    });
   }
 
   private openMissions(): void {
@@ -220,6 +282,93 @@ export class MenuController {
    */
   private newCanyon(): void {
     this.progress.newCanyon();
+    this.host.rebuildCanyon();
+    this.host.loadWorld(1);
+    this.open();
+  }
+
+  /**
+   * A canyon somebody else is flying, arriving as a link.
+   *
+   * An offer and never an application, because the alternative corrupts the one thing the
+   * save format guarantees: `mastX` and `relayX` are write-once precisely so twenty-nine
+   * missions of layout cannot shift under a player, and dropping a foreign seed onto a
+   * campaign in progress would move the canyon out from under a colony ledger that has
+   * already been grown against the old one. So a link can only ever *start* something.
+   *
+   * Silent when the hash names the canyon already being flown, which is the ordinary
+   * case: the player's own URL carries their own seed, so every reload arrives here with
+   * a seed that matches and nothing to ask about.
+   */
+  offerSharedCanyon(): boolean {
+    const seed = readSharedSeed();
+    if (seed === null || seed === this.progress.seed) return false;
+
+    /**
+     * Nothing flown, so the seed costs nothing: take it where we stand. This is also the
+     * path a storage-blocked browser takes on *every* load — each one starts an untouched
+     * campaign — and is what makes a link survive a reload in a browser that will not
+     * store anything, the player's own link included.
+     */
+    if (this.flownCount() === 0 && this.progress.highestUnlocked === 1) {
+      this.adoptSeed(this.progress.slot, seed);
+      return true;
+    }
+
+    this.host.menuDepth = 1;
+    const free = readSlots(this.host.store).find((slot) => !slot.occupied);
+    if (!free) {
+      // No free slot and no offer to replace one. Overwriting on somebody else's say-so
+      // is the single most destructive thing a URL could do here, and the player is two
+      // screens from doing it deliberately if they want to.
+      this.host.ui.showConfirm(
+        'SHARED CANYON',
+        `Someone shared canyon <b>${seed}</b>.<br/><br/>All ${SLOT_COUNT} of your canyons are in use, and a link never replaces one. Discard a campaign from CANYONS and open the link again.`,
+        'OPEN CANYONS',
+        // Hash deliberately left alone on this one path: the card has just told the
+        // player to come back to this link once they have freed a canyon, and rewriting
+        // it here is what would make that instruction a lie.
+        () => this.openSlots(),
+        () => this.dismissShared(),
+      );
+      return true;
+    }
+
+    this.host.ui.showConfirm(
+      'SHARED CANYON',
+      `Someone shared canyon <b>${seed}</b>.<br/><br/>It starts a new campaign at mission one, in canyon ${free.slot + 1}, which is empty. The campaign you are in now is not touched.`,
+      `FLY CANYON ${free.slot + 1}`,
+      () => this.adoptSeed(free.slot, seed),
+      () => this.dismissShared(),
+    );
+    return true;
+  }
+
+  /**
+   * Declining the offer, which includes putting the address bar back.
+   *
+   * Without the rewrite the URL keeps naming a canyon the player just said no to, and
+   * every reload asks again — and worse, SHARE CANYON would hand somebody a link to a
+   * chasm this player is not flying.
+   */
+  private dismissShared(): void {
+    writeSharedSeed(this.progress.seed);
+    this.open();
+  }
+
+  /**
+   * Pins a slot to a seed and drops the player into it at mission one.
+   *
+   * `useSeed` rather than `reset`: the slot being adopted into is either empty or
+   * untouched, so there are no ranks to discard, and going through `reset` would file an
+   * empty campaign in the history for every shared link anybody opened.
+   */
+  private adoptSeed(slot: number, seed: number): void {
+    if (slot !== this.progress.slot) {
+      setActiveSlot(this.host.store, slot);
+      this.host.progress = new Progress(this.host.store, slot);
+    }
+    this.progress.useSeed(seed);
     this.host.rebuildCanyon();
     this.host.loadWorld(1);
     this.open();

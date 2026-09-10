@@ -63,6 +63,20 @@ export interface MenuEntry {
   onSelect?: () => void;
 }
 
+/**
+ * A line under a list that reports rather than offers.
+ *
+ * Not a `MenuEntry` without an `onSelect`, though the inert row exists and would have
+ * rendered: those are rows *of* the list — a filed playthrough, a canyon you are already
+ * in — and read as things the list is about. Storage being unavailable is about the
+ * browser, and putting it in the same column as CONTINUE said it was somewhere to go.
+ */
+export interface MenuNote {
+  text: string;
+  /** Colours it as a warning. For what costs the player something, not for what informs. */
+  warn?: boolean;
+}
+
 /** Columns in the mission grid. Kept beside the CSS that lays it out — see
  *  `.mission-grid`, whose `grid-template-columns` must agree with this or arrow-key
  *  navigation walks the wrong way through it. */
@@ -477,7 +491,13 @@ export class Interface {
    * same shape with different rows. Writing four cards would have meant four places for
    * the register to drift.
    */
-  private showList(title: string, entries: MenuEntry[], onBack?: () => void, subtitle?: string): void {
+  private showList(
+    title: string,
+    entries: MenuEntry[],
+    onBack?: () => void,
+    subtitle?: string,
+    notes?: MenuNote[],
+  ): void {
     const card = el('div', 'card card-sys card-menu');
     card.append(el('div', 'card-eyebrow', title));
     // Only the root menu carries a subtitle — it is the game's own name (never shipped
@@ -510,6 +530,12 @@ export class Interface {
 
     card.append(list);
 
+    for (const note of notes ?? []) {
+      const line = el('div', 'menu-note', note.text);
+      if (note.warn) line.classList.add('warn');
+      card.append(line);
+    }
+
     let back: HTMLButtonElement | null = null;
     if (onBack) {
       back = el('button', 'primary', 'BACK');
@@ -525,11 +551,17 @@ export class Interface {
     (first ?? back)?.focus();
   }
 
-  showMenu(entries: MenuEntry[]): void {
+  showMenu(entries: MenuEntry[], notes?: MenuNote[]): void {
     // The game's actual title. It has stood in README.md since before there was a menu
     // to put it on and never once reached the game itself — the campaign's own name
     // called it "30 Missions to Mars" everywhere a player could see it.
-    this.showList('THE ONLY THING AT THE BOTTOM', entries, undefined, 'a story about 30 missions to Mars');
+    this.showList(
+      'THE ONLY THING AT THE BOTTOM',
+      entries,
+      undefined,
+      'a story about 30 missions to Mars',
+      notes,
+    );
   }
 
   /** The campaigns a player has going at once, one canyon each. */

@@ -18,6 +18,7 @@ import type { HudCommon, HudData } from '../ui/HudData.ts';
 import { Progress, scoreLanding, summarise } from '../campaign/Progress.ts';
 import { MenuController, type MenuHost } from './MenuController.ts';
 import { describeCrash } from './CrashReport.ts';
+import { writeSharedSeed } from '../campaign/CanyonLink.ts';
 import { activeSlot, defaultStore } from '../campaign/SaveData.ts';
 import {
   getMission,
@@ -307,6 +308,21 @@ export class Game implements MenuHost {
 
     window.addEventListener('resize', () => this.onResize());
     window.addEventListener('keydown', (e) => this.onKey(e));
+    /**
+     * A link that arrives in a tab already showing the game.
+     *
+     * Changing only the fragment is same-document navigation — no reload, so the boot
+     * path that reads the hash never runs and a pasted link would sit in the address bar
+     * doing nothing. Menu only: the same event fires when a mission is under way, and a
+     * card asking about a different canyon does not belong over a descent. The hash
+     * survives, so it is offered at the next boot instead.
+     *
+     * `writeSharedSeed` also lands here, and is harmless: it writes the seed already
+     * being flown, which `offerSharedCanyon` answers by returning.
+     */
+    window.addEventListener('hashchange', () => {
+      if (this.state === 'MENU') this.menu.offerSharedCanyon();
+    });
 
     // Mission first: the inspector reads the loaded mission to build its readout, so
     // constructing it earlier hands it an undefined mission. Loaded without its brief —
@@ -315,6 +331,13 @@ export class Game implements MenuHost {
     // has none — loading it here would run the ending under the main menu.
     this.loadMission(Math.min(this.progress.highestUnlocked, MISSION_COUNT), false);
     this.openMenu();
+    // After the menu, not before it: the offer is a card over the menu, and cancelling it
+    // steps back to a menu that has to already exist. Writes the hash for the canyon
+    // actually being flown either way — including the one the offer just adopted.
+    // Only claim the address bar when there is no offer standing. An offer owns the hash
+    // until the player answers it — writing over it here left the card on screen asking
+    // about a canyon the URL no longer named, and a reload silently lost the invitation.
+    if (!this.menu.offerSharedCanyon()) writeSharedSeed(this.progress.seed);
     this.setupDebug();
 
     this.frame = this.frame.bind(this);
@@ -1674,6 +1697,10 @@ export class Game implements MenuHost {
     this.canyon.dispose();
     this.canyon = new CanyonGenerator(this.scene, this.physics, this.progress.seed);
     this.director.groundAt = (x, z) => this.canyon.heightAt(x, z);
+    // The one place every canyon change passes through — a reroll, a slot switch, an
+    // adopted link and the inspector's own Apply all land here — so the address bar
+    // tracks the canyon on screen without four call sites remembering to say so.
+    writeSharedSeed(this.progress.seed);
   }
 
   private openMenu(): void {

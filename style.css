@@ -1506,6 +1506,27 @@ body {
 }
 
 /*
+ * A line under the list that reports rather than offers — a copied link, or storage the
+ * browser will not give us. Below the rows and not above them because it is never the
+ * reason the player opened the menu, and a warning at the top would push CONTINUE down
+ * the card every time somebody plays with cookies off.
+ */
+.menu-note {
+  font-size: 11px;
+  line-height: 1.5;
+  letter-spacing: 0.04em;
+  color: var(--corp);
+  opacity: 0.66;
+  margin: 12px 2px 0;
+}
+
+/* Storage being gone costs the player their campaign, so it is not a grey aside. */
+.menu-note.warn {
+  color: var(--danger);
+  opacity: 0.85;
+}
+
+/*
  * A selectable line, the way a text-mode menu selects: the whole row inverts rather than
  * a border lighting up. Nothing here is rounded — the shell has no rounded corners.
  */

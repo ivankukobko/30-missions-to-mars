@@ -121,3 +121,55 @@ Delivering to the wrong pad is a distinct failure. Corporate clients pay for add
 The canyon layout is per-player: a seed is rolled on first launch, stored in
 `localStorage` alongside campaign progress, and then frozen for all twenty-nine missions
 so the colony ledger stays coherent.
+
+### Sharing a canyon
+
+The seed is written to the URL fragment as `#canyon=<seed>` whenever the canyon changes —
+a reroll, a slot switch, an adopted link, the inspector's own Apply — so the address bar
+always names the chasm on screen. **SHARE CANYON** on the main menu shows the seed and
+copies that link.
+
+The copy tries `navigator.clipboard` first and falls back to the deprecated
+selection-and-`execCommand` route. That fallback is not belt-and-braces: `navigator.clipboard`
+is gated on Permissions Policy, so inside a cross-origin frame it works only if the
+embedder set `allow="clipboard-write"` on the iframe. An itch.io HTML5 page is exactly
+that frame, which makes the modern API switchable-off from outside on the one platform
+where sharing needs the most help. `execCommand` is gated on user activation instead, and
+a click on the menu row already is one.
+
+Opening a link is an **offer and never an application**. A foreign seed dropped onto a
+campaign in progress would move the canyon out from under a colony ledger already grown
+against the old one, and `mastX`/`relayX` are write-once precisely so twenty-nine missions
+of layout cannot shift underneath a player. So:
+
+| Arriving with a foreign seed | What happens |
+| --- | --- |
+| Nothing flown yet | Adopted in place, silently — there is nothing it can cost |
+| A campaign in progress, a free canyon | A card offering to start it in the empty slot; the current campaign is untouched |
+| A campaign in progress, all three full | A card saying so. A link never replaces a canyon; discard one from CANYONS first |
+
+The hash belongs to the offer until the player answers it: boot does not overwrite a
+pending card, declining puts the player's own seed back, and only the "all three full"
+path leaves the foreign seed in place — because that card's whole instruction is to come
+back to the link later.
+
+The fragment and not the query string, because `?debug`, `?gizmos`, `?scale` and
+`?colonies` are developer flags that belong to a session where a seed is the opposite: the
+one parameter meant to be passed on. Keeping them in different halves of the URL means a
+shared link never carries a debug bar into somebody else's game — `shareUrl` drops the
+query for the same reason.
+
+### When the browser will not store anything
+
+`localStorage` is not merely absent in a sandboxed frame or in Safari with storage
+blocked — touching it throws, which is why every access goes through the guards in
+`SaveData`. The campaign then plays perfectly and forgets, and the failure is otherwise
+completely silent: measured with storage blocked, four consecutive loads produced four
+different seeds, a canvas, a full menu and no error of any kind. A player would read that
+as a bug in the generator rather than as a browser refusing to store anything.
+
+Two things answer it. The main menu carries a permanent warning while it applies, and the
+`#canyon=` link is the way back — with storage blocked, a link holds the same canyon
+across reloads where an unlinked load rerolls every time. It is the whole campaign's
+persistence reduced to one number, which is all that fits in a URL, but it is the
+difference between a chasm you can return to and one that dissolves on refresh.

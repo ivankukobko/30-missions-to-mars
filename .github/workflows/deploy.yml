@@ -1,8 +1,9 @@
-name: Deploy to GitHub Pages
+name: Publish
 
-# Builds the Vite bundle and publishes it to Pages on every push to main.
-# `vite.config.ts` sets `base: './'`, so the same `dist/` works at the project-page
-# subpath without hardcoding the repo name.
+# Builds the Vite bundle once and publishes it to GitHub Pages and, when configured, to
+# itch.io. `vite.config.ts` sets `base: './'`, so the same `dist/` works at the Pages
+# project-page subpath *and* under the random per-game path itch serves an HTML5 build
+# from, without either one hardcoding where it is.
 
 on:
   push:
@@ -39,6 +40,13 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+      # The same bytes a second time as an ordinary artifact. The Pages one is a tarball
+      # in a shape only `deploy-pages` reads, and building again in the itch job would
+      # mean the storefront and the web build were never proven to be the same bundle.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
 
   deploy:
     needs: build
@@ -49,3 +57,44 @@ jobs:
     steps:
       - id: deployment
         uses: actions/deploy-pages@v4
+
+  # Publishing the browser build to itch.io.
+  #
+  # Inert until `ITCH_TARGET` is set as a repository *variable* (Settings → Secrets and
+  # variables → Actions → Variables) to `user/game` — the slug from the game's itch URL,
+  # not its title — and `BUTLER_API_KEY` as a *secret* from https://itch.io/user/settings/api-keys.
+  # A variable rather than a secret because the target is not one: masking it would only
+  # make a failed push unreadable in the log.
+  #
+  # The channel name is what itch reads platform from, and `html5` marks a browser build.
+  # The "This file will be played in the browser" checkbox is set once, by hand, on the
+  # game's edit page after the first push — butler has no flag for it and cannot.
+  #
+  # Desktop channels (`windows`, `osx`, `linux`) belong here too once there is a desktop
+  # shell to build; today `dist/` is the only artifact there is.
+  itch:
+    needs: build
+    runs-on: ubuntu-latest
+    if: ${{ vars.ITCH_TARGET != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Fetch butler
+        run: |
+          curl -sSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip
+          chmod +x butler
+          ./butler -V
+      - name: Push the browser build
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+        run: |
+          # The run number rides along because every push to main is a build, while the
+          # package version only moves on a release — without it itch would show a column
+          # of identical version strings and no way to tell which one is on the page.
+          version="$(node -p "require('./package.json').version")-${{ github.run_number }}"
+          ./butler push dist "${{ vars.ITCH_TARGET }}:html5" --userversion "$version"
+          ./butler status "${{ vars.ITCH_TARGET }}:html5"
