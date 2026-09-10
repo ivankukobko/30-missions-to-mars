@@ -11,14 +11,25 @@ import { InputManager } from './InputManager.ts';
 class FakeWindow {
   innerWidth = 1000;
   private listeners = new Map<string, Set<(e: unknown) => void>>();
+  /** Recorded because `{ passive: false }` is load-bearing — see `InputManager`'s header. */
+  private options = new Map<string, AddEventListenerOptions | undefined>();
 
-  addEventListener(type: string, handler: (e: unknown) => void): void {
+  addEventListener(
+    type: string,
+    handler: (e: unknown) => void,
+    options?: AddEventListenerOptions,
+  ): void {
     let set = this.listeners.get(type);
     if (!set) {
       set = new Set();
       this.listeners.set(type, set);
     }
     set.add(handler);
+    this.options.set(type, options);
+  }
+
+  optionsFor(type: string): AddEventListenerOptions | undefined {
+    return this.options.get(type);
   }
 
   removeEventListener(type: string, handler: (e: unknown) => void): void {
@@ -55,6 +66,24 @@ const key = (code: string) => ({ code });
 const touch = (identifier: number, clientX: number) => ({
   changedTouches: { length: 1, 0: { identifier, clientX } },
 });
+
+/**
+ * A touch carrying the hit-test result iOS would have given it, plus a spy for the one
+ * call that decides whether the browser or the game owns the gesture.
+ */
+const touchOn = (tagName: string, identifier: number, clientX: number) => {
+  let prevented = false;
+  return {
+    ...touch(identifier, clientX),
+    target: { tagName },
+    preventDefault: () => {
+      prevented = true;
+    },
+    get prevented() {
+      return prevented;
+    },
+  };
+};
 
 describe('InputManager keyboard', () => {
   it('starts with nothing held', () => {
@@ -214,6 +243,56 @@ describe('InputManager touch', () => {
     fake.emit('touchstart', touch(1, 100));
 
     expect(input.getState()).toEqual({ left: true, right: false, main: true });
+  });
+});
+
+/**
+ * The gesture the browser would otherwise have taken for itself.
+ *
+ * On iOS a press-and-hold on the canyon opens a selection gesture and arrives back as
+ * `touchcancel`, which reads to a player as a throttle that never fires. Refusing the
+ * default is the only thing that stops it, and a passive listener cannot refuse — so
+ * both halves are asserted here: that the listener is registered able to cancel, and
+ * that it cancels a canyon touch and leaves a control touch alone.
+ */
+describe('InputManager gesture ownership', () => {
+  for (const type of ['touchstart', 'touchmove'] as const) {
+    it(`registers ${type} able to cancel the default`, () => {
+      new InputManager();
+
+      expect(fake.optionsFor(type)?.passive).toBe(false);
+    });
+
+    it(`cancels a ${type} on the canyon`, () => {
+      new InputManager();
+      const e = touchOn('CANVAS', 1, 500);
+
+      fake.emit(type, e);
+
+      expect(e.prevented).toBe(true);
+    });
+
+    /**
+     * Cancelling here would cancel the `click` iOS synthesises from the touch, taking
+     * the pause button and every menu row with it — and on `touchmove`, the scroll of
+     * the mission grid.
+     */
+    it(`leaves a ${type} on a control alone`, () => {
+      new InputManager();
+      const e = touchOn('BUTTON', 1, 500);
+
+      fake.emit(type, e);
+
+      expect(e.prevented).toBe(false);
+    });
+  }
+
+  it('still reads the zone off a cancelled canyon touch', () => {
+    const input = new InputManager();
+
+    fake.emit('touchstart', touchOn('CANVAS', 1, 500));
+
+    expect(input.getState()).toEqual({ left: false, right: false, main: true });
   });
 });
 

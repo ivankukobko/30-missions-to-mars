@@ -23,6 +23,21 @@ export function hasTouchPointer(): boolean {
 }
 
 /**
+ * Whether a touch landed on the canyon rather than on a control.
+ *
+ * `#ui-layer` is `pointer-events: none` end to end and every tappable thing opts back in
+ * individually, so a flight touch hit-tests to the canvas and a control touch never does.
+ * The split the UI already draws is the one this reuses; there is nothing new to keep in
+ * sync.
+ *
+ * Tag name rather than `instanceof HTMLCanvasElement`: this module is imported by a test
+ * that runs with no DOM at all, where that constructor is not a global.
+ */
+function onCanyon(target: EventTarget | null): boolean {
+  return (target as Element | null)?.tagName === 'CANVAS';
+}
+
+/**
  * Keyboard and multi-touch, normalised to one state object.
  *
  * Touch layout: three vertical thirds of the screen, each its own zone rather than a
@@ -41,6 +56,26 @@ export function hasTouchPointer(): boolean {
  * A touch in the middle third and a touch in a side third are unrelated inputs, so
  * they combine exactly like two keys do. No on-screen buttons stealing canyon either
  * way — the zones are read off raw coordinates, never drawn.
+ *
+ * **The touch listeners are not passive, and that is the point.** iOS reads a
+ * press-and-hold on the canyon as the opening of a *system* gesture — selection, the
+ * callout, the magnifier — and when it takes a gesture over it fires `touchcancel`.
+ * `touchcancel` drops the touch below, so `main` goes false inside the long-press
+ * threshold and thrust reads as though it never engaged. The magnifier and the dead
+ * throttle are one fault, not two.
+ *
+ * The `user-select`, `-webkit-touch-callout` and `touch-action: none` already on the
+ * document in `style.css` are necessary and not sufficient: they state an intent, while
+ * `preventDefault` on `touchstart` is the answer to the browser's own question of whose
+ * gesture this is. A passive listener cannot answer it — passive *is* the promise not to
+ * cancel — and iOS has defaulted `touchstart` and `touchmove` on `window` to passive
+ * since 11.3, so `{ passive: false }` has to be spelled out rather than merely not asking
+ * for `true`.
+ *
+ * Only canyon touches are cancelled, via `onCanyon`. Cancelling a touch also cancels the
+ * `click` iOS would have synthesised from it, which would take the pause button and every
+ * menu row with it, and cancelling `touchmove` over `.card` would stop the mission grid
+ * and the settings list scrolling on a phone.
  */
 export class InputManager {
   private state: InputState = { left: false, right: false, main: false };
@@ -54,14 +89,20 @@ export class InputManager {
     this.bind(window, 'blur', () => this.releaseAll());
 
     for (const type of ['touchstart', 'touchmove'] as const) {
-      this.bind(window, type, (e) => {
-        const te = e as TouchEvent;
-        for (let i = 0; i < te.changedTouches.length; i++) {
-          const t = te.changedTouches[i];
-          this.touches.set(t.identifier, t.clientX);
-        }
-        this.merge();
-      });
+      this.bind(
+        window,
+        type,
+        (e) => {
+          const te = e as TouchEvent;
+          if (onCanyon(te.target)) e.preventDefault();
+          for (let i = 0; i < te.changedTouches.length; i++) {
+            const t = te.changedTouches[i];
+            this.touches.set(t.identifier, t.clientX);
+          }
+          this.merge();
+        },
+        { passive: false },
+      );
     }
 
     for (const type of ['touchend', 'touchcancel'] as const) {
@@ -75,8 +116,13 @@ export class InputManager {
     }
   }
 
-  private bind(target: EventTarget, type: string, handler: (e: Event) => void): void {
-    target.addEventListener(type, handler, { passive: true });
+  private bind(
+    target: EventTarget,
+    type: string,
+    handler: (e: Event) => void,
+    options: AddEventListenerOptions = { passive: true },
+  ): void {
+    target.addEventListener(type, handler, options);
     this.disposers.push(() => target.removeEventListener(type, handler));
   }
 

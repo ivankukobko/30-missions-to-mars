@@ -97,6 +97,22 @@ API, which is what the home-screen route is for. The page suppresses text select
 callout menu and the tap-highlight box globally: a press-and-hold in a flight zone would
 otherwise raise the iOS selection magnifier over whatever HUD text sat under the thumb.
 
+Those CSS rules turned out to be necessary and not sufficient. iOS still read a hold on
+the canyon as the opening of a *system* gesture and reclaimed it, which arrives back as
+`touchcancel` — and `touchcancel` releases the touch, so `main` went false inside the
+long-press threshold and the throttle read as though it had never fired. The magnifier and
+the dead thrust were one fault. CSS states an intent; `preventDefault` on `touchstart` is
+the answer to the browser's own question of whose gesture this is, and a passive listener
+cannot give it — passive *is* the promise not to cancel. So `InputManager` registers
+`touchstart` and `touchmove` with `{ passive: false }` explicitly, since iOS has defaulted
+both to passive on `window` since 11.3, and cancels the default on canyon touches only.
+Canyon touches only because cancelling one also cancels the `click` iOS synthesises from
+it, which would take the pause button and every menu row with it, and because cancelling
+`touchmove` over a card would stop the mission grid and the settings list scrolling. The
+split needs no new bookkeeping: `#ui-layer` is `pointer-events: none` end to end and
+tappable things opt back in, so a flight touch hit-tests to the canvas and a control touch
+never does.
+
 ## Payload and Scoring
 
 Payload mass is real. It is added to the dry mass, so thrust acceleration is
