@@ -65,16 +65,19 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Sol 7347. Eleven years on this floor and we have navigated it by eye the whole time. Today that changes.
+          Sol 7347. Eleven years on this floor, and every distance we have ever written down has an error bar on it. Today that changes.
       - sender: IXION OUTPOST
         content: >-
           We are the only thing at the bottom of this canyon, and we intend to stay that way.
       - sender: IXION OUTPOST
         content: >-
+          Your relay went up six sols ago and we have not stopped ordering since. A rig, a mast, a coring drill. We have thought there was ore under this floor for years. Now we can go and look.
+      - sender: IXION OUTPOST
+        content: >-
           You are carrying our navigation radar. Until it stands on the floor you have no altimeter and no bearings, so put it down anywhere, in one piece.
       - sender: IXION OUTPOST
         content: >-
-          Where you set it is where every measurement we take begins. Choose the spot.<br/><br/><b>OBJECTIVE</b> Land intact on open ground below the rim.
+          Wherever it stands becomes the origin. Every measurement we take from now is relative to that mast, and we have never had one. Choose the spot.<br/><br/><b>OBJECTIVE</b> Land intact on open ground below the rim.
 
     radio:
       - sender: IXION OUTPOST
@@ -84,15 +87,15 @@ missions:
         atSeconds: 12
       - sender: IXION OUTPOST
         content: >-
-          Eleven years navigating this floor by eye. That ends the moment the mast is standing.
+          It has to stand plumb and it has to stand still. Everything we do after that is arithmetic.
         atAltitude: 300
         atSeconds: 19
     debrief:
       sender: IXION OUTPOST
       content: >-
-        Radar is standing and it is level enough to calibrate against. Every measurement we take from now begins where you put it.
+        Radar is standing, and level enough that we can calibrate it against the rim tonight. Every measurement we take from now begins where you put it.
       strong: >-
-        You set the mast down tighter than the spec asked. Every measurement we take from now begins where you put it.
+        You set the mast inside tolerance, which is tighter than the spec asked for. Every measurement we take from now begins where you put it.
       weak: >-
         It is upright and it is answering, which is the whole of what we needed. Every measurement we take from now begins where you put it.
   - id: 3
@@ -111,7 +114,7 @@ missions:
           Radar is up and on your feed now — altitude, range and bearing, all off the mast you set down yesterday. Our pad is marked too. You are flying to an address from here on, navigator.
       - sender: IXION OUTPOST
         content: >-
-          First core assay is back. Nine point four percent, two metres thick, and it does not thin going down. Eleven years on this floor and we never had the rig to prove it.
+          First assay is back, and we ran it four times because none of us believed it. Nine point four percent, two metres thick, and it does not thin going down. We were right about this floor. We have been right for eleven years.
       - sender: HELION EXTRACTION
         content: >-
           FILE 4471-C · NOTICE OF INTEREST · AUTO<br/><br/>ORE ASSAY READ FROM AN OPEN RELAY, COPRATES CHASMA.<br/>NO CLAIM ON RECORD.<br/>SURVEY DISPATCHED.
@@ -135,8 +138,39 @@ missions:
         #
         # One column wide at the lip and crooked below it. Everything the charters cut later
         # is square, and that difference is the only thing in this canyon that says who was
-        # here first — the shape of the rock, from the prologue on, with no brief mentioning
-        # it and nothing to land in. By mission 14 it is a doorway two other companies use.
+        # here first — the shape of the rock, from the prologue on, with nothing to land in.
+        # By mission 14 it is a doorway two other companies use.
+        #
+        # Mission 3's first radio call names the hole as Ixion's and says why it wanders,
+        # which is as far as a brief goes. What it deliberately does not say is what the
+        # difference in shape means: the authorship stays in the geometry, unstated, so a
+        # player who notices the charters cut square has found it rather than been told.
+        #
+        # **"The hole in this floor", and the wording is load-bearing.** `mount: floor` with
+        # `anchorToWall: east` is a shaft sunk *down through the canyon floor*, positioned
+        # near the east wall — not a cut into the wall's face. A draft read "the cut in the
+        # east wall", which is a different excavation from the one this file carves, and
+        # would have been contradicted by every later stage: Kessler drives this same mouth
+        # downward from mission 14, which only works because it already goes down.
+        #
+        # "This floor" over "the canyon floor" because it is Ixion's own idiom — eleven
+        # years on this floor, ore under this floor — and there is exactly one excavation in
+        # the campaign, so the definite article cannot point at the wrong hole.
+        #
+        # A hole in the floor is also the easier thing to have seen. The descent looks down
+        # the canyon's length at the floor the whole way in, where a notch in a side wall
+        # would have needed the player to be looking across it. The dig resolves to x=48 on
+        # seed 1697381726 against a flight path running x=-4 to the pad at -12. Not framed
+        # here, because `place()` moves the vehicle without re-framing the camera, so the
+        # line still states rather than points: a call that says *look* is false on any
+        # attempt where it is off-screen, and this channel's rule is that a call holds on
+        # every one. Same hedge as Kessler's "look at the hole on your way past if you want"
+        # at mission 14.
+        #
+        # The 130-character cap on this channel settled the final wording. A radio call is
+        # taken in rather than read, so the three-sentence draft lost its middle clause to
+        # "dug where we could reach, not where the ore was" — the better line as well as the
+        # legal one.
         #
         # **`shaft`, from its first stage.** This was `ixion-working`, which read as a second
         # excavation and is not one: there is exactly one hole in this canyon and this is its
@@ -163,7 +197,7 @@ missions:
     radio:
       - sender: IXION OUTPOST
         content: >-
-          Every reading on that panel comes off a mast you sited yourself. Nobody else down here has that.
+          The hole in this floor is ours. Dug where we could reach, not where the ore was. The next one we sink will be straight.
         atAltitude: 620
         atSeconds: 12
       - sender: IXION OUTPOST
@@ -174,9 +208,9 @@ missions:
     debrief:
       sender: IXION OUTPOST
       content: >-
-        Cores are off the pad and into the rig. Nine point four percent, and now it is a number somebody else has to argue with.
+        Cores are into the rig and the assay goes in the record tonight. Nine point four percent, four times over, and now it is a number somebody else has to argue with.
       strong: >-
-        Cores are off the pad without a scratch on the cases. Nine point four percent, and now it is a number somebody else has to argue with.
+        Cores are off the pad with no shock on the seals, so the assay stands. Nine point four percent, and now it is a number somebody else has to argue with.
       weak: >-
         Cores are off the pad and the cases held, which is more than they were rated for. Nine point four percent, and now we can prove it.
   - id: 4
@@ -192,7 +226,10 @@ missions:
     messages:
       - sender: IXION OUTPOST
         content: >-
-          Heavier load today, navigator, and it handles worse than the mass number says it should. We have never worked out why.
+          Heavier load today, navigator, and it will handle worse than the mass number alone says it should. We think it is where the mass sits, not how much of it there is. We have never had a way to measure that from here.
+      - sender: IXION OUTPOST
+        content: >-
+          Two transponders on our radar since last week. Both under power, both trimming for this canyon, seventeen sols out. The mast you set down is the only reason we can see them at all.
       - sender: IXION OUTPOST
         content: >-
           The reclaimer is rated for forty people. There are eleven of us. We keep ordering for the crew we keep saying we will have by winter.
@@ -236,6 +273,9 @@ missions:
       - sender: IXION OUTPOST
         content: >-
           They will not talk to each other, or to us. Charter rules — no shared survey, no shared method, nothing over the line. We kept our channel open. That is how they found the seam.
+      - sender: IXION OUTPOST
+        content: >-
+          We have spent fifteen sols reading claim law instead of reading the logs. The instruments kept running the whole time. Nobody looked at them. That has not happened in eleven years.
       - sender: IXION OUTPOST
         content: >-
           Here is how ground works on this planet, navigator. You hold ore by digging it, not by marking it. Stop working a claim and it lapses. Mark rock you are not working and it counts for nothing.
@@ -313,16 +353,16 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Helion read that assay and stopped at the depth the sample came from. We read the same page. The ore gets richer the deeper you go — that is our whole position. East tower is up.
+          Helion read that assay and stopped at the depth the sample came from. We read the same page. Ore gets richer the deeper you go. That's the whole of it. East tower's up.
       - sender: KESSLER DEEP
         content: >-
-          It counts the small quakes the seam throws as it settles. It will also count anything Helion does to the west, which is not why I bought it.
+          It counts the small quakes the seam throws as it settles. It'll count anything Helion does to the west too. That's not why I bought it.
       - sender: KESSLER DEEP
         content: >-
-          You fly one of ours now. Nothing that goes down a bore has any business turning, so it does not.
+          You fly one of ours now. Nothing that goes down a bore has any business turning, so it doesn't.
       - sender: KESSLER DEEP
         content: >-
-          The frame does not go back up — nothing that comes down here does. It is the costliest thing you are carrying until it is on the deck; after that, scrap. Do not make it scrap early, tin can.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER DECK.
+          The frame doesn't go back up. Nothing that comes down here does. Right now it's worth more than the load on it. On the deck it's scrap. Don't make it scrap early, tin can.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER DECK.
     adds:
       props:
         - kind: pad
@@ -342,17 +382,17 @@ missions:
         atSeconds: 12
       - sender: KESSLER DEEP
         content: >-
-          You will feel the frame refuse to rotate. That is not a fault, tin can.
+          You'll feel the frame refuse to rotate. That's not a fault, tin can.
         atAltitude: 300
         atSeconds: 19
     debrief:
       sender: KESSLER DEEP
       content: >-
-        Array is on the deck and reading inside the hour. I have had units put that down harder and cost me a season of calibration.
+        Array's on the deck and reading inside the hour. I've had units put that down harder and cost me a season of calibration.
       strong: >-
-        Seated flat and reading inside the hour. I have run units that needed the pad relaid after them.
+        Seated flat and reading inside the hour. I've run units that needed the pad relaid after them.
       weak: >-
-        It is up and it is reading, which is what I paid for. I have written off worse arrivals than that one.
+        It's up and reading, which is what I paid for. I've written off worse arrivals than that one.
   - id: 8
     sol: 106
     client: outpost
@@ -434,15 +474,15 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          The winch goes up the day someone lets me bolt it to something. Right now nobody does. That order is served on both of us and my crew is stood down.
+          The winch goes up the day someone lets me bolt it to something. Right now nobody does. That order's served on both of us and my crew's stood down.
       - sender: KESSLER DEEP
         content: >-
-          Bring it down anyway, tin can. It is still a contract. Nothing gets built on that deck until a tribunal three months out of date says I can pick it up.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER DECK.
+          Bring it down anyway, tin can. It's still a contract. Nothing gets built on that deck until a tribunal three months out of date says I can pick it up.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER DECK.
 
     radio:
       - sender: KESSLER DEEP
         content: >-
-          My crew is stood down and every drill in this canyon is cold. You are the only thing moving, tin can.
+          My crew's stood down and every drill in this canyon is cold. You're the only thing moving, tin can.
         atAltitude: 620
         atSeconds: 12
       - sender: KESSLER DEEP
@@ -455,9 +495,9 @@ missions:
       content: >-
         On the deck, where it stays until a tribunal three months out of date says I can bolt it to something.
       strong: >-
-        Put down square, which it did not need to be for a load nobody is allowed to lift. Habits are worth keeping.
+        Put down square, which it didn't need to be for a load nobody's allowed to lift. Good habit anyway.
       weak: >-
-        It is down and it is in one piece. Nothing is getting built with it this month either way.
+        It's down and in one piece. Nothing's getting built with it this month either way.
   - id: 11
     sol: 115
     client: outpost
@@ -535,13 +575,13 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          The array has been reading the seam for a season. Same story every night — richer rock further down, more small quakes each time. Helion read the same and stopped, if there is anyone at Helion to do the reading. You two related, tin can?
+          The array's been reading the seam for a season. Same story every night — richer rock further down, more small quakes each time. Helion read the same and stopped, if there's anyone at Helion doing the reading. You two related, tin can?
       - sender: KESSLER DEEP
         content: >-
-          Anyway. This liner is the last thing you bring me on the surface. From tomorrow we take Ixion's old working down — a proper shaft, straight down the hole they started.
+          Anyway. This liner's the last thing you bring me on the surface. From tomorrow we take Ixion's old working down. A proper shaft, straight down the hole they started.
       - sender: KESSLER DEEP
         content: >-
-          Heaviest load you have carried for us, and the deck has not grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER DECK.
+          Heaviest load you've carried for us and the deck hasn't grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER DECK.
 
     radio:
       - sender: KESSLER DEEP
@@ -559,9 +599,9 @@ missions:
       content: >-
         Last thing you ever bring me on the surface. From tomorrow we take Ixion's old working down.
       strong: >-
-        Flat, first pass, on a deck that has not grown since the last one. That is the last thing you bring me up here.
+        Flat, first pass, on a deck that hasn't grown since the last one. Last thing you bring me up here.
       weak: >-
-        It is on the deck and the liner is uncracked, which is the only part that mattered. Last thing you bring me up here.
+        It's on the deck and the liner's uncracked, which is the only part that mattered. Last thing you bring me up here.
   - id: 14
     sol: 190
     client: kessler
@@ -575,13 +615,13 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          The shaft is open. Do not take it down yet — there is nothing at the bottom to land on and the walls are not lined.
+          The shaft's open. Don't take it down yet. There's nothing at the bottom to land on and the walls aren't lined.
       - sender: IXION OUTPOST
         content: >-
           That is our old working he is driving down, navigator. Four hundred metres from our slab, and he never filed for the ground.<br/><br/>Fly the contract. We are not asking you to choose.
       - sender: KESSLER DEEP
         content: >-
-          Core goes on the deck, same as always. Look at the hole on your way past if you want. That is the shallowest it will ever be.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER DECK.
+          Core goes on the deck, same as always. Look at the hole on your way past if you want. That's the shallowest it'll ever be.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER DECK.
     adds:
       digs:
         - id: shaft
@@ -622,17 +662,17 @@ missions:
         atSeconds: 12
       - sender: KESSLER DEEP
         content: >-
-          Look at it on the way past. That is the shallowest it will ever be.
+          Look at it on the way past. That's the shallowest it'll ever be.
         atAltitude: 300
         atSeconds: 19
     debrief:
       sender: KESSLER DEEP
       content: >-
-        Core is on the deck. Tomorrow it goes down the hole and it does not come back up, same as everything else here.
+        Core's on the deck. Tomorrow it goes down the hole and it doesn't come back up, same as everything else here.
       strong: >-
-        Seated first pass. The hole is shallow enough today that a bad one would only have cost me a week.
+        Seated first pass. The hole's shallow enough today that a bad one would've cost me a week.
       weak: >-
-        Down and holding. The hole is forgiving at this depth. It will not be.
+        Down and holding. The hole's forgiving at this depth. It won't be.
   - id: 15
     sol: 215
     client: kessler
@@ -670,10 +710,10 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Pad is in at the shaft floor, well under the canyon now, and the walls are close on both sides.
+          Pad's in at the shaft floor, well under the canyon now, and the walls are close on both sides.
       - sender: KESSLER DEEP
         content: >-
-          Nothing heavy today, tin can. That is the second string I have ordered for this shaft. The first is under the spoil we dropped on it, and my crew has been on helmet lamps ever since.<br/><br/><b>OBJECTIVE</b> Take it down the shaft. Deliver to SHAFT HEAD.
+          Nothing heavy today, tin can. That's the second string I've ordered for this shaft. The first one's under the spoil we dropped on it, and my crew's been on helmet lamps ever since.<br/><br/><b>OBJECTIVE</b> Take it down the shaft. Deliver to SHAFT HEAD.
     adds:
       props:
         - kind: pad
@@ -688,22 +728,22 @@ missions:
     radio:
       - sender: KESSLER DEEP
         content: >-
-          You are inside the hole now, not over it. The walls are the thing to watch, not the floor.
+          You're inside the hole now, not over it. Watch the walls, not the floor.
         atAltitude: 620
         atSeconds: 12
       - sender: KESSLER DEEP
         content: >-
-          I want you learning this hole while it is still forgiving, tin can.
+          I want you learning this hole while it's still forgiving, tin can.
         atAltitude: 240
         atSeconds: 19
     debrief:
       sender: KESSLER DEEP
       content: >-
-        Lights are in. My crew has been on helmet lamps since the first string went under the spoil.
+        Lights are in. My crew's been on helmet lamps since the first string went under the spoil.
       strong: >-
-        Down the bore and onto the pad first pass. My crew has been on helmet lamps for a season.
+        Down the bore and onto the pad first pass. My crew's been on helmet lamps for a season.
       weak: >-
-        It is down and the string is unbroken, which is all a light needs to be. The lamps come off tonight.
+        It's down and the string's unbroken, which is all a light needs to be. Lamps come off tonight.
   - id: 16
     sol: 240
     client: helion
@@ -841,33 +881,33 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          We take the main shaft down tonight, a long way further. The seam we are on is worked out — the good rock is below us now.
+          We take the main shaft down tonight, a long way further. The seam we're on is worked out. Good rock's below us now.
       - sender: KESSLER DEEP
         content: >-
-          Helion holds this one because they cut it first. I will hold what is under it because I will be the only one who has ever been down there.
+          Helion holds this one. They cut it first. I'll hold what's under it, because nobody else is going down there.
       - sender: KESSLER DEEP
         content: >-
-          Seat them square, tin can. Everything below them is rock nobody has a claim on yet, and I am not losing it because a pylon went in crooked.<br/><br/><b>OBJECTIVE</b> Deliver the pylons to SHAFT HEAD.
+          Seat them square, tin can. Everything below them is rock nobody's claimed yet, and I'm not losing it to a crooked pylon.<br/><br/><b>OBJECTIVE</b> Deliver the pylons to SHAFT HEAD.
 
     radio:
       - sender: KESSLER DEEP
         content: >-
-          Everything worth having in this canyon is under somebody else's floor. Ours included.
+          Those pylons hold a deck I haven't dug yet. That's how far ahead I have to order down here.
         atAltitude: 620
         atSeconds: 12
       - sender: KESSLER DEEP
         content: >-
-          A claim is where your people are standing. Mine are standing lower every month, tin can.
+          My crew works lower every month, tin can. Some shifts they don't see the top of the hole at all.
         atAltitude: 240
         atSeconds: 19
     debrief:
       sender: KESSLER DEEP
       content: >-
-        Pylons are seated. Everything under them is rock nobody has a claim on yet, and it stays that way while they hold.
+        Pylons are seated. Everything under them is rock nobody's claimed, and it stays that way while they hold.
       strong: >-
-        Seated square, all of them. Everything under those is rock nobody has a claim on, and I am keeping it.
+        Seated square, all of them. Everything under those is rock nobody's claimed, and I'm keeping it.
       weak: >-
-        They are in and they are holding. Crooked costs me a week of packing, not the ground.
+        They're in and holding. Crooked costs me a week of packing, not the ground.
   - id: 20
     sol: 340
     client: kessler
@@ -881,10 +921,10 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          We sank the shaft overnight and relaid the deck on the new floor, further under the canyon than anything you have flown to yet.
+          We sank the shaft overnight and relaid the deck on the new floor. Further under the canyon than anything you've flown to yet.
       - sender: KESSLER DEEP
         content: >-
-          The bore is barely wider than your gear now and there is no room to fix a bad line once you are in it. Get it right above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver the cable to SHAFT LEDGE.
+          The bore's barely wider than your gear now and there's no room to fix a bad line once you're in it. Get it right above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver the cable to SHAFT LEDGE.
     adds:
       # The sinking mission 19's pylons paid for, carved *after* that delivery rather than
       # before it — which is what its own brief says ("we take the main shaft down tonight")
@@ -953,22 +993,22 @@ missions:
     radio:
       - sender: KESSLER DEEP
         content: >-
-          The deck under you is three days old. The one before it is beneath our own spoil.
+          The deck under you is three days old. The one before it's under our own spoil.
         atAltitude: 620
         atSeconds: 12
       - sender: KESSLER DEEP
         content: >-
-          Nothing to grab on the way down. The bore does not widen again after this.
+          Nothing to grab on the way down. The bore doesn't widen again after this.
         atAltitude: 240
         atSeconds: 19
     debrief:
       sender: KESSLER DEEP
       content: >-
-        Cable is on the ledge. The bore is barely wider than your gear from here down, and it does not widen again.
+        Cable's on the ledge. The bore's barely wider than your gear from here down, and it doesn't widen again.
       strong: >-
-        Clean line all the way down a bore with no room to fix one. That is the shape of every run after this.
+        Clean line all the way down a bore with no room to fix one. Every run after this is that bore or narrower.
       weak: >-
-        It is down. There is no room in that bore to correct a bad line, and you found that out on the way in.
+        It's down. There's no room in that bore to correct a bad line, and you found that out on the way in.
   - id: 21
     sol: 372
     client: helion
@@ -1106,7 +1146,7 @@ missions:
           We broke into the chasm and the shaft went down with it, deck and all. Below the old ledge the walls squeeze in and the fog goes black.
       - sender: KESSLER DEEP
         content: >-
-          Down there the optical feed and the altimeter will not agree. Trust the altimeter. It is the one that is right.<br/><br/><b>OBJECTIVE</b> Deliver the lighting rig to SHAFT DEEP.
+          Down there the optical feed and the altimeter won't agree. Trust the altimeter. That's the one that's right.<br/><br/><b>OBJECTIVE</b> Deliver the lighting rig to SHAFT DEEP.
     adds:
       # The abyss this phase is named for, and the reason `failDepth` drops to -320 here
       # while nothing in the canyon used to reach past -172. The shaft is what opens it.
@@ -1190,11 +1230,11 @@ missions:
     debrief:
       sender: KESSLER DEEP
       content: >-
-        Rig is lit at the bottom. Three hundred metres of hole and the only thing down there now is ours.
+        Rig's lit at the bottom. Three hundred metres of hole and the only thing down there now is ours.
       strong: >-
-        Straight down three hundred metres of squeezing wall and seated flat. I have flown units that never made the ledge.
+        Straight down three hundred metres of squeezing wall and seated flat. I've flown units that never made the ledge.
       weak: >-
-        It is down and it is lit. Below the ledge the walls do not forgive much, and they did not forgive much of that.
+        It's down and it's lit. Below the ledge the walls don't forgive much, and they didn't forgive much of that.
   - id: 25
     sol: 500
     client: helion
@@ -1250,16 +1290,16 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Heaviest single object anyone has flown here. West wall to the bottom of the shaft, through everything both charters built — and mind the walls. Everything that came down this canyon and never flew out is in them now.
+          Heaviest single object anyone's flown here. West wall to the bottom of the shaft, through everything both charters built — and mind the walls. Everything that came down this canyon and never flew out is in them now.
       - sender: KESSLER DEEP
         content: >-
-          Outpost's channel has been quiet a long while. Used to be traffic on it every shift. Not something I have the time to chase.
+          Outpost's channel has been quiet a long while. Used to be traffic on it every shift. Not something I've got the time to chase.
       - sender: KESSLER DEEP
         content: >-
-          Once that is capped I can put a charge under the seam without losing the roof. Helion have been cutting toward it for a year and they still cannot reach what sits under us.
+          Once that's capped I can put a charge under the seam without losing the roof. Helion have been cutting toward it a year and they still can't reach what's under us.
       - sender: KESSLER DEEP
         content: >-
-          Do this one right. I would not hand it to anyone else.<br/><br/><b>OBJECTIVE</b> Deliver the shell to SHAFT DEEP.
+          Do this one right. I wouldn't hand it to anyone else.<br/><br/><b>OBJECTIVE</b> Deliver the shell to SHAFT DEEP.
     # Stateless, both of them: true of any descent down this bore, on any attempt. An event
     # — "the shell is seated" — would be a lie the fourth time the player flies it, which is
     # the whole constraint the every-attempt decision imposes on this channel.
@@ -1271,7 +1311,7 @@ missions:
     radio:
       - sender: KESSLER DEEP
         content: >-
-          Crew is off the bottom while you come down. Nobody works under a load like that.
+          Crew's off the bottom while you come down. Nobody works under a load like that.
         atAltitude: 640
         atSeconds: 12
       - sender: KESSLER DEEP
@@ -1284,11 +1324,11 @@ missions:
     debrief:
       sender: KESSLER DEEP
       content: >-
-        Capped and seated. I have had loads sit worse than that on the same deck and sent a crew down to straighten them.
+        Capped and seated. I've had loads sit worse than that on the same deck and sent a crew down to straighten them.
       strong: >-
-        Seated first pass. I have run units that wanted three goes at that deck, and I signed those off as good work.
+        Seated first pass. I've run units that wanted three goes at that deck, and I signed those off as good work.
       weak: >-
-        It is down and it is holding, which is the whole of what the deck asks. I have written off units that did less.
+        It's down and holding, which is the whole of what the deck asks. I've written off units that did less.
 
   - id: 27
     sol: 564
@@ -1414,10 +1454,10 @@ missions:
     messages:
       - sender: KESSLER DEEP
         content: >-
-          Going on a year down this mouth and it still is not done with us. Down the hole the outpost started, and every metre under that first stretch you put there yourself.
+          Going on a year down this mouth and it still isn't done with us. Down the hole the outpost started, and every metre under that first stretch you put there yourself.
       - sender: KESSLER DEEP
         content: >-
-          Seven hundred kilos, same as the cutting charges — you have flown this one before. Nobody else is on the canyon now.
+          Seven hundred kilos, same as the cutting charges — you've flown this one before. Nobody else is on the canyon now.
       - sender: KESSLER DEEP
         content: >-
           The outpost did not pull out, navigator. Nobody pulls out of here. I heard their channel go quiet — one at a time, until there was nobody left keying it. So it is you, me, and three hundred metres of—
@@ -1455,13 +1495,13 @@ missions:
         atSeconds: 12
       - sender: KESSLER DEEP
         content: >-
-          Every drill is off. There has not been a sound in this canyon that was not you or me for weeks.
+          Every drill is off. There hasn't been a sound in this canyon that wasn't you or me for weeks.
         atAltitude: 240
         atSeconds: 19
 epilogue:
   - sender: KESSLER DEEP
     content: >-
-      Charge is seated, navigator. Never lost one with you yet.<br/><br/>Pulling my crew up now. Give me twenty minutes and I will—
+      Charge is seated, navigator. Never lost one with you yet.<br/><br/>Pulling my crew up now. Give me twenty minutes and I'll—
   - sender: UPLINK
     register: sys
     content: >-

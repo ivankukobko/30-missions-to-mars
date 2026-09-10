@@ -247,6 +247,20 @@ floor. Off it, two directions: a horizontal drift running west along the gallery
 and a single column driven straight down (Kessler). `Missions.test.ts` asserts the campaign
 digs exactly one excavation.
 
+Mission 3's first radio call is the only place a brief says the mouth is theirs — *"The hole
+in this floor is ours. Dug where we could reach, not where the ore was. The next one we sink
+will be straight."* It is the table row above in the first person, and the last sentence is
+wrong: they never sink another. Kessler drives that same mouth down at mission 14, and the
+brief never connects the two. What the line still does not say is what the *shape* means —
+crooked against everything the charters cut square — so the authorship stays where it was,
+in the rock.
+
+*In this floor*, not in the east wall: the mouth is anchored **to** the east wall and opens
+**onto the floor**, so it is a shaft sunk downward near that wall rather than a cut into its
+face. A draft got this backwards and described a different excavation from the one the
+campaign carves — one that mission 14 would have contradicted the moment Kessler started
+driving it down.
+
 **Ixion started digging and was outrun.** They saw what the seam was worth first and were
 the least equipped to take it, so they took the affordable seam — shallow, close, and not
 the good one. Then Helion arrived with proper survey equipment, found the actual optimum,
@@ -434,6 +448,62 @@ took something out of the ground.
 - **Weapon**: the record. *"We filed first. It will not matter, but it will be on the
   record — and the record is the only thing we have that they cannot dig up."*
 
+#### The science goes first
+
+Missions 2 to 4 are the only place Ixion sounds like the expedition it was: error bars, an
+origin for a coordinate frame, an assay run four times because nobody believed it, a
+handling anomaly they can name and cannot measure. By 8 and 11 they speak in order numbers,
+by 22 in account balances, and by 23 they are filing a recommendation nobody answers.
+
+**The turn is on three cards, because a vocabulary drift alone could not carry it.** Before
+them the campaign's inciting incident fired on mission 3 — *SURVEY DISPATCHED*, answered with
+a pun — and was next mentioned on mission 5, which opens already lawyered. Thirty-four sols in
+which the outpost knows something is inbound, and the one brief inside that window talks about
+water. Worse, nothing ever said why an outpost eleven years old suddenly needed twenty-nine
+deliveries.
+
+- **2, sol 6 — they become miners.** *"Your relay went up six sols ago and we have not stopped
+  ordering since. A rig, a mast, a coring drill. We have thought there was ore under this floor
+  for years. Now we can go and look."* The chain was always in the campaign and never stated:
+  no relay, no channel; no channel, nothing to order on; and *that* is why the rig mission 3
+  needs took eleven years to arrive. It makes the silent prologue the cause of the story rather
+  than a tutorial that happens to come first.
+- **4, sol 31 — it is coming.** *"Two transponders on our radar since last week. Both under
+  power, both trimming for this canyon, seventeen sols out. The mast you set down is the only
+  reason we can see them at all."* They measure their own arrival precisely and do nothing
+  about it, which is the whole party in one card. Seventeen is checkable against mission 5's
+  sol. It lands immediately before *rated for forty, there are eleven of us*, which turns that
+  line from whimsy into denial without touching it.
+- **5, sol 48 — they become litigants.** *"We have spent fifteen sols reading claim law instead
+  of reading the logs. The instruments kept running the whole time. Nobody looked at them."*
+  What the pivot cost, in the only currency they had, and the reason they can lecture on ground
+  law one card later.
+
+**The symmetry nothing points at.** The open relay that let them order a coring rig is the open
+relay Helion reads the assay off one mission later, and the same channel is what finishes them
+at mission 5 — *"we kept our channel open. That is how they found the seam."* One delivery,
+flown in silence before there was anybody to thank the carrier for it, causes the ore, the
+charters and the arbitration.
+
+Mission 3 is where it is taken off them, and its assay card ends *"We were right about this
+floor. We have been right for eleven years"* — a scientist's entire return on eleven years,
+stolen between one page turn and the next by a form that read it off their own relay. The pun
+two cards later is what they do about it, which is nothing.
+
+Mission 5's card is deliberately *not* a contradiction of mission 23's *"our instruments have
+watched it since before either of them landed."* Both are true at once, and together they are
+the whole tragedy: the data was always there, always right, and never once acted on. Same
+shape as the evacuation recommendation nobody answers.
+
+Underneath the three cards the vocabulary still drifts, and its hinge is one word. Mission 3
+puts the assay *in the record* because that is what you do with a measurement; mission 5
+files first because *the record is the one thing down here they cannot dig up*. Same word,
+two missions apart, and the second meaning is the one it keeps.
+
+Spreading the science evenly across all their briefs was the rejected version, and it fights
+the arc — a party that still sounds like scientists at mission 27 has not lost anything. It
+is front-loaded so that it can be taken away.
+
 #### The jokes, and where they stop
 
 There are five, they are all dry, and they all live in the **first half**: 3, 4, 7, 10, 13.
@@ -447,7 +517,10 @@ lands it; Helion cannot be funny at all and is twice the straight man.
   photographed it for a month. It was a rock."* The same shape as the reclaimer line one card
   away: a story for the setup, an institutional fact for the punchline. It never says Viking
   or Cydonia, so the player who knows the Face on Mars gets a second layer and nobody else
-  loses anything.
+  loses anything. It is also the second deflection in two briefs — mission 3 answers the
+  notice of interest with a pun, and this one is told with two transponders seventeen sols
+  out. Ixion's jokes are what they do instead of acting, which is the other reason they stop
+  once there is nothing left to deflect.
 - **7, Kessler** — *"This used to be done with rovers. Months to cross what you do in a
   minute, and nothing on the far end to talk to."* A back-in-my-day on his first contract,
   and the campaign's only acknowledgement that ground logistics ever existed here. The last
@@ -610,17 +683,49 @@ clever line with nothing behind it.
   by worrying about the airframe rather than about you. Flies you ten missions, more
   than anyone.
 
+#### The one voice that contracts
+
+Everyone else in this canyon says *it is* and *do not*. Kessler says *it's* and *don't*, and
+he is the only one who does — which separates him from Ixion before a word of content lands.
+The blunter-vocabulary version was tried first and did not read: the sentence shapes
+underneath were still formal, and a foreman with a formal grammar sounds like a manager doing
+an accent.
+
+It costs nothing structurally. Helion is unaffected, a form having no mouth to contract with,
+and Ixion keeping the full forms stops being a house tic and becomes characterisation — the
+outpost talks the way it files.
+
+**He stops twice, and both are audible.** Mission 29's third card, where he says plainly what
+the quiet on the outpost channel meant, has no contraction in it: *"The outpost did not pull
+out, navigator. Nobody pulls out of here."* He slows down exactly once in ten missions and the
+grammar is where you hear it, ahead of the content. The other is the personification tracked
+below — *"everything that came down this canyon and never flew out is in them now"*, *"the
+hole breathing"* — which keeps its full forms because that register is the deterioration and
+has to sound unlike his job voice.
+
+#### He does not make epigrams
+
+Cut in the same pass and the harder half of it: *"Everything worth having in this canyon is
+under somebody else's floor. Ours included."* and *"A claim is where your people are standing.
+Mine are standing lower every month."* Both are good lines and neither is his. An epigram is a
+sentence somebody made, and Kessler does not make sentences — he gives instructions and
+compares equipment. Their replacements say the same thing out of the job instead: pylons
+holding a deck he has not dug yet, a crew that some shifts never sees the top of the hole.
+
+The test is whether a line survives being said twice. *Bring it in flat* does. *A claim is
+where your people are standing* does not, and a foreman repeats himself for a living.
+
 #### He deteriorates, and it is already half-written
 
 His shipped lines are an arc nobody planted:
 
-- **15** (58m): *"I want you learning the hole while it is still forgiving."* — personification,
+- **15** (58m): *"I want you learning this hole while it's still forgiving."* — personification,
   on his first descent brief.
 - **24** (303m): *"Trust the altimeter, not the optical feed. Down there the two will
   disagree."*
-- **26**: *"I would not hand this run to anyone else"* — trust; also, there is nobody else
+- **26**: *"I wouldn't hand it to anyone else"* — trust; also, there is nobody else
   left. On the same brief, flat: *"Outpost's channel has been quiet a long while… not
-  something I have the time to chase."* He clocks the last living thing in the canyon fading
+  something I've got the time to chase."* He clocks the last living thing in the canyon fading
   and files it like weather.
 - **29**: he breaks. *"The outpost did not pull out, navigator. Nobody pulls out of here. I
   heard their channel go quiet — one at a time."* The one time he speaks of people as
