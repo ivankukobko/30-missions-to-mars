@@ -1,0 +1,92 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+/* The viewport is set to the exact capsule size, so vw/vh are the capsule's own units
+   and one stylesheet can serve a 231x87 chip and a 3840x1240 hero without a scale hack. */
+:root{
+  --ink:#f6e6d8; --ink-dim:#b89a83; --rust:#c2603a; --term:#7dd88f;
+  --mono: ui-monospace,'SF Mono',Menlo,Consolas,monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100vw;height:100vh;overflow:hidden}
+/* The ground is painted on <body> alone: the library logo ships as a transparent PNG,
+   and a background on <html> survives Chrome's transparent-capture override. */
+body{background:#160b06}
+body.logo{background:transparent}
+.stage{position:relative;width:100vw;height:100vh;overflow:hidden}
+.stage img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;
+  object-position:var(--pos,center);filter:saturate(1.12) contrast(1.06)}
+/* Scrim: darkens the half the type sits on without flattening the art. */
+.scrim{position:absolute;inset:0}
+.lock{position:absolute;font-family:var(--mono);color:var(--ink);
+  text-shadow:0 0.35vh 2.2vh rgba(0,0,0,.85)}
+.t1,.t2{font-weight:600;letter-spacing:.06em;line-height:1.06;white-space:nowrap}
+.rule{height:2px;background:var(--term);opacity:.9;margin:.9em 0 .7em}
+.sub{color:var(--ink-dim);letter-spacing:.22em;white-space:nowrap}
+.caret{color:var(--term)}
+
+/* ---- wide: type left, art breathing right ---- */
+.wide .scrim{background:linear-gradient(100deg,rgba(12,6,3,.93) 0%,rgba(12,6,3,.78) 38%,rgba(12,6,3,.12) 72%,rgba(12,6,3,.30) 100%)}
+.wide .lock{left:6%;top:50%;transform:translateY(-50%)}
+.wide .t1,.wide .t2{font-size:8.2vh}
+.wide .sub{font-size:2.9vh}
+.wide .rule{width:52%}
+
+/* ---- header/small: tighter, bigger relative type ---- */
+.hdr .t1,.hdr .t2{font-size:9.6vh}
+.hdr .sub{font-size:3.3vh;letter-spacing:.16em}
+
+.tiny .scrim{background:linear-gradient(95deg,rgba(12,6,3,.95) 0%,rgba(12,6,3,.82) 55%,rgba(12,6,3,.45) 100%)}
+.tiny .lock{left:5%;top:50%;transform:translateY(-50%)}
+.tiny .t1,.tiny .t2{font-size:13vh;letter-spacing:.02em}
+.tiny .rule{display:none} .tiny .sub{display:none}
+
+/* ---- tall: type low, art above ---- */
+.tall .scrim{background:linear-gradient(180deg,rgba(12,6,3,.10) 0%,rgba(12,6,3,.35) 42%,rgba(12,6,3,.93) 72%,rgba(12,6,3,.98) 100%)}
+.tall .lock{left:7%;right:7%;bottom:7%}
+.tall .t1,.tall .t2{font-size:6.4vw}
+.tall .sub{font-size:2.5vw}
+.tall .rule{width:60%}
+
+/* ---- cover: itch.io, 630x500, shown at 315x250 on every browse page ---- */
+.cover .scrim{background:linear-gradient(180deg,rgba(12,6,3,.12) 0%,rgba(12,6,3,.38) 45%,rgba(12,6,3,.94) 74%,rgba(12,6,3,.98) 100%)}
+.cover .lock{left:7%;right:7%;bottom:8%}
+.cover .t1,.cover .t2{font-size:5.6vw}
+.cover .sub{font-size:2.2vw}
+.cover .rule{width:56%;margin:.7em 0 .55em}
+
+/* ---- hero: art carries it; Steam overlays the logo itself ---- */
+.hero .scrim{background:linear-gradient(180deg,rgba(12,6,3,.30) 0%,rgba(12,6,3,0) 30%,rgba(12,6,3,.55) 100%)}
+.hero .lock{display:none}
+
+/* ---- page background: art only, heavily settled so the store UI reads over it ---- */
+.pagebg .scrim{background:linear-gradient(180deg,rgba(12,6,3,.55) 0%,rgba(12,6,3,.75) 60%,rgba(12,6,3,.92) 100%)}
+.pagebg .lock{display:none}
+
+/* ---- logo: transparent, type only ---- */
+.logo{background:transparent}
+.logo .stage{background:transparent}
+.logo img,.logo .scrim{display:none}
+.logo .lock{left:50%;top:50%;transform:translate(-50%,-50%);text-align:center;width:92%}
+.logo .t1,.logo .t2{font-size:11vh}
+.logo .sub{font-size:3.6vh}
+.logo .rule{width:46%;margin-left:auto;margin-right:auto}
+</style></head>
+<body>
+<div class="stage">
+  <img id="art" src="">
+  <div class="scrim"></div>
+  <div class="lock">
+    <div class="t1"><span class="caret">&gt;</span> THE ONLY THING</div>
+    <div class="t2">&nbsp;&nbsp;AT THE BOTTOM</div>
+    <div class="rule"></div>
+    <div class="sub">30 MISSIONS TO MARS</div>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search);
+  document.body.className = q.get('layout') || 'wide';
+  const art = document.getElementById('art');
+  art.src = '../art/' + (q.get('art') || 'plate-vista.png');
+  if (q.get('pos')) art.style.setProperty('--pos', q.get('pos'));
+</script>
+</body></html>

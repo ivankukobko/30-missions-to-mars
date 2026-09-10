@@ -50,6 +50,12 @@ alternative that was rejected, and the measurement that settled it.
 - **[Architecture](docs/architecture.md)**: 120 Hz fixed-timestep physics engine, fragment-bound rendering pipeline, codebase module layout, and automated tests.
 - **[Running](docs/running.md)**: Dev server, debug query flags, the container rules, and the balance harnesses.
 
+### Publishing
+
+- **[Promo](docs/promo/README.md)**: Store art and copy for Steam and itch.io — seven
+  1920×1080 screenshots, every Steam capsule at the exact size Steamworks demands, and the
+  host-side capture rig that regenerates all of it from a real build.
+
 ### Feature & narrative plans
 
 - **[Airframe HUD](docs/plans/dedicated_airframe_hud.md)**: Shipped. A diegetic console per airframe in its charter's livery, an augmented layer on the vehicle that stays the player's own, and a system register for everything that is not the mission.
