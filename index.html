@@ -2,7 +2,21 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      The SVG is the icon; the two PNGs are for the places that cannot read one.
+
+      `apple-touch-icon` is not decoration here. The home-screen metas below make an
+      installed launch a real path, and iOS with no touch icon declared renders a
+      screenshot of the page instead — which for a game that boots into a canyon is a
+      thumbnail of rock. 180 is the size iOS asks for; anything smaller it upscales.
+
+      Hrefs stay absolute because `base: './'` rewrites them to `./` at build time, and
+      that rewrite is what makes them resolve on the Pages project subpath and inside an
+      itch iframe. Writing `./` here instead would survive the build and break `vite dev`.
+    -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/favicon-180.png" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover"
