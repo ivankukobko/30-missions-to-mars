@@ -70,21 +70,44 @@ and a middle touch independent, so they combine exactly like two keys. Every fra
 that: the lander's fight and the sidewinder's hold-altitude-while-translating both want a
 side and main at once, and the hauler's middle third now fires both engines directly
 rather than the physics inferring it from "both halves." Flight stays gesture-only
-otherwise — no on-screen sticks stealing canyon — the one exception being a corner pause
-button, because a phone has no Escape key to fall back to.
+otherwise — no on-screen sticks stealing canyon — the one exception being a pause button,
+because a phone has no Escape key to fall back to. It sits top centre, between the two
+corner readouts. It was bottom-right, which is where the right thumb rests on a phone, so
+the one button in flight was under the hand doing the flying. It is on every mission, the
+relay's included: the relay has no console, and hiding one used to mean hiding all of
+`.hud`, button and all, so mission 1 could not be paused on a phone. A console-less
+vehicle now gets `.hud--bare` instead, which takes every readout and leaves the button.
 
-### Teaching the zones once
+**The relay has one zone, not three.** Mission 1's vehicle has exactly one control —
+thrust — by design (see [Mission Zero](plans/mission_zero.md)), and the physics always
+honoured that: `rotationPower` and `rcsBurn` are zero. The input did not. Left and right
+still reached the vehicle, so its jets lit and the side-jet sound played on a craft that
+could not turn, and on a phone two thirds of the glass were controls that answered with
+nothing. `InputManager.setSideControl` now takes the sides away outright on a frame with
+no side authority: every touch anywhere is the throttle, and the side keys do nothing.
+Which frames that is comes from `hasSideControl` in `Airframe.ts`, derived from the data
+rather than flagged, and `LanderBody.test.ts` holds it against what the physics actually
+does with a side input — so a frame given jets later gets its sides back without an edit.
 
-Because nothing is drawn, a first-time touch player has no way to see where the thirds
-are. So on a touch device, the **first** uplink hold shows them: three faint full-height
-columns labelled for the airframe on the glass — `ROTATE / THRUST / ROTATE` on the
-lander, `SLIDE / LIFT / SLIDE` on the sidewinder — under the caption `HOLD TO FLY`. It
-fills the dead time before `BEGIN DESCENT` that costs no altitude anyway, and it is gone
-the instant control is handed over. Shown once, ever: `Preferences.touchHintSeen` is
-written by the first flight that reaches `begin` and the hint is never offered again —
-it teaches a layout that does not move, and the vehicle's own response teaches the rest.
-It is `pointer-events: none`, so a finger resting on it during the hold still reaches the
-window listener the flight zones are read from. The columns are equal flex children of a
+### Teaching the zones
+
+Because nothing is drawn, a touch player has no way to see where the thirds are. So on a
+touch device, every uplink hold shows them: three faint full-height columns labelled for
+the airframe on the glass — `ROTATE / THRUST / ROTATE` on the lander, `SLIDE / LIFT /
+SLIDE` on the sidewinder — under the caption `HOLD TO FLY`. On the relay it is one column
+across the full width, `THRUST ▲`, because that is the whole control. It is neither timed
+nor dismissed by a touch: it fills the uplink hold — 1.5 s of mission time — and any brief
+after it, dead time that costs no altitude anyway, and it is gone the instant `begin` hands
+control over. On mission 1, which has no brief, that is the 1.5 s alone.
+
+Every mission rather than once, ever. It was once, on the grounds that the layout does not
+move — but what a side *does* changes with the airframe, the relay has no sides at all,
+and a player back after a week has no way to see thirds that are never drawn. The hold is
+dead time either way, so the repeat costs nothing a player could want back. Retries count:
+a retry is an uplink like any other.
+
+It is `pointer-events: none`, so a finger resting on it during the hold falls through to
+the canvas and the flight listener on it. The columns are equal flex children of a
 viewport-width row, so their edges land on `merge()`'s `width / 3` splits with no shared
 constant to drift.
 
@@ -106,12 +129,22 @@ the answer to the browser's own question of whose gesture this is, and a passive
 cannot give it — passive *is* the promise not to cancel. So `InputManager` registers
 `touchstart` and `touchmove` with `{ passive: false }` explicitly, since iOS has defaulted
 both to passive on `window` since 11.3, and cancels the default on canyon touches only.
-Canyon touches only because cancelling one also cancels the `click` iOS synthesises from
-it, which would take the pause button and every menu row with it, and because cancelling
-`touchmove` over a card would stop the mission grid and the settings list scrolling. The
-split needs no new bookkeeping: `#ui-layer` is `pointer-events: none` end to end and
-tappable things opt back in, so a flight touch hit-tests to the canvas and a control touch
-never does.
+
+**On `#app`, not `window`.** The first version of that listener went on `window`, and a
+non-passive listener there has two costs. It sits on the path of every touch on the page,
+so the browser can no longer scroll the mission grid or the settings list without first
+waiting on a main thread busy rendering the canyon. And every touch was read as flight:
+the pause button sat in the right third, and `click` lands after `touchend`, so tapping it
+steered the vehicle for as long as the finger was down. The UI lives in `#ui-layer`, a
+sibling of `#app` rather than a child, so on `#app` neither can happen — a control touch
+never reaches the flight listener, let alone gets cancelled by it, and its `click` and its
+scroll are the browser's as before. Touch events keep the target they began on for their
+whole life, which is why `touchend` and `touchcancel` live there too: a thumb that lands on
+the canyon and lifts over a button still ends where it started. The
+`three-brawl` prototype, which never showed the magnifier on an iPhone,
+does the same thing through Pointer Events — cancelling on the canvas, from a listener
+able to — and sets no `-webkit-touch-callout` at all, which is the clearest sign the CSS
+was never what stopped iOS.
 
 ## Payload and Scoring
 

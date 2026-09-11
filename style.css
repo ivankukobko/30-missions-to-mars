@@ -56,10 +56,23 @@ body {
 /* ----------------------------------------------------------------- HUD */
 
 .hud {
+  /* The pause button's extent, shared so `.warning` can be placed clear of it by
+     construction rather than by a percentage that happened to miss. */
+  --pause-top: max(18px, env(safe-area-inset-top));
+  --pause-size: 40px;
   position: absolute;
   inset: 0;
   padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right))
     max(18px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left));
+}
+
+/*
+ * A vehicle with no console — the relay. Every readout goes, the pause button stays: it is
+ * the game's control rather than the vehicle's, and the only one a phone has. See
+ * `Interface.setConsole`.
+ */
+.hud--bare > :not(.pause-button) {
+  display: none;
 }
 
 .hud-block {
@@ -174,20 +187,29 @@ body {
 }
 
 /*
- * The pause button. Bottom-right, clear of both top corners' readouts and of the fuel
- * bar under `.hud-left` — the one patch of the HUD nothing else claims.
+ * The pause button. Top centre, between the two corner readouts.
  *
- * `#ui-layer` is `pointer-events: none` end to end so the raw window-level touch
- * listeners `InputManager` reads flight from are never blocked by UI sitting over the
- * canyon; every element meant to be tappable opts back in individually, this one included.
+ * It was bottom-right, which on a phone is exactly where the right thumb rests — the
+ * radio strip's comment below has the same observation — so the one button in flight
+ * sat under the hand that was flying, and a thumb shifting mid-descent could pause the
+ * landing it was in the middle of. The top edge is the one a pilot never has a reason
+ * to reach toward. Same safe-area inset as the corner blocks, so in portrait it hangs
+ * under the Dynamic Island rather than behind it.
+ *
+ * `#ui-layer` is `pointer-events: none` end to end so UI sitting over the canyon never
+ * blocks the flight listener on `#app`; every element meant to be tappable opts back in
+ * individually, this one included. A tap here never reaches that listener at all — the
+ * UI is a sibling of `#app`, not inside it — so pressing pause is not also a touch in
+ * whichever third the button happens to sit over.
  */
 .pause-button {
   position: absolute;
-  bottom: max(18px, env(safe-area-inset-bottom));
-  right: max(18px, env(safe-area-inset-right));
+  top: var(--pause-top);
+  left: 50%;
+  transform: translateX(-50%);
   pointer-events: auto;
-  width: 40px;
-  height: 40px;
+  width: var(--pause-size);
+  height: var(--pause-size);
   border-radius: 50%;
   border: 1px solid var(--edge);
   background: rgba(18, 9, 5, 0.55);
@@ -641,10 +663,17 @@ body {
   text-shadow: 0 0 18px rgba(255, 90, 74, 0.7);
 }
 
+/*
+ * On the vertical midline, which since the pause button moved to the top centre is also
+ * the button's column — so the top is whichever is lower of the old 16% and the button's
+ * own bottom edge plus a gap. 16% alone came out 2px under the button in an 812×375
+ * landscape viewport, and overlapping it at anything shorter, which is every phone in
+ * landscape once Safari's toolbars take their share of the height.
+ */
 .warning {
   position: absolute;
   left: 50%;
-  top: 16%;
+  top: max(16%, calc(var(--pause-top) + var(--pause-size) + 12px));
   transform: translateX(-50%);
   font-size: 14px;
   letter-spacing: 0.22em;
@@ -879,8 +908,8 @@ body {
  * Three full-height columns so the whole screen third reads as live, not just a button.
  * Equal flex children of a viewport-width row put their edges exactly on `InputManager`'s
  * `width / 3` splits with no shared constant. `pointer-events: none` end to end: the
- * flight touches are read off raw coordinates by a window listener, and this must not sit
- * in front of them even while the controls are dead.
+ * flight touches are read off raw coordinates by a listener on `#app`, and this must not
+ * sit in front of them even while the controls are dead.
  *
  * `--sys`, square, no client livery — this is the AI's own projection, the same register
  * as the uplink line above it, not anything the vehicle or a charter drew.
@@ -922,6 +951,21 @@ body {
 
 .touch-hint-zone + .touch-hint-zone {
   border-left: 1px dashed color-mix(in srgb, var(--sys) 32%, transparent);
+}
+
+/*
+ * The one-control frame: the middle column alone, across the full width, because on that
+ * vehicle the whole screen is the throttle. The side columns are taken out of the flow
+ * rather than blanked so the middle one's flex fills the row, and its divider goes with
+ * them — a hidden sibling still satisfies `+`, which would leave a dashed rule down the
+ * left edge of the glass dividing nothing from nothing.
+ */
+.touch-hint--single .touch-hint-zone:not(.touch-hint-zone--main) {
+  display: none;
+}
+
+.touch-hint--single .touch-hint-zone--main {
+  border-left: none;
 }
 
 .touch-hint-label {
@@ -977,8 +1021,8 @@ body {
  * The transmission strip. See `Radio.ts` for what it is for.
  *
  * **Bottom-left, and clear of the bottom edge.** The HUD claims both top corners and the
- * pause button claims the bottom-right; the rest of the bottom band is the one region
- * nothing else wants. It sits 19% up rather than flush because touch flight reads three
+ * pause button the top centre between them; the bottom band is the one region nothing
+ * else wants. It sits 19% up rather than flush because touch flight reads three
  * vertical thirds off raw coordinates over the full height of the window — nothing is
  * blocked (`#ui-layer` is `pointer-events: none` end to end), but on a phone the player's
  * thumbs physically rest on the bottom edge, and a card under a hand is a card nobody sees.

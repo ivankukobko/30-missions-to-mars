@@ -1,14 +1,14 @@
 import type { Scheme } from './InstrumentPanel.ts';
 
 /**
- * The one-time "here is where the controls are" hint, shown over the uplink hold on a
- * touch device and gone the instant control is handed over.
+ * The "here is where the controls are" hint, shown over every uplink hold on a touch
+ * device and gone the instant control is handed over.
  *
  * It draws the three zones `InputManager` reads flight from — screen thirds, left /
  * middle / right — as full-height columns with a label apiece. It never handles a touch
  * itself: the zones are read off raw coordinates, and the element is `pointer-events:
- * none`, so a finger that lands on it during the hold still reaches the window listener
- * underneath. The columns are equal flex children of a full-width row, so their edges
+ * none`, so a finger that lands on it during the hold falls through to the canvas and
+ * the flight listener on it. The columns are equal flex children of a full-width row, so their edges
  * fall exactly where `merge()`'s `width / 3` splits are with no shared constant to keep
  * in step.
  *
@@ -56,9 +56,16 @@ export class TouchHint {
     this.root.append(caption);
   }
 
-  show(scheme: Scheme): void {
+  /**
+   * `sides` false is the one-control frame — see `InputManager.setSideControl`, which
+   * makes the whole screen the throttle. The hint says the same thing by drawing one
+   * column across the full width with the middle label on it, rather than three columns
+   * of which two would be lying.
+   */
+  show(scheme: Scheme, sides: boolean): void {
     const text = LABELS[scheme];
     for (let i = 0; i < 3; i++) this.labels[i].textContent = text[i];
+    this.root.classList.toggle('touch-hint--single', !sides);
     this.root.classList.add('visible');
   }
 

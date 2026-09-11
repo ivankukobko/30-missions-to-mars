@@ -23,12 +23,13 @@ export function hasTouchPointer(): boolean {
 }
 
 /**
- * Whether a touch landed on the canyon rather than on a control.
+ * Whether a touch landed on the canyon rather than on anything else.
  *
- * `#ui-layer` is `pointer-events: none` end to end and every tappable thing opts back in
- * individually, so a flight touch hit-tests to the canvas and a control touch never does.
- * The split the UI already draws is the one this reuses; there is nothing new to keep in
- * sync.
+ * With the listeners on the flight surface a control touch never gets here — the UI is a
+ * sibling of `#app`, not inside it — so today this only ever sees the canvas. It stays
+ * as the check that decides the cancel regardless, because the surface is a container:
+ * the day something with its own gesture is put inside `#app`, it is left alone rather
+ * than silently losing its clicks.
  *
  * Tag name rather than `instanceof HTMLCanvasElement`: this module is imported by a test
  * that runs with no DOM at all, where that constructor is not a global.
@@ -72,25 +73,38 @@ function onCanyon(target: EventTarget | null): boolean {
  * since 11.3, so `{ passive: false }` has to be spelled out rather than merely not asking
  * for `true`.
  *
- * Only canyon touches are cancelled, via `onCanyon`. Cancelling a touch also cancels the
- * `click` iOS would have synthesised from it, which would take the pause button and every
- * menu row with it, and cancelling `touchmove` over `.card` would stop the mission grid
- * and the settings list scrolling on a phone.
+ * **Touch is read off the flight surface, not the window.** Two costs of `window`, both
+ * found after the listener went non-passive there. A non-passive `touchmove` on `window`
+ * sits on every touch's path, so the browser could no longer scroll the mission grid or
+ * the settings list without first waiting on a main thread that is busy rendering the
+ * canyon. And every touch on the page was read as flight: the pause button sits in a
+ * screen third like anything else, and `click` lands after `touchend`, so tapping it
+ * steered the vehicle for as long as the finger was down. The UI lives in `#ui-layer`,
+ * a sibling of `#app`, so on the surface neither can happen — a control touch never
+ * reaches this class at all. Touch events keep the target they started on for their
+ * whole life, which is why `touchend` and `touchcancel` can live there too: a thumb that
+ * lands on the canyon and lifts over a button still ends here.
+ *
+ * Keyboard and `blur` stay on `window`. Neither has a hit target to be scoped to.
+ *
+ * **A frame with no side authority has one control.** See `setSideControl`.
  */
 export class InputManager {
   private state: InputState = { left: false, right: false, main: false };
   private keys = { left: false, right: false, main: false };
   private touches = new Map<number, number>();
   private disposers: (() => void)[] = [];
+  private sides = true;
 
-  constructor() {
+  /** `surface` is the element the canyon is drawn in — `#app`, never the window. */
+  constructor(surface: EventTarget) {
     this.bind(window, 'keydown', (e) => this.onKey(e as KeyboardEvent, true));
     this.bind(window, 'keyup', (e) => this.onKey(e as KeyboardEvent, false));
     this.bind(window, 'blur', () => this.releaseAll());
 
     for (const type of ['touchstart', 'touchmove'] as const) {
       this.bind(
-        window,
+        surface,
         type,
         (e) => {
           const te = e as TouchEvent;
@@ -106,7 +120,7 @@ export class InputManager {
     }
 
     for (const type of ['touchend', 'touchcancel'] as const) {
-      this.bind(window, type, (e) => {
+      this.bind(surface, type, (e) => {
         const te = e as TouchEvent;
         for (let i = 0; i < te.changedTouches.length; i++) {
           this.touches.delete(te.changedTouches[i].identifier);
@@ -153,7 +167,32 @@ export class InputManager {
     this.merge();
   }
 
+  /**
+   * Whether left and right mean anything on the flown frame — `hasSideControl`.
+   *
+   * Off, the vehicle has exactly one control, on every device. The whole screen is the
+   * throttle, because a zone that does nothing is a third of the glass a first-time pilot
+   * can press and get no answer from — and on the relay, which is mission one, that is
+   * the first thing they ever touch. Left and right are dropped from the keyboard too
+   * rather than passed through for the physics to ignore: the physics ignored them, but
+   * the jets still lit and the side-jet sound still played, so a vehicle that cannot turn
+   * looked and sounded as though it was trying to.
+   *
+   * Set per mission, so it follows retries and the airframe changes between missions.
+   */
+  setSideControl(live: boolean): void {
+    this.sides = live;
+    this.merge();
+  }
+
   private merge(): void {
+    if (!this.sides) {
+      this.state.left = false;
+      this.state.right = false;
+      this.state.main = this.keys.main || this.touches.size > 0;
+      return;
+    }
+
     const width = window.innerWidth;
     let zoneLeft = false;
     let zoneMid = false;

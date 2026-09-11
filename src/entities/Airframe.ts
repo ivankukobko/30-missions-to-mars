@@ -242,6 +242,20 @@ export const AIRFRAMES: Record<AirframeId, Airframe> = {
 };
 
 /**
+ * Whether left and right do anything on this frame.
+ *
+ * Derived rather than authored, for the reason `relay` gives for not being a fourth
+ * scheme: zeroing `rotationPower` already *is* a thrust-only vehicle, and a separate flag
+ * saying so could disagree with it. The differential and translation schemes steer by
+ * construction — their sides are engines — so only an attitude frame can lack them, and
+ * it lacks them exactly when nothing can turn it. `LanderBody.test.ts` holds this against
+ * the physics, so the day the relay is given jets, the controls follow without an edit.
+ */
+export function hasSideControl(frame: Airframe): boolean {
+  return frame.scheme !== 'attitude' || frame.rotationPower > 0;
+}
+
+/**
  * Thrust per engine, so that lighting every engine delivers exactly `thrust`.
  *
  * For the lander that is the whole 36 through one nozzle. For the hauler it is more than

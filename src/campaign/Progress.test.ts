@@ -398,18 +398,6 @@ describe('preferences live outside the campaign', () => {
     expect(new Progress(store, 1).audioPrefs.sfx).toBe(true);
   });
 
-  it('remembers the touch hint has been shown, across a reload and a new canyon', () => {
-    const store = memoryStore();
-    const progress = new Progress(store);
-    expect(progress.touchHintSeen).toBe(false);
-
-    progress.markTouchHintSeen();
-    progress.newCanyon();
-
-    expect(progress.touchHintSeen).toBe(true);
-    expect(new Progress(store).touchHintSeen).toBe(true);
-  });
-
   /**
    * The migration that matters. Every save written before slots keeps these three inside
    * the campaign record, and a returning player must not have their settings reset by an

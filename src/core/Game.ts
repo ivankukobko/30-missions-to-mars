@@ -33,7 +33,7 @@ import {
   ENTRY_VELOCITY,
   type Mission,
 } from '../campaign/Missions.ts';
-import { AIRFRAMES } from '../entities/Airframe.ts';
+import { AIRFRAMES, hasSideControl } from '../entities/Airframe.ts';
 import { clamp01, damp, hash01 } from '../world/Noise.ts';
 import { airDepth, airTarget, AIR, viewpointY } from './Atmosphere.ts';
 import { cutReached, identReached, uplinkProgress } from './EpilogueFall.ts';
@@ -157,7 +157,7 @@ export class Game implements MenuHost {
   private scene = new THREE.Scene();
   private renderer: THREE.WebGLRenderer;
   private director: CameraDirector;
-  private input = new InputManager();
+  private input: InputManager;
   private physics = new PhysicsWorld(GRAVITY);
   private canyon: CanyonGenerator;
   private colony: Colony;
@@ -219,6 +219,9 @@ export class Game implements MenuHost {
 
   constructor(container: HTMLElement, uiLayer: HTMLElement) {
     this.container = container;
+    // Touch is scoped to the canyon's own element rather than the window — see
+    // `InputManager`. `#app` exists before the canvas does, and holds nothing else.
+    this.input = new InputManager(container);
     this.ui = new Interface(uiLayer);
     // Same guard `onKey`'s own P shortcut uses — pausing only means something mid-flight.
     this.ui.setOnPause(() => {
@@ -513,6 +516,7 @@ export class Game implements MenuHost {
     this.ui.setInstruments(this.lander.airframe.hasConsole && id > 2);
     // The panel belongs to the vehicle; the colours belong to whoever chartered it.
     this.ui.setAirframe(this.lander.airframe.scheme, CORPS[mission.client].color);
+    this.input.setSideControl(hasSideControl(this.lander.airframe));
     this.ui.setMission(mission, this.targetPad);
     if (present) this.beginUplink();
 
@@ -552,13 +556,20 @@ export class Game implements MenuHost {
     this.ui.setHudVisible(false);
     this.ui.setUplink(0);
 
-    // The three-zone touch layout, shown once ever, over the dead time before control is
-    // handed over — the uplink and any brief. It costs no altitude budget (the uplink is
-    // free fall regardless) and it is gone the instant `begin` wakes the controls. Only
-    // on a device that flies by touch, and only until the first flight reaches `begin`.
-    this.touchHintShowing =
-      this.lander !== null && hasTouchPointer() && !this.progress.touchHintSeen;
-    if (this.touchHintShowing) this.ui.showTouchHint(this.lander!.airframe.scheme);
+    // The touch layout, over the dead time before control is handed over — the uplink
+    // and any brief. It costs no altitude budget (the uplink is free fall regardless) and
+    // it is gone the instant `begin` wakes the controls.
+    //
+    // Every uplink, retries included, rather than once ever. It was once, on the grounds
+    // that the layout never moves — but what a side *does* changes with the airframe, the
+    // relay has no sides at all, and a player back after a week has no way to see thirds
+    // that are never drawn. The hold is dead time either way, so showing it again costs
+    // nothing a player could want back.
+    this.touchHintShowing = this.lander !== null && hasTouchPointer();
+    if (this.touchHintShowing) {
+      const frame = this.lander!.airframe;
+      this.ui.showTouchHint(frame.scheme, hasSideControl(frame));
+    }
   }
 
   /**
@@ -569,13 +580,10 @@ export class Game implements MenuHost {
    */
   private touchHintShowing = false;
 
-  private dismissTouchHint(markSeen: boolean): void {
+  private dismissTouchHint(): void {
     if (!this.touchHintShowing) return;
     this.touchHintShowing = false;
     this.ui.hideTouchHint();
-    // Marked seen only when the player actually took the vehicle. Bailing to the menu
-    // leaves the flag unset, so the hint gets another showing on the next uplink.
-    if (markSeen) this.progress.markTouchHintSeen();
   }
 
   /**
@@ -901,9 +909,8 @@ export class Game implements MenuHost {
     if (this.hasScore) audio.startAmbient();
     this.ui.hidePanel();
     this.ui.setHudVisible(true);
-    // Control is live from here, so the zone hint has done its job — and this is the one
-    // path that has it record that it was shown.
-    this.dismissTouchHint(true);
+    // Control is live from here, so the zone hint has done its job.
+    this.dismissTouchHint();
     // The console comes up here, so this is where its boot sweep starts. Set on `begin`
     // rather than when the uplink completes because the brief sits between the two, and
     // the panel is behind it — a sweep started at the handshake would be over before the
@@ -1680,9 +1687,8 @@ export class Game implements MenuHost {
   presentBackdrop(): void {
     this.state = 'MENU';
     this.ui.setHudVisible(false);
-    // A retry or a menu trip can land here mid-handshake, before `begin` ever ran. Take
-    // the hint down without marking it seen — the player has not flown yet.
-    this.dismissTouchHint(false);
+    // A retry or a menu trip can land here mid-handshake, before `begin` ever ran.
+    this.dismissTouchHint();
     if (this.lander) this.lander.group.visible = false;
     this.frameCanyon();
   }

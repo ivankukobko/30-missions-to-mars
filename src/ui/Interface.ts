@@ -939,13 +939,14 @@ export class Interface {
   }
 
   /**
-   * The first-run touch-zone hint, over the uplink hold. `scheme` picks what the side
-   * zones are labelled — rotation on the lander, lateral thrust on the other two; the
-   * middle is always the lift engine. `Game` gates this on the device being touch and
-   * the hint being unseen, so here it only shows and hides.
+   * The touch-zone hint, over the uplink hold. `scheme` picks what the side zones are
+   * labelled — rotation on the lander, lateral thrust on the other two; the middle is
+   * always the lift engine. `sides` false collapses it to the one zone a frame with no
+   * side authority has. `Game` gates this on the device being touch, so here it only
+   * shows and hides.
    */
-  showTouchHint(scheme: Scheme): void {
-    this.touchHint.show(scheme);
+  showTouchHint(scheme: Scheme, sides: boolean): void {
+    this.touchHint.show(scheme, sides);
   }
 
   hideTouchHint(): void {
@@ -953,9 +954,10 @@ export class Interface {
   }
 
   setHudVisible(visible: boolean): void {
-    // A vehicle with no console stays dark whatever the caller asks for. `Game.begin`
-    // turns the HUD on for every run, and the relay is the one that must not get one.
-    this.hud.classList.toggle('hidden', !visible || this.noConsole);
+    // Unconditional now: a vehicle with no console is kept dark by `hud--bare` rather than
+    // by refusing to show the HUD at all, which took the pause button down with it — see
+    // `setConsole`.
+    this.hud.classList.toggle('hidden', !visible);
     this.marker.classList.toggle('hidden', !visible || !this.navOnline);
     // A vehicle with no augmented layer stays bare for the same reason the relay stays
     // dark. Without this the brackets flash for the frame between `Game.begin` turning
@@ -1022,15 +1024,16 @@ export class Interface {
    * vehicle reporting that its instruments are broken rather than one that never had any.
    */
   setConsole(present: boolean): void {
-    this.noConsole = !present;
     // The whole panel, not the instrument slot. Hiding only the slot left the vehicle
     // name, the mass and the fuel bar on screen, which reads as a console with its gauges
     // broken — the opposite of a vehicle that was never fitted with one.
-    this.hud.classList.toggle('hidden', !present);
+    //
+    // Everything in `.hud` except the pause button, rather than `.hud` itself. It used to
+    // be `.hud` itself, and the pause button lives there, so the relay flew with no way to
+    // pause on a phone. The button is not part of the console — it is the game's, and a
+    // phone has no Escape key to fall back to — so it survives a vehicle that has none.
+    this.hud.classList.toggle('hud--bare', !present);
   }
-
-  /** Set while the loaded vehicle has no console, so `setHudVisible` cannot restore it. */
-  private noConsole = false;
 
   setInstruments(navOnline: boolean): void {
     this.navOnline = navOnline;

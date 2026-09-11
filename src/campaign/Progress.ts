@@ -297,19 +297,6 @@ export class Progress {
     this.prefs.set({ invertThrusters: on });
   }
 
-  /**
-   * Whether the touch-zone hint has already had its one showing — see
-   * `PreferenceData.touchHintSeen`. Read by `Game.beginUplink` to decide whether to put
-   * it up, written by the first flight that reaches `begin`.
-   */
-  get touchHintSeen(): boolean {
-    return this.prefs.touchHintSeen;
-  }
-
-  markTouchHintSeen(): void {
-    this.prefs.set({ touchHintSeen: true });
-  }
-
   /** What the pause menu's audio switches were left at. */
   get audioPrefs(): { sfx: boolean; music: boolean } {
     return { sfx: this.prefs.mutedSfx, music: this.prefs.mutedMusic };

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { LANDER, LanderBody, normalizeAngle } from './LanderBody.ts';
-import { AIRFRAMES, engineThrust, type Airframe } from './Airframe.ts';
+import { AIRFRAMES, engineThrust, hasSideControl, type Airframe } from './Airframe.ts';
 import { PhysicsWorld, type Segment } from '../physics/PhysicsWorld.ts';
 import type { InputState } from '../core/InputManager.ts';
 import type { Payload } from '../campaign/Missions.ts';
@@ -698,5 +698,35 @@ describe('helion translation scheme', () => {
 
     b.step(DT, { left: true, right: true, main: false }, w);
     expect(b.vy).toBeGreaterThan(GRAVITY * DT);
+  });
+});
+
+/**
+ * `hasSideControl` is derived from the airframe data, and the input layer takes a frame's
+ * side zones away on its word. So it is held here against what the physics actually does
+ * with a side input — if the two ever disagree, either a pilot has a control that does
+ * nothing or has lost one that works.
+ */
+describe('side control', () => {
+  const responds = (frame: Airframe, side: InputState): boolean => {
+    const pushed = new LanderBody(CARGO, 400, frame);
+    const idle = new LanderBody(CARGO, 400, frame);
+    for (let i = 0; i < 60; i++) {
+      pushed.step(DT, side, emptyWorld());
+      idle.step(DT, IDLE, emptyWorld());
+    }
+    return pushed.rotation !== idle.rotation || pushed.vx !== idle.vx;
+  };
+
+  for (const frame of Object.values(AIRFRAMES)) {
+    it(`${frame.id}: reports side control exactly when a side input moves it`, () => {
+      expect(responds(frame, LEFT)).toBe(hasSideControl(frame));
+      expect(responds(frame, RIGHT)).toBe(hasSideControl(frame));
+    });
+  }
+
+  it('leaves the relay, and only the relay, with one control', () => {
+    const oneControl = Object.values(AIRFRAMES).filter((f) => !hasSideControl(f));
+    expect(oneControl.map((f) => f.id)).toEqual(['relay']);
   });
 });
