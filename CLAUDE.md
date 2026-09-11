@@ -16,11 +16,12 @@ itself. Use `docker compose exec app <cmd>` only when a container is already run
 ### Why, so you do not helpfully undo it
 
 - **The host `npm run typecheck` fails.** `node_modules/typescript/bin/tsc` has no file
-  extension, and TypeScript's `package.json` declares `"type": "module"`, so Node ≥19 on
-  the host refuses to load it (`ERR_UNKNOWN_FILE_EXTENSION`). The container runs
-  node 20-alpine where the installed layout works. If you hit this, the fix is to use the
-  container — not to invoke `node node_modules/typescript/lib/tsc.js` directly, and not to
-  edit anything under `node_modules`.
+  extension, and TypeScript's `package.json` declares `"type": "module"`, and the host's
+  Node refuses to load it (`ERR_UNKNOWN_FILE_EXTENSION`). It is not simply the Node
+  version: the container loads the byte-identical file on node 24-alpine, and did on
+  node 20-alpine before that. If you hit this, the fix is to use the container — not to
+  invoke `node node_modules/typescript/lib/tsc.js` directly, and not to edit anything
+  under `node_modules`.
 - **Host `node_modules` may be missing or stale**, because nothing here needs it. Running
   `npm install` on the host is wasted work: `docker-compose.yml` mounts an anonymous
   volume over `/app/node_modules`, so the container never sees the host copy.

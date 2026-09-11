@@ -24,26 +24,26 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
       - run: npm ci
       # Gates: the campaign's determinism and geometry invariants live in the suite,
       # so a red test must not ship. Drop the typecheck line if CI ever hits the
       # host-only `tsc` quirk documented in CLAUDE.md (it should not — `npm ci` here
-      # is a clean install on node 20).
+      # is a clean install on node 24, the same as the container).
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: dist
       # The same bytes a second time as an ordinary artifact. The Pages one is a tarball
       # in a shape only `deploy-pages` reads, and building again in the itch job would
       # mean the storefront and the web build were never proven to be the same bundle.
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist
@@ -56,7 +56,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
   # Publishing the browser build to itch.io.
   #
@@ -77,8 +77,8 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ vars.ITCH_TARGET != '' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist
