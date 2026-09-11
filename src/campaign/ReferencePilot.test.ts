@@ -74,6 +74,11 @@ describe('a consistent pilot flying the whole campaign', () => {
    * entirely above the A cut, and what is left of it is mostly the pilot rather than the
    * mission — mission 27 scores lowest on 76% fuel because it arrives at 1.46 u/s and 2.1
    * off centre, which is the score working correctly.
+   *
+   * Engine spool (`LANDER.ENGINE_SPOOL`) moved it to 65-77, twelve points, on identical
+   * fuel figures. The one rank it cost is mission 3, from 67 to 65: this pilot lands it
+   * 2.8 off centre and it had a single point of margin. A pilot that is bang-bang against
+   * a lagging engine chases a little harder, and the least centred landing shows it first.
    */
   it('does not let the score spread between missions widen', { timeout: 300000 }, () => {
     /**

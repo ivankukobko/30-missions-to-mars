@@ -347,17 +347,25 @@ body {
   gap: 7px;
 }
 
-/* Lamps, not meters. `Firing.engines` is boolean — there is no throttle to draw. */
+/* Lamps, not meters: the pilot sets no throttle. `--glow` is the engine's own output
+   (`Firing.power`), so the lamp comes up and dies back with the spool instead of switching. */
 .eng-lamp {
+  position: relative;
   width: 26px;
   height: 34px;
   border: 1px solid var(--edge);
   background: rgba(0, 0, 0, 0.55);
 }
 
-.eng-lamp.lit {
+/* The lit face as its own layer, so one opacity fades the colour and its halo together —
+   a filament has no state where it is coloured but not glowing. */
+.eng-lamp::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   background: var(--corp);
   box-shadow: 0 0 12px color-mix(in srgb, var(--corp) 70%, transparent);
+  opacity: var(--glow, 0);
 }
 
 /* Points starboard as authored; rotated 180° to point port. A border triangle has one
@@ -501,16 +509,22 @@ body {
   gap: 7px;
 }
 
+/* Same construction as `.eng-lamp`: the Sidewinder's lateral engines spool too. */
 .rcs-lamp {
+  position: relative;
   width: 9px;
   height: 9px;
   border: 1px solid var(--edge);
   background: rgba(0, 0, 0, 0.5);
 }
 
-.rcs-lamp.lit {
+.rcs-lamp::after {
+  content: '';
+  position: absolute;
+  inset: 0;
   background: var(--corp);
   box-shadow: 0 0 9px color-mix(in srgb, var(--corp) 75%, transparent);
+  opacity: var(--glow, 0);
 }
 
 /* ------------------------------------------------ the rest of the console */

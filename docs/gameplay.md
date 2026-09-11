@@ -59,6 +59,45 @@ disturbs the other. Which engine a side lights on the hauler is itself a setting
 where I point" against "fire the thruster I point at" — offered in the brief of any
 mission that flies the twin.
 
+### Engines spool; jets do not
+
+Every engine in an airframe's `engines` list winds from cold to full over
+`LANDER.ENGINE_SPOOL` — 0.125 s, fifteen fixed steps — and back down the same way when the
+key comes up. Output follows a smoothstep of the spool position, so an engine catches
+softly, builds fast and eases into full. The flame, the throat glow, the engine note, the
+dust and the HUD lamps all read the same per-engine output (`Firing.power`) the physics
+multiplies thrust and burn by, so nothing on screen claims a thrust the vehicle is not
+getting.
+
+**It is latency, not loss.** The ramp is symmetric and the curve is point-symmetric, so the
+shortfall on the way up is repaid exactly on the way down: a burn that reaches full delivers
+the impulse an instant engine would, on the same fuel. `LanderBody.test.ts` holds that
+against the integrator on all three engine layouts. What moves is *when* — thrust arrives
+about 60 ms late on average, which withholds ~1.8 u/s of braking on the lander at the start
+of a burn and ~1.1 on the heaviest hauler, against a 2.5 u/s landing tolerance. That margin
+is why the figure is not larger.
+
+The number came from the reference pilot, not from feel. Across 0.10 / 0.125 / 0.15 / 0.20 s
+it lands all twenty straight descents on unchanged fuel, with score spreads of 13 / 12 / 13
+/ 20 — the last failing the spread test. At 0.125 the spread is 65–77; mission 3 slips from
+67 to 65, under the A cut, at every value tried, because that pilot lands it 2.8 off centre
+with one point to spare.
+
+Two consequences worth knowing:
+
+- **A tap shorter than the spool never reaches full**, and delivers less than its duration
+  suggests — a 60 ms blip is about a third of what it was. Feathering is now done with the
+  length of the press.
+- **A dry tank cuts the spool dead.** The wind-down is the engine burning its way to idle,
+  and with nothing left to burn there is no wind-down to draw. Touchdown also cuts it:
+  contact is engine stop.
+
+The lander's attitude jets are **not** on the spool. They are valves, and a lag on the jets
+is a lag on where the thrust *points*, which reaches position through two more integrations
+than a lag on how hard it pushes — the vehicle would overshoot its lean, then overshoot the
+correction. The sidewinder's side jets are engines in its list and do spool: they push the
+hull directly rather than turning it, so they carry only the same one lag as the lift engine.
+
 ### The touch layout is three thirds, not two halves
 
 It was left-half, right-half, and both-halves-at-once for main. That scheme derived `main`

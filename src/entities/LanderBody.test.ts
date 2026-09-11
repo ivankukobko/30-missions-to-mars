@@ -63,6 +63,25 @@ function fly(b: LanderBody, world: PhysicsWorld, input: InputState, steps: numbe
   return { type: 'none' } as const;
 }
 
+/** Fixed steps an engine takes to wind from cold to full. */
+const SPOOL_STEPS = Math.ceil(LANDER.ENGINE_SPOOL / DT - 1e-9);
+
+/**
+ * Holds `input` until every engine it asks for is at full output, so the next step can
+ * be measured against the airframe's rated figures. Rates are a property of a running
+ * engine; the ramp to get there has tests of its own.
+ */
+function spoolUp(b: LanderBody, input: InputState, world = emptyWorld()): void {
+  fly(b, world, input, SPOOL_STEPS);
+}
+
+/** What one step of `input` changes, from wherever the body already is. */
+function oneStep(b: LanderBody, input: InputState) {
+  const before = { vx: b.vx, vy: b.vy, fuel: b.fuel };
+  b.step(DT, input, emptyWorld());
+  return { dvx: b.vx - before.vx, dvy: b.vy - before.vy, burned: before.fuel - b.fuel };
+}
+
 describe('mass and thrust', () => {
   it('adds payload mass at the documented factor', () => {
     const light = new LanderBody({ name: 'Filings', mass: 0.2 }, 400);
@@ -118,20 +137,22 @@ describe('integration', () => {
   it('thrusts along the nose, not along world up', () => {
     // Rotated a quarter turn, thrust is (-sin, cos) = (-1, 0): straight to -X.
     const b = body({ y: 500, rotation: Math.PI / 2 });
+    spoolUp(b, BURN);
 
-    b.step(DT, BURN, emptyWorld());
+    const { dvx, dvy } = oneStep(b, BURN);
 
-    expect(b.vx).toBeCloseTo(-b.thrustAccel * DT, 9);
-    expect(b.vy).toBeCloseTo(GRAVITY * DT, 9);
+    expect(dvx).toBeCloseTo(-b.thrustAccel * DT, 9);
+    expect(dvy).toBeCloseTo(GRAVITY * DT, 9);
   });
 
   it('thrusts straight up when upright', () => {
     const b = body({ y: 500 });
+    spoolUp(b, BURN);
 
-    b.step(DT, BURN, emptyWorld());
+    const { dvy } = oneStep(b, BURN);
 
     expect(b.vx).toBe(0);
-    expect(b.vy).toBeCloseTo((b.thrustAccel + GRAVITY) * DT, 9);
+    expect(dvy).toBeCloseTo((b.thrustAccel + GRAVITY) * DT, 9);
   });
 
   it('behaves identically at any frame rate, given the same simulated time', () => {
@@ -154,10 +175,9 @@ describe('integration', () => {
 describe('fuel', () => {
   it('burns the main engine at the documented rate', () => {
     const b = body({ y: 500 }, CARGO, 400);
+    spoolUp(b, BURN);
 
-    b.step(DT, BURN, emptyWorld());
-
-    expect(b.fuel).toBeCloseTo(400 - LANDER_FRAME.mainBurn * DT, 9);
+    expect(oneStep(b, BURN).burned).toBeCloseTo(LANDER_FRAME.mainBurn * DT, 9);
   });
 
   it('burns RCS at its own rate, and both at once', () => {
@@ -165,9 +185,13 @@ describe('fuel', () => {
     rcsOnly.step(DT, { left: true, right: false, main: false }, emptyWorld());
     expect(rcsOnly.fuel).toBeCloseTo(400 - LANDER_FRAME.rcsBurn * DT, 9);
 
+    const input = { left: true, right: false, main: true };
     const both = body({ y: 500 }, CARGO, 400);
-    both.step(DT, { left: true, right: false, main: true }, emptyWorld());
-    expect(both.fuel).toBeCloseTo(400 - (LANDER_FRAME.mainBurn + LANDER_FRAME.rcsBurn) * DT, 9);
+    spoolUp(both, input);
+    expect(oneStep(both, input).burned).toBeCloseTo(
+      (LANDER_FRAME.mainBurn + LANDER_FRAME.rcsBurn) * DT,
+      9,
+    );
   });
 
   it('costs double to fire both thrusters against each other', () => {
@@ -247,6 +271,117 @@ describe('attitude', () => {
   });
 });
 
+describe('engine spool', () => {
+  it('delivers a sliver of thrust on the first step and all of it after the spool', () => {
+    const b = body({ y: 500 });
+    const full = b.thrustAccel * DT;
+
+    const first = oneStep(b, BURN).dvy - GRAVITY * DT;
+    expect(first).toBeGreaterThan(0);
+    expect(first).toBeLessThan(full * 0.05);
+
+    fly(b, emptyWorld(), BURN, SPOOL_STEPS);
+    expect(oneStep(b, BURN).dvy - GRAVITY * DT).toBeCloseTo(full, 9);
+    expect(b.firing.power).toEqual([1]);
+  });
+
+  it('winds down after release rather than cutting', () => {
+    const b = body({ y: 500 });
+    spoolUp(b, BURN);
+
+    b.step(DT, IDLE, emptyWorld());
+    const tail = b.firing.power[0];
+    expect(tail).toBeGreaterThan(0.9);
+    expect(b.thrusting).toBe(true);
+
+    fly(b, emptyWorld(), IDLE, SPOOL_STEPS);
+    expect(b.thrusting).toBe(false);
+    expect(b.firing.power).toEqual([0]);
+  });
+
+  /**
+   * The claim `ENGINE_SPOOL` rests on, held against the integrator: a burn that reaches
+   * full and is then released delivers what an instant engine would for the time the key
+   * was down, for the same fuel. The lag moves the impulse; it does not lose any.
+   */
+  it.each([
+    ['lander', AIRFRAMES.lander, BURN],
+    ['hauler', AIRFRAMES.hauler, LEFT],
+    ['helion', AIRFRAMES.helion, RIGHT],
+  ] as const)('costs the %s no impulse and no fuel over a whole burn', (_, frame, input) => {
+    const b = new LanderBody(CARGO, 400, frame);
+    Object.assign(b, { y: 500 });
+    const held = 90;
+
+    fly(b, emptyWorld(), input, held);
+    let tail = 0;
+    while (b.thrusting) {
+      b.step(DT, IDLE, emptyWorld());
+      tail++;
+    }
+
+    const instant = new LanderBody(CARGO, 400, frame);
+    Object.assign(instant, { y: 500 });
+    spoolUp(instant, input);
+    const perStep = oneStep(instant, input);
+    const gravityStep = GRAVITY * DT;
+
+    // Everything the engine did, with gravity taken back out over the steps actually flown.
+    const vyFromEngine = b.vy - gravityStep * (held + tail);
+    expect(vyFromEngine).toBeCloseTo((perStep.dvy - gravityStep) * held, 9);
+    expect(b.vx).toBeCloseTo(perStep.dvx * held, 9);
+    expect(400 - b.fuel).toBeCloseTo(perStep.burned * held, 9);
+  });
+
+  it('delivers less than its duration on a tap shorter than the spool', () => {
+    const b = body({ y: 500 });
+    const tap = Math.floor(SPOOL_STEPS / 2);
+
+    fly(b, emptyWorld(), BURN, tap);
+    let flown = tap;
+    while (b.thrusting) {
+      b.step(DT, IDLE, emptyWorld());
+      flown++;
+    }
+
+    const delivered = b.vy - GRAVITY * DT * flown;
+    const instant = b.thrustAccel * DT * tap;
+    expect(delivered).toBeGreaterThan(0);
+    expect(delivered).toBeLessThan(instant * 0.5);
+  });
+
+  it('flames out at once when the tank runs dry, with no wind-down', () => {
+    const b = body({ y: 500 });
+    spoolUp(b, BURN);
+    b.fuel = 0;
+
+    const { dvy } = oneStep(b, BURN);
+
+    expect(dvy).toBeCloseTo(GRAVITY * DT, 12);
+    expect(b.thrusting).toBe(false);
+  });
+
+  it('leaves the attitude jets off the spool', () => {
+    const b = body({ y: 500 });
+
+    b.step(DT, LEFT, emptyWorld());
+
+    // Full authority on the first step, less only the same step's damping. A spooled jet
+    // would have delivered under two per cent of this.
+    const rotAccel = LANDER_FRAME.rotationPower / (1 + CARGO.mass * 0.5);
+    expect(b.angularVelocity).toBeGreaterThan(rotAccel * DT * 0.99);
+  });
+
+  it('is cold after touchdown even with the key still held', () => {
+    const b = body({ y: LANDER.RADIUS + 0.02, vy: -1 });
+
+    const contact = fly(b, worldWith(padAt(0)), BURN, 60);
+
+    expect(contact.type).toBe('landed');
+    expect(b.firing.power).toEqual([0]);
+  });
+});
+
 describe('differential airframe', () => {
   it('lifts straight up on both engines, with no net sideways push', () => {
     const b = hauler({ y: 500 });
@@ -323,12 +458,12 @@ describe('differential airframe', () => {
 
   it('burns one engine at half the pair, scaled by the cant', () => {
     const single = hauler({ y: 500 });
-    single.step(DT, LEFT, emptyWorld());
-    expect(single.fuel).toBeCloseTo(400 - HAULER.engineBurn * DT, 9);
+    spoolUp(single, LEFT);
+    expect(oneStep(single, LEFT).burned).toBeCloseTo(HAULER.engineBurn * DT, 9);
 
     const pair = hauler({ y: 500 });
-    pair.step(DT, BURN, emptyWorld());
-    expect(pair.fuel).toBeCloseTo(400 - 2 * HAULER.engineBurn * DT, 9);
+    spoolUp(pair, BURN);
+    expect(oneStep(pair, BURN).burned).toBeCloseTo(2 * HAULER.engineBurn * DT, 9);
 
     // Honestly thirstier than the lander per unit of lift — that is the cosine loss.
     expect(2 * HAULER.engineBurn).toBeGreaterThan(LANDER_FRAME.mainBurn);

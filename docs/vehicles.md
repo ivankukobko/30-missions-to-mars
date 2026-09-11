@@ -111,9 +111,44 @@ Two tunings were wrong first and are worth recording:
   `GEAR_DEPLOY_HEIGHT` now and both parts fade to nothing at it, so the lamp, the contact
   shadow and the legs all arrive together.
 
+It also **dies back rather than cutting** when the surface under it changes. The height fade
+already made it continuous at the edge of reach; what it could not smooth was crossing a
+deck edge or a shaft mouth, where a surface four units down becomes none at all between two
+frames. A 70 ms time constant (`PRESENCE_RATE`) lets the pool fade where it last fell — gone
+in about a third of a second, short enough to read as afterglow rather than as the lamp
+reporting ground that is not there. A crash still puts it out at once.
+
 Note the vehicle already carries a second light: `Lander.thrustLight`, a cool-blue point
 light driven by thrust. That is an engine effect and always was — the landing light is the
 first lamp on the vehicle that is about the *ground*.
+
+## The engines are drawn from their output
+
+Each engine spools rather than switching (see [Gameplay](gameplay.md#engines-spool-jets-do-not)),
+and everything that shows one reads that engine's own output rather than the key:
+
+- **The plume** takes its length, girth, opacity and colour from it — nearly no length at the
+  bottom of the spool, a floor on girth and opacity so a catching engine is still a plume,
+  amber while it catches and the usual blue at full. Each plume has its own material for
+  this; a shared one would draw every nozzle at whichever engine rendered last. The flicker
+  band narrows as it spools, ragged at ignition and the same ±18% it always had at full. At
+  full, nothing about the plume's size changed, so the vehicle's measured extents did not
+  either.
+- **The throat glow** heats with its engine and cools several times slower, which is metal
+  rather than a reading — the plume is the reading. Advanced on the fixed step like `bank`,
+  so a retry glows identically.
+- **`thrustLight`** is driven by the strongest engine's output, not the sum: a pair at full
+  shares one engine's worth of thrust and so one engine's worth of light.
+- **The engine note** opens its filter and lifts its sub from 34 to 55 Hz across the spool,
+  so it winds up rather than fading in; at full it sits exactly where it always did.
+- **The KD-9's engine lamps and the HD-7's RCS lamps** come up and die back with their
+  engines through a `--glow` custom property, one opacity on a pseudo-element carrying the
+  colour and its halo together.
+
+The **hazard beacon** is a xenon tube now rather than a gate: a flash that arrives within
+12 ms and decays over ~60, then idles. It was 14 for 0.09 s and 1.2 otherwise, which read as
+an LED switching on the one light a player sees every second of every mission. It is still
+timed off `body.age`, so it stays in phase on a retry.
 
 ## The augmented layer is a property of the airframe
 

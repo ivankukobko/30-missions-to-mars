@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { LANDER } from './LanderBody.ts';
+import { damp } from '../world/Noise.ts';
 
 /**
  * A lamp under the vehicle: a shaft of light and the pool it throws on the surface, white
@@ -53,6 +54,22 @@ const WARN_FROM = 0.8;
 const WHITE = new THREE.Color(0xdfe8ff);
 const RED = new THREE.Color(0xff3b2f);
 
+/**
+ * How fast the lamp comes up and goes out when the surface under it appears or vanishes,
+ * per second: a 70 ms time constant, so it is three-quarters gone in a tenth of a second
+ * and put away by about a third.
+ *
+ * The height fade already makes the lamp continuous across the edge of `reach`. What it
+ * could not smooth is the ground itself changing: crossing a deck edge or a shaft mouth
+ * swaps a surface four units below for none at all, and the pool vanished between one
+ * frame and the next — a lamp switched, which is the one thing a lamp does not look like.
+ * Fast enough that the pool lingering on the edge it has just left reads as afterglow,
+ * not as the light reporting ground that is not there.
+ */
+const PRESENCE_RATE = 14;
+/** Below this the lamp is put away rather than drawn at an invisible opacity. */
+const PRESENCE_FLOOR = 0.01;
+
 export class LandingLight {
   private shaft: THREE.Mesh;
   private pool: THREE.Mesh;
@@ -62,6 +79,11 @@ export class LandingLight {
   private tint = new THREE.Color();
 
   private reach: number;
+
+  /** 0..1, how present the lamp is — see `PRESENCE_RATE`. */
+  private presence = 0;
+  /** The height fade of the last lit frame, held while the lamp dies back from it. */
+  private lastFade = 0;
 
   /**
    * @param reach Drop within which the lamp is on at all. `GEAR_DEPLOY_HEIGHT`, so the
@@ -108,11 +130,19 @@ export class LandingLight {
   }
 
   /**
+   * @param dt     Frame time. Presentation only — nothing reads the lamp back.
    * @param ground Surface height below, or `null` where there is nothing under the vehicle.
    * @param above  Drop to that surface.
    * @param speed  Total speed, against `MAX_LANDING_SPEED`.
    */
-  update(x: number, y: number, ground: number | null, above: number, speed: number): void {
+  update(
+    dt: number,
+    x: number,
+    y: number,
+    ground: number | null,
+    above: number,
+    speed: number,
+  ): void {
     // Colour first: it is the whole point of the lamp and it does not depend on there
     // being a surface to land on. Red while falling into a shaft is still the warning.
     const warn = LANDER.MAX_LANDING_SPEED * WARN_FROM;
@@ -130,34 +160,52 @@ export class LandingLight {
      * its throw it has nothing to say and lighting it only trains the player to ignore it.
      */
     const lit = ground !== null && above >= 0 && above < this.reach;
+    this.presence = damp(this.presence, lit ? 1 : 0, PRESENCE_RATE, dt);
+
     if (!lit || ground === null) {
-      this.hide();
+      // Dying back where it last shone: the meshes still hold that frame's pose, so only
+      // the brightness moves.
+      if (this.presence < PRESENCE_FLOOR) {
+        this.hide();
+        return;
+      }
+      this.shine(this.lastFade);
       return;
     }
 
     // 0 at touchdown, 1 at the edge of reach. Both parts fade on it, so the lamp comes up
     // as the surface arrives rather than switching on at a boundary.
     const t = above / this.reach;
-    const fade = 1 - t;
+    this.lastFade = 1 - t;
 
     const radius = Math.max(LANDER.RADIUS * 0.5, above * SPREAD);
-    this.shaft.visible = true;
     this.shaft.scale.set(radius, Math.max(above, 0.1), radius);
     // Cone origin is its middle, so the apex sits half a length above the centre.
     this.shaft.position.set(x, y - LANDER.RADIUS - above / 2, 0);
-    this.shaftMat.opacity = SHAFT * fade;
 
     const spot = Math.max(LANDER.RADIUS, above * SPREAD) * 2;
-    this.pool.visible = true;
     this.pool.scale.set(spot, spot, 1);
     // Above the contact shadow's own lift, so the two never fight for the same depth.
     this.pool.position.set(x, ground + 0.09, 0);
-    this.poolMat.opacity = POOL * fade;
+
+    this.shine(this.lastFade);
   }
 
+  private shine(fade: number): void {
+    this.shaft.visible = true;
+    this.pool.visible = true;
+    this.shaftMat.opacity = SHAFT * fade * this.presence;
+    this.poolMat.opacity = POOL * fade * this.presence;
+  }
+
+  /**
+   * Out at once, with no die-back. For the vehicle no longer flying — a crash, the end of
+   * a run — where there is no lamp left to cool.
+   */
   hide(): void {
     this.shaft.visible = false;
     this.pool.visible = false;
+    this.presence = 0;
   }
 
   dispose(): void {

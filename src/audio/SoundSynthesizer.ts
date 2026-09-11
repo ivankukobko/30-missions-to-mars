@@ -9,7 +9,18 @@ interface EngineVoice {
   gain: GainNode;
   filter: BiquadFilterNode;
   panner: StereoPannerNode;
+  sub: OscillatorNode;
 }
+
+/**
+ * An engine's voice across its spool, cold to full.
+ *
+ * Level alone would make a spooling engine sound like a distant one. What says *winding
+ * up* is the spectrum opening — the bed goes from a muffled thud to the roar it had at
+ * full — and the sub climbing into its note under it. At full both land exactly where the
+ * voice always sat (460 Hz, 55 Hz), so a held burn sounds as it did.
+ */
+const ENGINE_TONE = { CUTOFF: [150, 460], SUB: [34, 55] } as const;
 
 /**
  * How far an engine's lateral offset is thrown across the stereo field.
@@ -268,7 +279,7 @@ export class SoundSynthesizer {
       // Sub rumble, the part you feel rather than hear, panned with its own engine.
       const sub = this.ctx.createOscillator();
       sub.type = 'triangle';
-      sub.frequency.value = 55;
+      sub.frequency.value = ENGINE_TONE.SUB[0];
       const subGain = this.ctx.createGain();
       subGain.gain.value = 0.5;
       sub.connect(subGain);
@@ -279,25 +290,31 @@ export class SoundSynthesizer {
 
       noise.start();
       sub.start();
-      this.engines.push({ gain, filter, panner });
+      this.engines.push({ gain, filter, panner, sub });
     }
   }
 
   /**
-   * `lit` carries one flag per engine, in the airframe's own order. Level is shared out
-   * between them so a twin at full power is as loud as the single engine it replaces —
-   * two nozzles are a different *shape* of thrust, not more of it.
+   * `power` carries each engine's output, 0..1, in the airframe's own order — the spool
+   * the physics is actually running, so the ear hears the lag the hand is flying. Level is
+   * shared out between engines so a twin at full power is as loud as the single engine it
+   * replaces — two nozzles are a different *shape* of thrust, not more of it.
+   *
+   * The short time constants only smooth between frames; the ramp itself is the spool's.
    */
-  public updateEngineSound(lit: boolean[], side: number): void {
+  public updateEngineSound(power: number[], side: number): void {
     if (!this.ctx) return;
     const now = this.ctx.currentTime;
     const share = this.engines.length > 0 ? 0.38 / this.engines.length : 0;
 
     for (let i = 0; i < this.engines.length; i++) {
-      const on = lit[i] ?? false;
+      const p = power[i] ?? 0;
       const voice = this.engines[i];
-      voice.gain.gain.setTargetAtTime(on ? share : 0, now, 0.03);
-      if (on) voice.filter.frequency.setTargetAtTime(460, now, 0.05);
+      voice.gain.gain.setTargetAtTime(share * p, now, 0.03);
+      const [lo, hi] = ENGINE_TONE.CUTOFF;
+      voice.filter.frequency.setTargetAtTime(lo + (hi - lo) * p, now, 0.03);
+      const [subLo, subHi] = ENGINE_TONE.SUB;
+      voice.sub.frequency.setTargetAtTime(subLo + (subHi - subLo) * p, now, 0.03);
     }
 
     if (this.sideEngineGain) {

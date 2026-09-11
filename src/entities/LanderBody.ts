@@ -38,6 +38,42 @@ export const LANDER = {
    * the ~550 available. Light cargo brakes in under 160.
    */
   THRUST: 36,
+  /**
+   * Seconds for an engine to wind from cold to full output — and the same back down.
+   *
+   * Every engine used to be a switch: full thrust on the step the key went down, nothing
+   * on the step it came up. Honest to the data and wrong to the hand, because nothing with
+   * a turbopump behaves like that and the vehicle read as weightless for it.
+   *
+   * **Symmetric, so it is latency and not loss.** The ramp up owes exactly what the ramp
+   * down repays: the level climbs from 0 and falls from 1 by the same step, and the curve
+   * is point-symmetric (`s(x) + s(1 − x) = 1`), so every lower-ramp shortfall is matched by
+   * an upper-ramp surplus. A burn long enough to reach full delivers the impulse an
+   * instant engine would have, for the fuel it would have — so `FuelBudget` and the tanks
+   * thirty missions were balanced on still hold. What changes is *when*: thrust arrives
+   * `ENGINE_SPOOL / 2` late on average.
+   *
+   * That figure is the whole tuning question, because the landing tolerance is 2.5 u/s
+   * and the lander's engine is worth about 28 u/s² on a mid-weight load. At 0.15 s the
+   * late half-ramp withholds
+   * 2.1 u/s — nearly the entire tolerance, spent before the player's correction has
+   * started to arrive. 0.125 is 15 fixed steps and holds back 1.8 u/s on the lander, and
+   * only 1.1 on the heaviest hauler, which is proportionally the softer vehicle and should
+   * feel it.
+   *
+   * Settled on the reference pilot rather than by feel, sweeping 0.10 / 0.125 / 0.15 /
+   * 0.20: every one of them lands all twenty straight descents on exactly the fuel they
+   * used before, and the score spread goes 13 / 12 / 13 / 20 — the last failing the
+   * spread test outright, with mission 11 dropping a rank. 0.125 is the tightest.
+   * Mission 3 slips from 67 to 65, under the A cut, at every value from 0.10 up; it was
+   * one point clear before and that pilot lands it 2.8 off centre, so it is the first to
+   * feel any lag at all.
+   *
+   * A tap shorter than the spool never reaches full, and delivers less than its duration
+   * suggests — a 60 ms blip gives about a third of what it used to. That is the point:
+   * feathering is now something the hand does rather than something the key repeat does.
+   */
+  ENGINE_SPOOL: 0.125,
   /** Gear swings out below this height above whatever is underneath. */
   GEAR_DEPLOY_HEIGHT: 20,
   /** Touchdown tolerances. Outside any of these, it is a crash. */
@@ -75,16 +111,45 @@ export function normalizeAngle(a: number): number {
 
 /** Which thrusters were firing on the last step, for anything that draws them. */
 export interface Firing {
-  /** One flag per engine, in the airframe's own order. */
+  /** One flag per engine, in the airframe's own order: producing any thrust at all. */
   engines: boolean[];
-  /** Attitude jets. A differential airframe has none, so these stay false. */
+  /**
+   * What each engine actually delivered on the step, 0..1 — the same number the physics
+   * multiplied its thrust and its burn by. Everything that shows an engine (plume, glow,
+   * lamp, note) reads this rather than the flag, so none of them can claim an output the
+   * simulation did not have.
+   */
+  power: number[];
+  /**
+   * Attitude jets. A differential airframe has none, so these stay false. On the
+   * translation frame these mirror its lateral engines, which *do* spool — see `power`.
+   */
   rcsLeft: boolean;
   rcsRight: boolean;
 }
 
 /** Nothing lit, sized to whatever vehicle is asking. */
 export function idleFiring(frame: Airframe): Firing {
-  return { engines: frame.engines.map(() => false), rcsLeft: false, rcsRight: false };
+  return {
+    engines: frame.engines.map(() => false),
+    power: frame.engines.map(() => 0),
+    rcsLeft: false,
+    rcsRight: false,
+  };
+}
+
+/**
+ * Spool position to delivered thrust: slow to catch, quick through the middle, easing in
+ * at the top.
+ *
+ * Smoothstep rather than the linear ramp underneath it, which reached full with a visible
+ * corner, or a first-order lag, which never reaches full at all and so would have burned
+ * a fraction of a percent short for the whole of every long burn. Its point symmetry is
+ * what `ENGINE_SPOOL`'s impulse argument rests on — do not replace it with a curve that
+ * lacks it.
+ */
+export function spoolCurve(level: number): number {
+  return level * level * (3 - 2 * level);
 }
 
 export class LanderBody {
@@ -138,12 +203,21 @@ export class LanderBody {
 
   private thrusters: Firing;
 
+  /**
+   * Where each engine is along its spool, 0 cold to 1 full, moving linearly in time. What
+   * it delivers is `spoolCurve` of this. Attitude jets are not on it: they are valves, and
+   * lag on the one control that turns the thrust vector compounds through two integrations
+   * before it reaches position — see `applyAttitude`.
+   */
+  private spool: number[];
+
   constructor(payload: Payload, fuel: number, airframe: Airframe = AIRFRAMES.lander) {
     this.payload = payload;
     this.fuel = fuel;
     this.fuelCapacity = fuel;
     this.airframe = airframe;
     this.thrusters = idleFiring(airframe);
+    this.spool = airframe.engines.map(() => 0);
     this.mass = LANDER.DRY_MASS + payload.mass * LANDER.PAYLOAD_MASS_FACTOR;
   }
 
@@ -262,9 +336,37 @@ export class LanderBody {
   }
 
   /**
+   * Walks every engine one step along its spool toward what is being asked of it, and
+   * records what each delivers. Returns the delivered outputs, 0..1, in airframe order.
+   *
+   * A dry tank cuts the spool outright rather than letting it wind down. The wind-down is
+   * the engine still burning propellant on its way to idle; with none left there is
+   * nothing to burn, and a plume tapering off an empty tank would be thrust from nothing.
+   */
+  private spoolEngines(dt: number, demand: boolean[], hasFuel: boolean): number[] {
+    const rate = dt / LANDER.ENGINE_SPOOL;
+    const power: number[] = [];
+    for (let i = 0; i < this.spool.length; i++) {
+      const level = !hasFuel
+        ? 0
+        : demand[i]
+          ? Math.min(1, this.spool[i] + rate)
+          : Math.max(0, this.spool[i] - rate);
+      this.spool[i] = level;
+      power.push(spoolCurve(level));
+    }
+    return power;
+  }
+
+  /**
    * One engine on the centreline plus attitude jets: thrust goes wherever the nose is
    * pointing, and pointing it is a separate job. Attitude control stays available under
    * main thrust — fighting the two against each other is the whole skill of a lander.
+   *
+   * The main engine spools; the jets do not. A jet lag is a lag on *where the thrust
+   * points*, which reaches position through two more integrations than a lag on how hard
+   * it pushes — the vehicle overshoots its lean, then overshoots the correction, and the
+   * pilot is fighting the model rather than the canyon.
    */
   private applyAttitude(
     dt: number,
@@ -272,16 +374,17 @@ export class LanderBody {
     frame: Extract<Airframe, { scheme: 'attitude' }>,
   ): void {
     const hasFuel = this.fuel > 0;
-    const mainOn = hasFuel && input.main;
+    const power = this.spoolEngines(dt, [input.main], hasFuel);
+    const main = power[0];
     const leftOn = hasFuel && input.left;
     const rightOn = hasFuel && input.right;
-    this.thrusters = { engines: [mainOn], rcsLeft: leftOn, rcsRight: rightOn };
+    this.thrusters = { engines: [main > 0], power, rcsLeft: leftOn, rcsRight: rightOn };
 
-    if (mainOn) {
-      const a = this.thrustAccel;
+    if (main > 0) {
+      const a = this.thrustAccel * main;
       this.vx += -Math.sin(this.rotation) * a * dt;
       this.vy += Math.cos(this.rotation) * a * dt;
-      this.fuel -= frame.mainBurn * dt;
+      this.fuel -= frame.mainBurn * main * dt;
     }
 
     const rotAccel = frame.rotationPower / (1 + this.payload.mass * 0.5);
@@ -314,29 +417,30 @@ export class LanderBody {
     // for pressing both arrows together rather than something touch can produce: the
     // side zones and the middle zone are disjoint, so a touch is never "both."
     const both = input.main || (input.left && input.right);
-    const leftPressed = hasFuel && (both || input.left);
-    const rightPressed = hasFuel && (both || input.right);
 
-    const engines = frame.engines.map(() => false);
-    if (leftPressed) engines[engineForInput(frame, 'left', this.invertThrusters)] = true;
-    if (rightPressed) engines[engineForInput(frame, 'right', this.invertThrusters)] = true;
-    this.thrusters = { engines, rcsLeft: false, rcsRight: false };
+    const demand = frame.engines.map(() => false);
+    if (both || input.left) demand[engineForInput(frame, 'left', this.invertThrusters)] = true;
+    if (both || input.right) demand[engineForInput(frame, 'right', this.invertThrusters)] = true;
+    const power = this.spoolEngines(dt, demand, hasFuel);
+    this.thrusters = { engines: power.map((p) => p > 0), power, rcsLeft: false, rcsRight: false };
 
     const a = engineThrust(frame) / this.mass;
     let lean = 0;
 
     for (let i = 0; i < frame.engines.length; i++) {
-      if (!engines[i]) continue;
+      const p = power[i];
+      if (p === 0) continue;
       const { cant } = frame.engines[i];
       // Thrust leaves opposite the nozzle: one splayed toward +x drives the hull to −x.
-      this.vx += -Math.sin(cant) * a * dt;
-      this.vy += Math.cos(cant) * a * dt;
-      this.fuel -= frame.engineBurn * dt;
-      lean += Math.sin(cant);
+      this.vx += -Math.sin(cant) * a * p * dt;
+      this.vy += Math.cos(cant) * a * p * dt;
+      this.fuel -= frame.engineBurn * p * dt;
+      lean += Math.sin(cant) * p;
     }
 
     // Lean into the push. Positive rotation is counter-clockwise — nose to port — and a
     // nozzle splayed to +x drives the hull to port, so the two already share a sign.
+    // Weighted by output, so the hull rolls in as an engine spools rather than on the key.
     this.bankTarget = Math.max(-1, Math.min(1, lean)) * frame.bankMax;
   }
 
@@ -356,37 +460,42 @@ export class LanderBody {
   ): void {
     const hasFuel = this.fuel > 0;
     const bothSide = input.left && input.right;
-    const mainOn = hasFuel && (input.main || bothSide);
-    const leftOn = hasFuel && input.left && !bothSide;
-    const rightOn = hasFuel && input.right && !bothSide;
 
-    // Thruster state for view / audio: [mainBottom, portEngine (fires left to move right), starboardEngine (fires right to move left)]
+    // Airframe order: [main, port engine (fires left to move right), starboard engine
+    // (fires right to move left)]. The lateral pair are engines with plumes, so they
+    // spool like the main one — they push the hull directly rather than turning it, which
+    // is the case `applyAttitude` keeps its jets off the spool for.
+    const power = this.spoolEngines(
+      dt,
+      [input.main || bothSide, input.right && !bothSide, input.left && !bothSide],
+      hasFuel,
+    );
+    const [main, pushRight, pushLeft] = power;
     this.thrusters = {
-      engines: [mainOn, rightOn, leftOn],
-      rcsLeft: leftOn,
-      rcsRight: rightOn,
+      engines: power.map((p) => p > 0),
+      power,
+      rcsLeft: pushLeft > 0,
+      rcsRight: pushRight > 0,
     };
 
-    if (mainOn) {
-      const a = this.thrustAccel;
-      this.vy += a * dt;
-      this.fuel -= frame.mainBurn * dt;
+    if (main > 0) {
+      this.vy += this.thrustAccel * main * dt;
+      this.fuel -= frame.mainBurn * main * dt;
     }
 
     const sideAccel = (frame.sideThrust / this.mass);
-    let lean = 0;
-    if (leftOn) {
-      this.vx -= sideAccel * dt;
-      this.fuel -= frame.rcsBurn * dt;
-      lean = -1;
+    if (pushLeft > 0) {
+      this.vx -= sideAccel * pushLeft * dt;
+      this.fuel -= frame.rcsBurn * pushLeft * dt;
     }
-    if (rightOn) {
-      this.vx += sideAccel * dt;
-      this.fuel -= frame.rcsBurn * dt;
-      lean = 1;
+    if (pushRight > 0) {
+      this.vx += sideAccel * pushRight * dt;
+      this.fuel -= frame.rcsBurn * pushRight * dt;
     }
 
-    this.bankTarget = lean * frame.bankMax;
+    // One side winding down while the other winds up passes through level rather than
+    // snapping from one lean to the other.
+    this.bankTarget = (pushRight - pushLeft) * frame.bankMax;
   }
 
   private resolveContact(hit: Hit): Contact {
@@ -435,7 +544,7 @@ export class LanderBody {
     this.bank = 0;
     this.bankTarget = 0;
     this.frozen = true;
-    this.thrusters = idleFiring(this.airframe);
+    this.cutEngines();
   }
 
   freeze(): void {
@@ -443,7 +552,16 @@ export class LanderBody {
     this.vx = 0;
     this.vy = 0;
     this.angularVelocity = 0;
+    this.cutEngines();
+  }
+
+  /**
+   * Straight to cold, with no wind-down. Both callers end the flight — contact on a deck,
+   * or the run being taken away — and the spool is a flight behaviour.
+   */
+  private cutEngines(): void {
     this.thrusters = idleFiring(this.airframe);
+    this.spool.fill(0);
   }
 
   /**

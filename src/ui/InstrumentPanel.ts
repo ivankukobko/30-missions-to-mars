@@ -50,6 +50,20 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 /**
+ * Drives an engine lamp from its engine's output, 0..1.
+ *
+ * A custom property rather than a class, because a class has two states and the engine
+ * now has every state between them. Written only on change: this runs every frame and a
+ * style write is not free, while the value sits at exactly 0 or 1 for most of a flight.
+ */
+function setGlow(lamp: HTMLElement, power: number): void {
+  const value = power.toFixed(3);
+  if (lamp.dataset.glow === value) return;
+  lamp.dataset.glow = value;
+  lamp.style.setProperty('--glow', value);
+}
+
+/**
  * Widest the bore ever gets, for the clearance gauge's warning band.
  *
  * Kessler's own dig is 24 across, and the gauge is scaled against half of that: a hauler
@@ -134,9 +148,10 @@ class AttitudePanel implements InstrumentPanel {
 /**
  * Two lamps and a clearance bar. Industrial, high contrast, no glass.
  *
- * Lamps rather than power meters because `Firing.engines` is a boolean array — there is
- * no throttle anywhere in this vehicle's physics, and an analog bar would be drawing a
- * quantity the simulation does not have.
+ * Lamps rather than power meters. There is still no throttle the pilot sets — each engine
+ * is asked to go up or down and spools there (`LANDER.ENGINE_SPOOL`) — so a bar with a
+ * scale would be offering a setting nobody can choose. A lamp that comes up with its
+ * engine says the same thing a filament does: on, off, or on its way.
  *
  * The clearance gauge replaces the tilt dial this frame does not need. It reads a
  * *position* across the bore rather than a pair of distances, so dead centre stays dead
@@ -167,23 +182,24 @@ class DifferentialPanel implements InstrumentPanel {
     if (data.scheme !== 'differential') return;
 
     const booting = bootPhase(data.consoleTime) < 1;
-    const port = data.engines[0] ?? false;
-    const stbd = data.engines[data.engines.length - 1] ?? false;
+    const port = data.engines[0] ?? 0;
+    const stbd = data.engines[data.engines.length - 1] ?? 0;
 
     // Both lamps during the self-test — a lamp test is the only way a panel can prove a
     // dark lamp means a dead engine rather than a dead bulb.
-    this.port.classList.toggle('lit', booting || port);
-    this.stbd.classList.toggle('lit', booting || stbd);
+    setGlow(this.port, booting ? 1 : port);
+    setGlow(this.stbd, booting ? 1 : stbd);
 
     /**
-     * Which way the lit engines are shoving the hull. It points; it does not slide.
+     * Which way the engines are shoving the hull. It points; it does not slide.
      *
-     * With two engines and no throttle there are exactly three lateral states — port
-     * engine pushing starboard, starboard engine pushing port, and no net push at all —
-     * so a direction is the whole reading and a position along a track would encode
-     * nothing. It was built as a translation first, which had the arrow drifting a few
-     * pixels while still pointing the same way, because a CSS border triangle has a
-     * fixed direction unless it is rotated.
+     * With two engines asked only up or down there are three lateral states to settle
+     * into — port engine pushing starboard, starboard engine pushing port, and no net push
+     * at all — and the spool only passes between them, so a direction is the whole
+     * reading and a position along a track would encode nothing. It was built as a
+     * translation first, which had the arrow drifting a few pixels while still pointing
+     * the same way, because a CSS border triangle has a fixed direction unless it is
+     * rotated.
      *
      * Absent rather than dimmed at zero. A faded arrow still names a direction, and both
      * of the states that land here — nothing lit, and both lit with the horizontals
@@ -262,8 +278,8 @@ class TranslationPanel implements InstrumentPanel {
       (data.verticalSpeed < 0 && Math.abs(data.verticalSpeed) > LANDER.MAX_LANDING_SPEED);
     this.reticle.classList.toggle('danger', live && fast);
 
-    this.lampLeft.classList.toggle('lit', !live || data.rcsLeft);
-    this.lampRight.classList.toggle('lit', !live || data.rcsRight);
+    setGlow(this.lampLeft, live ? data.rcsLeft : 1);
+    setGlow(this.lampRight, live ? data.rcsRight : 1);
 
     this.bankArc.style.transform = `rotate(${(data.bank * 180) / Math.PI}deg)`;
   }

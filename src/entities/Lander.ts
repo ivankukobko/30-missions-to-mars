@@ -3,7 +3,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import type { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import type { InputState } from '../core/InputManager.ts';
 import { cargoShape, type Payload } from '../campaign/Missions.ts';
-import { lerp } from '../world/Noise.ts';
+import { damp, lerp } from '../world/Noise.ts';
 import { AIRFRAMES, type Airframe } from './Airframe.ts';
 import { idleFiring, LANDER, LanderBody, type Contact, type Firing } from './LanderBody.ts';
 
@@ -151,6 +151,58 @@ function flameLength(cant: number): number {
   const vertical = Math.max(0, Math.cos(cant));
   return HULL.FLAME_LEN * Math.max(0.35, vertical ** 0.25);
 }
+
+/**
+ * A plume drawn from what its own engine is delivering (`Firing.power`), not from whether
+ * a key is down. Length, girth, opacity and colour all ride that one number, so a twin
+ * with one engine winding up and the other winding down shows exactly that — and the
+ * pair never agrees with itself unless the physics does.
+ *
+ * Length leads: it runs almost to nothing at the bottom of the spool, because length is
+ * the reading the eye takes as *how hard*. Girth and opacity keep a floor so a catching
+ * engine is still a plume rather than a needle.
+ */
+const PLUME = {
+  /** Below this output there is nothing out of the nozzle worth drawing. */
+  MIN: 0.004,
+  REACH: [0.15, 1],
+  GIRTH: [0.6, 1],
+  OPACITY: [0.4, 0.9],
+  /**
+   * Flicker as a fraction of length, cold and at full. A catching engine is ragged and a
+   * running one steady, so the band narrows as it spools; at full it is the ±18% the
+   * plume always had.
+   */
+  FLICKER: [0.7, 0.36],
+} as const;
+
+/**
+ * Exhaust colour across the spool: amber while it catches, the blue it always burned at
+ * full. A plume that only changed length would make a half-spooled engine read as a short
+ * engine; a colour that moves says *on its way*.
+ */
+const FLAME_COLD = new THREE.Color(0xffb27a);
+const FLAME_HOT = new THREE.Color(0x8fd4ff);
+
+/**
+ * Nozzle throat glow: it heats with its engine and keeps the heat after it.
+ *
+ * Presentation, not a reading of the spool — the plume is that. This is metal, and metal
+ * takes about the spool time to come up and several times that to go dark, which is the
+ * lag that makes a nozzle look like it has just been doing something. Advanced on the
+ * fixed step, like `LanderBody.bank`, so a retry glows the same way on the same frame.
+ */
+const THROAT = { COLD: 1.3, HOT: 3.6, HEAT_RATE: 9, COOL_RATE: 1.4 } as const;
+
+/**
+ * The hazard beacon, as a xenon tube: a flash that arrives at once and dies away over a
+ * few hundredths of a second, then idles at a glow.
+ *
+ * It was a gate — 14 for 0.09 s, 1.2 otherwise — which reads as an LED switching, and is
+ * the one light on the vehicle a player sees every second of every mission. Timed off
+ * `body.age`, which is simulation time, so it is still in phase on a retry.
+ */
+const STROBE = { PERIOD: 1.15, RISE: 0.012, DECAY: 0.06, PEAK: 14, FLOOR: 1.2 } as const;
 
 /**
  * A hull's silhouette: radius at a sequence of heights, base to the deck's underside.
@@ -447,6 +499,9 @@ class LanderView {
   group = new THREE.Group();
 
   private flames: THREE.Mesh[] = [];
+  /** One per engine, in airframe order, each with its own material — see `THROAT`. */
+  private throats: THREE.MeshStandardMaterial[] = [];
+  private heat: number[] = [];
   private rcsLeft: THREE.Mesh;
   private rcsRight: THREE.Mesh;
   private thrustLight: THREE.PointLight;
@@ -538,12 +593,6 @@ class LanderView {
     cargo.group.position.y = airframe.id === 'relay' ? 0 : DECK_TOP;
     this.group.add(cargo.group);
 
-    const flameMat = new THREE.MeshBasicMaterial({
-      color: 0x8fd4ff,
-      transparent: true,
-      opacity: 0.9,
-    });
-
     /**
      * Engine pods, straight off the airframe. This is where the plume problem is
      * actually solved: with the load on the deck there is nothing above a nozzle for
@@ -589,8 +638,15 @@ class LanderView {
       // once the mount rotates it towards horizontal. Stashed on the mesh because the
       // per-frame flicker in `update` needs the same figure and has no other way back
       // to this engine's `cant`.
+      //
+      // Its own material, not a shared one: each plume's opacity and colour follow its
+      // own engine's output, and a shared material would make every nozzle show whichever
+      // engine happened to be drawn last.
       const len = flameLength(engine.cant);
-      const flame = new THREE.Mesh(new THREE.ConeGeometry(radius, len, 6), flameMat);
+      const flame = new THREE.Mesh(
+        new THREE.ConeGeometry(radius, len, 6),
+        new THREE.MeshBasicMaterial({ color: FLAME_HOT, transparent: true, opacity: 0.9 }),
+      );
       flame.position.y = nozzle - len / 2;
       flame.rotation.z = Math.PI;
       flame.visible = false;
@@ -598,12 +654,15 @@ class LanderView {
       mount.add(flame);
       this.flames.push(flame);
 
+      const throatMat = this.lamp(0x7fc4ff, THROAT.COLD);
       const throat = new THREE.Mesh(
         new THREE.CylinderGeometry(radius * 0.72, radius * 0.82, 0.09, 8),
-        this.lamp(0x7fc4ff, 2.2),
+        throatMat,
       );
       throat.position.y = nozzle + 0.03;
       mount.add(throat);
+      this.throats.push(throatMat);
+      this.heat.push(0);
     }
 
     /**
@@ -905,34 +964,49 @@ class LanderView {
     }
   }
 
-  update(body: LanderBody, firing: Firing): void {
+  /** `dt` is the fixed step that produced `firing`, or 0 for a redraw that advances nothing. */
+  update(body: LanderBody, firing: Firing, dt: number): void {
     this.syncTransform(body);
 
-    // Two detuned sines give an irregular flicker without a random walk that could
-    // strobe. Thrust briefly floods the lamp as the exhaust lights the rock.
-    // Strobe: a short bright pulse roughly once a second, the rest of the time dim.
-    const phase = body.age % 1.15;
+    const phase = body.age % STROBE.PERIOD;
+    const flash =
+      phase < STROBE.RISE ? phase / STROBE.RISE : Math.exp(-(phase - STROBE.RISE) / STROBE.DECAY);
     const strobeMat = this.strobe.material as THREE.MeshStandardMaterial;
-    strobeMat.emissiveIntensity = phase < 0.09 ? 14 : 1.2;
+    strobeMat.emissiveIntensity = lerp(STROBE.FLOOR, STROBE.PEAK, flash);
 
-    // One flame per engine, lit individually — on the hauler which plume is burning is
-    // the primary feedback for what the vehicle is about to do. Each flickers on its
-    // own draw; in lockstep a pair reads as one light source drawn twice rather than as
-    // two engines. Scaling a cone stretches it about its own centre, so the centre
-    // moves with the flicker to keep the base pinned at the nozzle.
-    let anyLit = false;
+    // One flame per engine, each drawn from its own output — on the hauler which plume is
+    // burning is the primary feedback for what the vehicle is about to do. Each flickers on
+    // its own draw; in lockstep a pair reads as one light source drawn twice rather than
+    // as two engines. Scaling a cone stretches it about its own centre, so the centre
+    // moves with the length to keep the base pinned at the nozzle.
+    let brightest = 0;
     for (let i = 0; i < this.flames.length; i++) {
-      const lit = firing.engines[i] ?? false;
+      const p = firing.power[i] ?? 0;
+
+      const heat = this.heat[i];
+      this.heat[i] = damp(heat, p, p > heat ? THROAT.HEAT_RATE : THROAT.COOL_RATE, dt);
+      this.throats[i].emissiveIntensity = lerp(THROAT.COLD, THROAT.HOT, this.heat[i]);
+
       const flame = this.flames[i];
-      flame.visible = lit;
-      if (!lit) continue;
-      anyLit = true;
+      flame.visible = p > PLUME.MIN;
+      if (!flame.visible) continue;
+      brightest = Math.max(brightest, p);
+
       const len = (flame.userData.flameLen as number) ?? HULL.FLAME_LEN;
-      const flicker = 0.82 + Math.random() * 0.36;
-      flame.scale.set(1, flicker, 1);
-      flame.position.y = -HULL.POD_H / 2 - (len / 2) * flicker;
+      const flicker = 1 + (Math.random() - 0.5) * lerp(PLUME.FLICKER[0], PLUME.FLICKER[1], p);
+      const reach = lerp(PLUME.REACH[0], PLUME.REACH[1], p) * flicker;
+      const girth = lerp(PLUME.GIRTH[0], PLUME.GIRTH[1], p);
+      flame.scale.set(girth, reach, girth);
+      flame.position.y = -HULL.POD_H / 2 - (len / 2) * reach;
+
+      const mat = flame.material as THREE.MeshBasicMaterial;
+      mat.opacity = lerp(PLUME.OPACITY[0], PLUME.OPACITY[1], p);
+      mat.color.lerpColors(FLAME_COLD, FLAME_HOT, p);
     }
-    this.thrustLight.intensity = anyLit ? 150 : 0;
+    // The strongest engine rather than the sum: the lamp was sized to one engine at full,
+    // and a pair at full is not twice as bright on the rock — the thrust is shared, so is
+    // the light.
+    this.thrustLight.intensity = 150 * brightest;
 
     this.rcsLeft.visible = firing.rcsRight;
     this.rcsRight.visible = firing.rcsLeft;
@@ -973,7 +1047,7 @@ export class Lander {
     this.body = new LanderBody(payload, Math.round(fuel * airframe.fuelScale), airframe);
     this.view = new LanderView(scene, payload, airframe, relayFolded);
     this.idle = idleFiring(airframe);
-    this.view.update(this.body, this.idle);
+    this.view.update(this.body, this.idle, 0);
   }
 
   get airframe(): Airframe {
@@ -1205,7 +1279,7 @@ export class Lander {
     // caller hides the hull and extinguishes it within the same tick. A landing settles
     // the body, and that does want a refresh, which is what the frozen check catches.
     if (contact.type === 'none' || this.body.frozen) {
-      this.view.update(this.body, this.body.firing);
+      this.view.update(this.body, this.body.firing, dt);
     } else {
       this.view.syncTransform(this.body);
     }
@@ -1220,7 +1294,7 @@ export class Lander {
 
   freeze(): void {
     this.body.freeze();
-    this.view.update(this.body, this.idle);
+    this.view.update(this.body, this.idle, 0);
   }
 
   extinguish(): void {

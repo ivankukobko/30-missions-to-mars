@@ -202,10 +202,10 @@ export class AudioManager {
     this.sfx.setEngineLayout(offsets);
   }
 
-  /** `lit` is one flag per engine; `side` is −1, 0 or +1 for the attitude jets. */
-  public updateEngineSound(lit: boolean[], side = 0): void {
+  /** `power` is each engine's output, 0..1; `side` is −1, 0 or +1 for the attitude jets. */
+  public updateEngineSound(power: number[], side = 0): void {
     if (this.mutedSfx) return;
-    this.sfx.updateEngineSound(lit, side);
+    this.sfx.updateEngineSound(power, side);
   }
 
   public updateWind(heightAboveGround: number, horizontalSpeed: number): void {

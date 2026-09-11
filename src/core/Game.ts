@@ -1261,7 +1261,7 @@ export class Game implements MenuHost {
     // the scoring reads, so the colour turns at the moment the approach stops being
     // survivable rather than at a figure picked to look tense.
     if (flying) {
-      this.landingLight.update(lander.x, lander.y, ground, above, Math.hypot(lander.vx, lander.vy));
+      this.landingLight.update(dt, lander.x, lander.y, ground, above, Math.hypot(lander.vx, lander.vy));
     } else {
       this.landingLight.hide();
     }
@@ -1278,7 +1278,7 @@ export class Game implements MenuHost {
       // that sits to starboard — hence the sign, which matches the visible plume.
       const jets = lander.firing;
       const side = jets.rcsLeft ? 1 : jets.rcsRight ? -1 : 0;
-      audio.updateEngineSound(lander.firing.engines, side);
+      audio.updateEngineSound(lander.firing.power, side);
       audio.updateWind(this.heightAboveGround, Math.abs(lander.vx));
     }
 
@@ -1292,10 +1292,13 @@ export class Game implements MenuHost {
     }
 
     // The plume only reaches the surface from close range, and hits harder the
-    // nearer you get — which makes the dust itself an altitude cue on final.
+    // nearer you get — which makes the dust itself an altitude cue on final. Scaled by
+    // the strongest engine's output as well, so a spooling engine stirs the surface
+    // rather than blasting it on the first step.
     if (thrusting && ground !== null && above < LANDER.GEAR_DEPLOY_HEIGHT) {
       const proximity = 1 - above / LANDER.GEAR_DEPLOY_HEIGHT;
-      this.effects.groundDust(dt, lander.x, ground, proximity);
+      const blast = Math.max(...lander.firing.power);
+      this.effects.groundDust(dt, lander.x, ground, proximity * blast);
     }
   }
 
@@ -1458,10 +1461,11 @@ export class Game implements MenuHost {
     const frame = lander.airframe;
 
     if (frame.scheme === 'differential') {
-      const engines = lander.firing.engines;
+      const engines = lander.firing.power;
       /**
-       * Which way the lit engines are actually pushing, from the same `-sin(cant)` the
-       * physics integrates rather than from which key is down.
+       * Which way the engines are actually pushing, from the same `-sin(cant)` the
+       * physics integrates, weighted by what each is delivering, rather than from which
+       * key is down.
        *
        * Reading the input instead would be wrong on exactly the vehicle this gauge is
        * for: the hauler's nozzles splay outward, so its port engine drives the hull to
@@ -1474,7 +1478,7 @@ export class Game implements MenuHost {
       for (let i = 0; i < frame.engines.length; i++) {
         const s = Math.sin(frame.engines[i].cant);
         scale += Math.abs(s);
-        if (engines[i]) push -= s;
+        push -= s * engines[i];
       }
 
       return {
@@ -1490,8 +1494,9 @@ export class Game implements MenuHost {
       return {
         ...common,
         scheme: 'translation',
-        rcsLeft: lander.firing.rcsLeft,
-        rcsRight: lander.firing.rcsRight,
+        // Airframe order is [main, pushes right, pushes left] — see `applyTranslation`.
+        rcsLeft: lander.firing.power[2] ?? 0,
+        rcsRight: lander.firing.power[1] ?? 0,
         bank: lander.bank,
       };
     }

@@ -27,9 +27,9 @@ const CRUISE_DESCENT = 46;
  * And once the pad is close, so the last stretch is flown rather than dropped.
  *
  * Comfortably under `MAX_LANDING_SPEED` (2.5), because this is the speed the vehicle
- * actually arrives at and thrust is bang-bang — the throttle is either off or all the way
- * on, so the real descent oscillates a couple of tenths either side of whatever is asked
- * for. Set at 3.2 on the first attempt, above the tolerance, and every mission ended as a
+ * actually arrives at and its flying is bang-bang — the key is either up or down, and the
+ * engine's spool only rounds the corners of that (`LANDER.ENGINE_SPOOL`) — so the real
+ * descent oscillates a couple of tenths either side of whatever is asked for. Set at 3.2 on the first attempt, above the tolerance, and every mission ended as a
  * hard landing at 4.8 u/s: the pilot was flying exactly as told and being told to crash.
  */
 const FINAL_DESCENT = 1.2;

@@ -56,11 +56,16 @@ export type HudData =
     })
   | (HudCommon & {
       scheme: 'differential';
-      /** One flag per engine, in the airframe's own order. There is no throttle. */
-      engines: boolean[];
       /**
-       * Which way the lit engines are pushing, -1..1, positive to starboard. Derived
-       * from the same `-sin(cant)` the physics integrates, not from which key is down.
+       * Output per engine, 0..1, in the airframe's own order — `Firing.power`. There is
+       * still no throttle the pilot can set; this is the spool, which the pilot can only
+       * ask to go up or down.
+       */
+      engines: number[];
+      /**
+       * Which way the engines are pushing, -1..1, positive to starboard. Derived from
+       * the same `-sin(cant)` the physics integrates, weighted by output, not from which
+       * key is down.
        */
       bias: number;
       /** Room to the rock either side, or null anywhere outside a bore. */
@@ -68,8 +73,9 @@ export type HudData =
     })
   | (HudCommon & {
       scheme: 'translation';
-      rcsLeft: boolean;
-      rcsRight: boolean;
+      /** Output of the lateral engine pushing each way, 0..1 — they spool like the main. */
+      rcsLeft: number;
+      rcsRight: number;
       /** Cosmetic lean, radians. Nothing in the simulation reads it. */
       bank: number;
     });

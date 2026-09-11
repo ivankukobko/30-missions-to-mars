@@ -26,8 +26,14 @@ scored missions** — not hard, impossible, on a flight with no mistake in it �
 were the manoeuvre-heavy charter runs. `fuelScale` was charging the hauler twice for its
 canted engines, which burn `11/cos 30°` for the same lift it already scaled down by 0.9.
 Cancelling that recovered eight of the fourteen; sixteen tanks were then raised for the
-rest. Every mission now tops out at S, and the same pilot scores 67–78 everywhere instead
+rest. Every mission now tops out at S, and the same pilot scored 67–78 everywhere instead
 of 64–78 across a rank boundary.
+
+Engine spool left every tank alone: a symmetric ramp delays impulse without losing any, and
+burn scales with output, so the pilot's fuel figures came out identical to the percent. It
+did cost the pilot some precision against a lagging engine — 65–77, with mission 3 slipping
+just under the A cut on a landing 2.8 off centre. See
+[Gameplay](gameplay.md#engines-spool-jets-do-not).
 
 Both figures are pinned as ratchets rather than targets. How *hard* an S should be is a
 question for playtests; whether one exists is arithmetic, and arithmetic can be asserted.
