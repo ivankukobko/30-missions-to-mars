@@ -1,7 +1,14 @@
 import * as THREE from 'three';
 import { CORPS } from '../world/CanyonSpec.ts';
 import type { PadInfo } from '../world/Colony.ts';
-import { debriefLine, missionGoal, type Mission } from '../campaign/Missions.ts';
+import {
+  debriefLine,
+  missionGoal,
+  resolveDebrief,
+  resolvePayloadName,
+  resolveDebriefSender,
+  type Mission,
+} from '../campaign/Missions.ts';
 import type { LandingScore, PlaythroughSummary, Rank } from '../campaign/Progress.ts';
 import type { Airframe } from '../entities/Airframe.ts';
 import { LANDER } from '../entities/Lander.ts';
@@ -12,9 +19,10 @@ import { Reticle, type HullBounds, type ReticleState } from './Reticle.ts';
 import { buildBrief, buildEpilogue } from './Brief.ts';
 import { Radio } from './Radio.ts';
 import { TouchHint } from './TouchHint.ts';
+import { t } from '../i18n/I18n.ts';
 
 /** The handshake's own status line, on every mission that has one to complete. */
-const UPLINK_DEFAULT = 'UPLINK ESTABLISHING';
+const UPLINK_DEFAULT = () => t('hud.uplink_default');
 
 /** What the brief needs to know about the vehicle actually loaded for this run. */
 export interface BriefVehicle {
@@ -39,6 +47,11 @@ export interface GameSettings {
   mutedMusic: boolean;
   onMuteSfx: (muted: boolean) => void;
   onMuteMusic: (muted: boolean) => void;
+  language?: {
+    current: string;
+    available: readonly { code: string; label: string }[];
+    onChange: (code: string) => void;
+  };
   /** Only on a frame with two engines to tell apart. Absent means no row. */
   invert: { inverted: boolean; onChange: (on: boolean) => void } | null;
 }
@@ -99,10 +112,14 @@ function el<K extends keyof HTMLElementTagNameMap>(
 
 export class Interface {
   private hud: HTMLElement;
+  private fuelLabel: HTMLElement;
   private fuelFill: HTMLElement;
   private fuelText: HTMLElement;
+  private altLabel: HTMLElement;
   private altText: HTMLElement;
+  private vsLabel: HTMLElement;
   private vsText: HTMLElement;
+  private hsLabel: HTMLElement;
   private hsText: HTMLElement;
   private instrumentSlot: HTMLElement;
   private instrument: InstrumentPanel | null = null;
@@ -145,29 +162,33 @@ export class Interface {
     left.append(this.payloadText, this.targetText);
 
     const fuelBox = el('div', 'hud-fuel');
-    const fuelLabel = el('div', 'hud-label', 'FUEL');
+    this.fuelLabel = el('div', 'hud-label', t('hud.fuel'));
     const fuelTrack = el('div', 'fuel-track');
     this.fuelFill = el('div', 'fuel-fill');
     fuelTrack.append(this.fuelFill);
     this.fuelText = el('div', 'fuel-text', '0');
-    fuelBox.append(fuelLabel, fuelTrack, this.fuelText);
+    fuelBox.append(this.fuelLabel, fuelTrack, this.fuelText);
     left.append(fuelBox);
 
     const right = el('div', 'hud-block hud-right');
     const mkReadout = (label: string) => {
       const row = el('div', 'readout');
-      row.append(el('span', 'readout-label', label));
+      const labelEl = el('span', 'readout-label', label);
+      row.append(labelEl);
       const value = el('span', 'readout-value', '0.0');
       row.append(value);
       right.append(row);
-      return { row, value };
+      return { row, labelEl, value };
     };
-    const alt = mkReadout('ALT');
-    const vs = mkReadout('V/S');
-    const hs = mkReadout('H/S');
+    const alt = mkReadout(t('hud.alt'));
+    const vs = mkReadout(t('hud.vs'));
+    const hs = mkReadout(t('hud.hs'));
     this.altText = alt.value;
     this.vsText = vs.value;
     this.hsText = hs.value;
+    this.altLabel = alt.labelEl;
+    this.vsLabel = vs.labelEl;
+    this.hsLabel = hs.labelEl;
     this.altRow = alt.row;
     this.hsRow = hs.row;
 
@@ -188,7 +209,7 @@ export class Interface {
      * own doc comment gives for leaving flight itself gesture-only.
      */
     this.pauseButton = el('button', 'pause-button', 'II');
-    this.pauseButton.setAttribute('aria-label', 'Pause');
+    this.pauseButton.setAttribute('aria-label', t('hud.pause'));
     this.pauseButton.addEventListener('click', () => this.onPauseRequested?.());
 
     // Outside `.hud`, like the augmented layer and for the same reason: this is the AI's
@@ -197,7 +218,7 @@ export class Interface {
     this.uplinkBar = el('div', 'uplink-fill');
     const uplinkTrack = el('div', 'uplink-track');
     uplinkTrack.append(this.uplinkBar);
-    this.uplinkText = el('div', 'uplink-text', UPLINK_DEFAULT);
+    this.uplinkText = el('div', 'uplink-text', UPLINK_DEFAULT());
     this.uplink.append(this.uplinkText, uplinkTrack);
 
     this.hud.append(left, right, this.warning, this.pauseButton);
@@ -314,6 +335,10 @@ export class Interface {
     this.radio.clear();
   }
 
+  private currentMission: Mission | null = null;
+  private currentVehicle: BriefVehicle | null = null;
+  private currentBestRank: Rank | null = null;
+
   showBrief(
     mission: Mission,
     bestRank: Rank | null,
@@ -321,6 +346,9 @@ export class Interface {
     onBegin: () => void,
     resumed = false,
   ): void {
+    this.currentMission = mission;
+    this.currentVehicle = vehicle;
+    this.currentBestRank = bestRank;
     this.pauseManifest = this.manifestFor(mission, vehicle, bestRank);
     buildBrief(mission, { showPanel: (content) => this.showPanel(content) }, onBegin, {
       resumed,
@@ -344,15 +372,15 @@ export class Interface {
     // it gets its own block instead of joining the rows below it.
     manifest.append(el('div', 'manifest-goal', missionGoal(mission)));
     manifest.append(
-      row('PAYLOAD', `${mission.payload.name}`),
-      row('MASS', `${mission.payload.mass.toFixed(1)} t`),
+      row(t('pause.payload'), resolvePayloadName(mission)),
+      row(t('pause.mass'), `${mission.payload.mass.toFixed(1)} t`),
       // The airframe's own figure, not the mission's: a frame with a fuel penalty flies
       // with less than the manifest asked for, and the brief should say what is aboard.
-      row('FUEL', `${vehicle.fuel}`),
-      row('VEHICLE', vehicle.airframe.name),
-      row('CLIENT', CORPS[mission.client].name),
+      row(t('pause.fuel'), `${vehicle.fuel}`),
+      row(t('pause.vehicle'), vehicle.airframe.name),
+      row(t('pause.client'), CORPS[mission.client].name),
     );
-    if (best) manifest.append(row('BEST', best));
+    if (best) manifest.append(row(t('pause.best'), best));
     return manifest;
   }
 
@@ -405,13 +433,31 @@ export class Interface {
     const wrap = el('div', 'settings');
 
     wrap.append(
-      this.toggle('SOUND', !settings.mutedSfx, (on) => (on ? 'ON' : 'MUTED'), (on) =>
+      this.toggle(t('settings.sound'), !settings.mutedSfx, (on) => (on ? t('settings.on') : t('settings.muted')), (on) =>
         settings.onMuteSfx(!on),
       ),
-      this.toggle('MUSIC', !settings.mutedMusic, (on) => (on ? 'ON' : 'MUTED'), (on) =>
+      this.toggle(t('settings.music'), !settings.mutedMusic, (on) => (on ? t('settings.on') : t('settings.muted')), (on) =>
         settings.onMuteMusic(!on),
       ),
     );
+
+    if (settings.language && settings.language.available.length > 1) {
+      const lang = settings.language;
+      let currentIndex = lang.available.findIndex((l) => l.code === lang.current);
+      if (currentIndex < 0) currentIndex = 0;
+      const rowEl = el('div', 'setting');
+      const button = el('button', 'setting-toggle');
+      button.innerText = lang.available[currentIndex].label;
+      button.addEventListener('click', () => {
+        currentIndex = (currentIndex + 1) % lang.available.length;
+        button.innerText = lang.available[currentIndex].label;
+        lang.onChange(lang.available[currentIndex].code);
+        audio.init();
+        audio.playUiBeep(900, 'sine', 0.03);
+      });
+      rowEl.append(el('span', 'setting-label', t('settings.language')), button);
+      wrap.append(rowEl);
+    }
 
     // Only where it means something. On a single-engine frame there is no second engine
     // to tell apart, and the row would be a control that does nothing — the same reason
@@ -420,9 +466,9 @@ export class Interface {
       const invert = settings.invert;
       wrap.append(
         this.toggle(
-          'CONTROLS',
+          t('settings.controls'),
           invert.inverted,
-          (on) => (on ? 'INVERTED · KEY FIRES ITS OWN ENGINE' : 'DIRECT · KEY IS THE WAY YOU GO'),
+          (on) => (on ? t('settings.controls_inverted') : t('settings.controls_direct')),
           (on) => invert.onChange(on),
         ),
       );
@@ -448,13 +494,13 @@ export class Interface {
     // `card-sys` rather than a client's livery: this is the only screen in the game that
     // is not somebody transmitting to you. See the system-console block in style.css.
     const card = el('div', 'card card-sys');
-    card.append(el('div', 'card-eyebrow', 'PAUSED'));
+    card.append(el('div', 'card-eyebrow', t('pause.title')));
     // What the brief used to read out before the run. Here it is on demand instead of
     // on arrival: a player who wants the mass or the fuel again can stop and look.
     if (this.pauseManifest) card.append(this.pauseManifest);
     card.append(this.settingsBlock(settings));
 
-    const button = el('button', 'primary', 'RESUME');
+    const button = el('button', 'primary', t('pause.resume'));
     button.addEventListener('click', onResume);
     card.append(button);
 
@@ -467,13 +513,13 @@ export class Interface {
      * nothing is scored until a landing resolves, so an abandoned attempt costs only
      * itself.
      */
-    const restart = el('button', 'secondary', 'RESTART MISSION');
+    const restart = el('button', 'secondary', t('pause.restart_mission'));
     restart.addEventListener('click', onRestart);
     card.append(restart);
 
     // The way out. Abandoning a run costs nothing but the attempt — nothing is scored
     // until a landing resolves — so this needs no confirmation, unlike NEW CANYON.
-    const menu = el('button', 'secondary', 'MAIN MENU');
+    const menu = el('button', 'secondary', t('pause.main_menu'));
     menu.addEventListener('click', onMenu);
     card.append(menu);
 
@@ -538,7 +584,7 @@ export class Interface {
 
     let back: HTMLButtonElement | null = null;
     if (onBack) {
-      back = el('button', 'primary', 'BACK');
+      back = el('button', 'primary', t('menu.back'));
       back.addEventListener('click', () => {
         audio.init();
         audio.playUiBeep();
@@ -556,22 +602,22 @@ export class Interface {
     // to put it on and never once reached the game itself — the campaign's own name
     // called it "30 Missions to Mars" everywhere a player could see it.
     this.showList(
-      'THE ONLY THING AT THE BOTTOM',
+      t('menu.title'),
       entries,
       undefined,
-      'a story about 30 missions to Mars',
+      t('menu.subtitle'),
       notes,
     );
   }
 
   /** The campaigns a player has going at once, one canyon each. */
   showSlots(entries: MenuEntry[], onBack: () => void): void {
-    this.showList('CANYONS', entries, onBack);
+    this.showList(t('menu.canyons'), entries, onBack);
   }
 
   /** Campaigns already finished or abandoned, newest first. */
   showHistory(entries: MenuEntry[], onBack: () => void): void {
-    this.showList('HISTORY', entries, onBack);
+    this.showList(t('menu.history'), entries, onBack);
   }
 
   /**
@@ -601,7 +647,7 @@ export class Interface {
     epilogueId?: number,
   ): void {
     const card = el('div', 'card card-sys card-menu');
-    card.append(el('div', 'card-eyebrow', 'MISSIONS'));
+    card.append(el('div', 'card-eyebrow', t('menu.missions')));
 
     const grid = el('div', 'mission-grid');
     for (let id = 1; id <= total; id++) {
@@ -613,7 +659,7 @@ export class Interface {
         cell.classList.add('mission-epilogue');
         cell.append(el('span', 'mission-no', String(id).padStart(2, '0')));
         cell.append(el('span', 'mission-rank', locked ? '' : '\u25c6'));
-        cell.title = 'The epilogue';
+        cell.title = t('brief.epilogue_cell_title');
         cell.classList.toggle('locked', locked);
         cell.disabled = locked;
         if (!locked) {
@@ -645,7 +691,7 @@ export class Interface {
     }
     card.append(grid);
 
-    const back = el('button', 'primary', 'BACK');
+    const back = el('button', 'primary', t('menu.back'));
     back.addEventListener('click', onBack);
     card.append(back);
 
@@ -655,10 +701,10 @@ export class Interface {
 
   showSettings(settings: GameSettings, onBack: () => void): void {
     const card = el('div', 'card card-sys');
-    card.append(el('div', 'card-eyebrow', 'SETTINGS'));
+    card.append(el('div', 'card-eyebrow', t('settings.title')));
     card.append(this.settingsBlock(settings));
 
-    const back = el('button', 'primary', 'BACK');
+    const back = el('button', 'primary', t('menu.back'));
     back.addEventListener('click', onBack);
     card.append(back);
 
@@ -679,7 +725,7 @@ export class Interface {
 
     const list = el('div', 'menu-list');
     const cancel = el('button', 'menu-row');
-    cancel.append(el('span', 'menu-label', 'CANCEL'));
+    cancel.append(el('span', 'menu-label', t('menu.cancel')));
     cancel.addEventListener('click', onCancel);
 
     const confirm = el('button', 'menu-row danger');
@@ -704,20 +750,20 @@ export class Interface {
     card.style.setProperty('--corp', hex(corp.color));
 
     card.append(
-      el('div', 'card-eyebrow', 'PAYLOAD DELIVERED'),
+      el('div', 'card-eyebrow', t('result.payload_delivered')),
       el('div', `rank rank-${score.rank}`, score.rank),
-      el('div', 'rank-points', `${score.points} PTS`),
+      el('div', 'rank-points', `${score.points} ${t('result.pts')}`),
     );
 
     const manifest = el('div', 'manifest');
     manifest.append(
-      row('FUEL REMAINING', `${Math.round(score.fuelPct * 100)}%`),
-      row('TOUCHDOWN', `${score.touchdownSpeed.toFixed(2)} u/s`),
+      row(t('result.fuel_remaining'), `${Math.round(score.fuelPct * 100)}%`),
+      row(t('result.touchdown'), `${score.touchdownSpeed.toFixed(2)} u/s`),
     );
     // No address, no offset. Reporting a pad offset of 0.00 for a landing on open
     // ground reads as a perfect centring the player was never scored on.
     if (mission.target !== null) {
-      manifest.append(row('PAD OFFSET', `${score.offset.toFixed(2)} u`));
+      manifest.append(row(t('result.pad_offset'), `${score.offset.toFixed(2)} u`));
     }
     card.append(manifest);
 
@@ -735,10 +781,10 @@ export class Interface {
      * did not commission, which is the same isolation rule that made the beat impossible to
      * carry in the following brief.
      */
-    if (mission.debrief) {
+    if (resolveDebrief(mission)) {
       const said = el('div', 'debrief');
-      said.append(el('div', 'debrief-sender', mission.debrief.sender));
-      said.append(el('div', 'debrief-body', debriefLine(mission.debrief, score)));
+      said.append(el('div', 'debrief-sender', resolveDebriefSender(mission)));
+      said.append(el('div', 'debrief-body', debriefLine(mission, score)));
       card.append(said);
     }
 
@@ -754,7 +800,7 @@ export class Interface {
      * Above the primary, because it is the qualifier on the result you are still looking
      * at; `NEXT MISSION` stays the bright one, since moving on is what most runs do.
      */
-    const retry = el('button', 'secondary', 'RETRY MISSION');
+    const retry = el('button', 'secondary', t('result.retry_mission'));
     retry.addEventListener('click', () => {
       audio.init();
       audio.playUiBeep(700, 'square', 0.03);
@@ -762,7 +808,7 @@ export class Interface {
     });
     card.append(retry);
 
-    const label = mission.id >= 30 ? 'FINISH CAMPAIGN' : 'NEXT MISSION';
+    const label = mission.id >= 30 ? t('result.finish_campaign') : t('result.next_mission');
     const button = el('button', 'primary', label);
     button.addEventListener('click', () => {
       audio.init();
@@ -785,7 +831,7 @@ export class Interface {
      * the exit. Nothing here needs confirmation — the rank is banked by `Progress.complete`
      * before the card is built, so there is no unsaved work to lose.
      */
-    const menu = el('button', 'secondary', 'MAIN MENU');
+    const menu = el('button', 'secondary', t('pause.main_menu'));
     menu.addEventListener('click', () => {
       audio.init();
       audio.playUiBeep(700, 'square', 0.03);
@@ -804,10 +850,10 @@ export class Interface {
     onMenu: () => void,
   ): void {
     const card = el('div', 'card card-fail');
-    card.append(el('div', 'card-eyebrow', 'MISSION FAILED'), el('div', 'fail-title', title));
+    card.append(el('div', 'card-eyebrow', t('result.mission_failed')), el('div', 'fail-title', title));
     card.append(el('div', 'card-body', detail));
 
-    const button = el('button', 'primary', 'RETRY MISSION');
+    const button = el('button', 'primary', t('result.retry_mission'));
     button.addEventListener('click', () => {
       audio.init();
       audio.playUiBeep();
@@ -819,7 +865,7 @@ export class Interface {
     // afterwards the *result* card was — see `showResult`, which now offers this too. Every
     // terminal state in the game offers the menu, and this is the one a player is most
     // likely to want to leave from: it is the screen you reach by having a bad time.
-    const menu = el('button', 'secondary', 'MAIN MENU');
+    const menu = el('button', 'secondary', t('pause.main_menu'));
     menu.addEventListener('click', onMenu);
     card.append(menu);
 
@@ -854,12 +900,12 @@ export class Interface {
   showVictory(summary: PlaythroughSummary, onMenu: () => void, onNewCanyon: () => void): void {
     const card = el('div', 'card card-sys card-menu');
     card.append(
-      el('div', 'card-eyebrow', 'CAMPAIGN COMPLETE'),
+      el('div', 'card-eyebrow', t('victory.campaign_complete')),
       el('div', 'fail-title', `${summary.delivered + 1} / ${summary.ofTotal}`),
       el(
         'div',
         'card-body',
-        'Every structure between the west wall and the chasm floor was placed by something you carried down here.',
+        t('victory.delivered_message'),
       ),
     );
 
@@ -869,15 +915,15 @@ export class Interface {
       line.append(el('span', 'summary-label', label), el('span', 'summary-value', value));
       rows.append(line);
     };
-    row('DELIVERED', `${summary.delivered} / ${summary.ofTotal - 1}`);
-    row('TOTAL SCORE', String(summary.totalPoints));
-    row('AVERAGE', summary.averagePoints.toFixed(1));
+    row(t('victory.delivered'), `${summary.delivered} / ${summary.ofTotal - 1}`);
+    row(t('victory.total_score'), String(summary.totalPoints));
+    row(t('victory.average'), summary.averagePoints.toFixed(1));
     // Ranks in descending order, and the zeroes are kept: "S 0" is information, and a row
     // that vanishes when it reaches zero makes the tally a different shape every campaign.
-    row('RANKS', (['S', 'A', 'B', 'C'] as const).map((r) => `${r} ${summary.tally[r]}`).join('   '));
-    if (summary.best) row('BEST RUN', `MISSION ${String(summary.best.id).padStart(2, '0')} · ${summary.best.points}`);
-    if (summary.worst) row('WEAKEST', `MISSION ${String(summary.worst.id).padStart(2, '0')} · ${summary.worst.points}`);
-    row('CANYON SEED', String(summary.seed));
+    row(t('victory.ranks'), (['S', 'A', 'B', 'C'] as const).map((r) => `${r} ${summary.tally[r]}`).join('   '));
+    if (summary.best) row(t('victory.best_run'), `${t('menu.mission_n', { number: String(summary.best.id).padStart(2, '0') })} · ${summary.best.points}`);
+    if (summary.worst) row(t('victory.weakest'), `${t('menu.mission_n', { number: String(summary.worst.id).padStart(2, '0') })} · ${summary.worst.points}`);
+    row(t('victory.canyon_seed'), String(summary.seed));
     card.append(rows);
 
     /**
@@ -891,18 +937,17 @@ export class Interface {
       el(
         'div',
         'card-body card-colophon',
-        'This canyon was rolled for you, and no other campaign has flown it.<br/>' +
-          'Every deck, shaft and structure in it followed from a delivery you made.',
+        t('victory.colophon'),
       ),
     );
 
-    const menu = el('button', 'primary', 'MAIN MENU');
+    const menu = el('button', 'primary', t('pause.main_menu'));
     menu.addEventListener('click', () => {
       audio.init();
       audio.playUiBeep();
       onMenu();
     });
-    const roll = el('button', 'secondary', 'ROLL A NEW CANYON');
+    const roll = el('button', 'secondary', t('dialogs.roll_new_canyon'));
     roll.addEventListener('click', () => {
       audio.init();
       audio.playUiBeep();
@@ -923,13 +968,40 @@ export class Interface {
    * boot sweep. A CSS animation would drift from the state that ends the sequence and
    * would not survive a retry identically.
    */
-  setUplink(progress: number | null, label = UPLINK_DEFAULT): void {
+  setUplink(progress: number | null, label = UPLINK_DEFAULT()): void {
     this.uplink.classList.toggle('hidden', progress === null);
     if (progress === null) return;
     this.uplinkBar.style.width = `${progress * 100}%`;
     // Assigned rather than compared-then-assigned: this runs once a frame and setting
     // identical text is not a layout change in any engine that matters.
     this.uplinkText.textContent = label;
+  }
+
+  /**
+   * Rewords what was built once and kept, after a language change from the pause menu.
+   *
+   * Only that: warnings, the uplink line and the touch hint call `t` each time they are
+   * drawn, and a radio card already on the glass stays in the language it arrived in.
+   *
+   * The instrument captions are rewritten where they stand rather than the panel rebuilt.
+   * A new panel starts with its needles and bore mark at rest, so a flight paused
+   * mid-descent resumed with every reading gliding in from centre.
+   */
+  updateStaticLabels(): void {
+    this.fuelLabel.textContent = t('hud.fuel');
+    this.altLabel.textContent = t('hud.alt');
+    this.vsLabel.textContent = t('hud.vs');
+    this.hsLabel.textContent = t('hud.hs');
+    this.pauseButton.setAttribute('aria-label', t('hud.pause'));
+    if (this.currentMission) {
+      this.payloadText.innerText = `${resolvePayloadName(this.currentMission).toUpperCase()} · ${this.currentMission.payload.mass.toFixed(1)}t`;
+    }
+    if (this.currentMission && this.currentVehicle) {
+      this.pauseManifest = this.manifestFor(this.currentMission, this.currentVehicle, this.currentBestRank);
+    }
+    for (const node of this.instrumentSlot.querySelectorAll<HTMLElement>('[data-i18n]')) {
+      node.textContent = t(node.dataset.i18n!);
+    }
   }
 
   /** Wired once, at startup — the button itself is permanent HUD furniture, unlike the
@@ -1067,8 +1139,9 @@ export class Interface {
   }
 
   setMission(mission: Mission, target: PadInfo | null): void {
+    this.currentMission = mission;
     this.targetPad = target;
-    this.payloadText.innerText = `${mission.payload.name.toUpperCase()} · ${mission.payload.mass.toFixed(1)}t`;
+    this.payloadText.innerText = `${resolvePayloadName(mission).toUpperCase()} · ${mission.payload.mass.toFixed(1)}t`;
 
     if (target) {
       /**
@@ -1128,11 +1201,11 @@ export class Interface {
     this.instrument?.update(telemetry, dt);
 
     if (data.abyssProximity > 0.55) {
-      this.setWarning('SIGNAL DEGRADING · PULL UP', true);
+      this.setWarning(t('hud.warning_signal_degrading'), true);
     } else if (data.fuel <= 0) {
-      this.setWarning('FUEL EXHAUSTED', true);
+      this.setWarning(t('hud.warning_fuel_exhausted'), true);
     } else if (pct < 0.12) {
-      this.setWarning('FUEL CRITICAL', false);
+      this.setWarning(t('hud.warning_fuel_critical'), false);
     } else {
       this.clearWarning();
     }

@@ -49,6 +49,7 @@ alternative that was rejected, and the measurement that settled it.
 
 - **[Architecture](docs/architecture.md)**: 120 Hz fixed-timestep physics engine, fragment-bound rendering pipeline, codebase module layout, and automated tests.
 - **[Running](docs/running.md)**: Dev server, debug query flags, the container rules, and the balance harnesses.
+- **[Localisation](docs/localisation.md)**: Why translations overlay the mission table instead of forking it, where each string resolves from, and adding a language.
 
 ### Publishing
 

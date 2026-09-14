@@ -7,29 +7,30 @@ import { snapToColumn } from '../world/ColonyLattice.ts';
 import { parseCells } from '../world/ShaftGrid.ts';
 import type { DigEntry } from './TerrainDigs.ts';
 import type { LandingScore } from './Progress.ts';
+import { i18n } from '../i18n/I18n.ts';
+import {
+  getMissionOverlay,
+  getEpilogueOverlay,
+  getDefaultGoal,
+} from './CampaignLocale.ts';
 
 /** What the cargo physically looks like strapped under the lander. */
 export type CargoShape = 'crate' | 'drum' | 'sphere' | 'rig';
 
 export interface Payload {
-  name: string;
   /** Added to the 1.0 dry mass. Heavier cargo means sluggish thrust and rotation. */
   mass: number;
-  /** Geometry of the pod on the lander. Inferred from the name when omitted. */
-  shape?: CargoShape;
-}
-
-/**
- * Cargo you can recognise on sight. Mass already drives the pod's size; this gives
- * it a silhouette, so a run reads as "the heavy rig again" rather than "a bigger box".
- */
-export function cargoShape(payload: Payload): CargoShape {
-  if (payload.shape) return payload.shape;
-  const n = payload.name.toLowerCase();
-  if (/rig|drill|excavat|winch|bore|processor|reclaimer|scrubber/.test(n)) return 'rig';
-  if (/cell|coolant|casing|liner|cable|pipeline|lighting|shell/.test(n)) return 'drum';
-  if (/charge|beacon|core|array|pylon|anchor/.test(n)) return 'sphere';
-  return 'crate';
+  /**
+   * Geometry of the pod on the lander: cargo you can recognise on sight. Mass already drives
+   * the pod's size; this gives it a silhouette, so a run reads as "the heavy rig again"
+   * rather than "a bigger box".
+   *
+   * Authored on every payload. It used to be inferred from the cargo's English name when
+   * left out, which tied what hangs under the lander to a word any edit or translation could
+   * change. The inferred shapes were written into `missions.yaml` unchanged when the words
+   * moved to `src/locales/en.yaml`, so the geometry is exactly what it was.
+   */
+  shape: CargoShape;
 }
 
 export interface Mission {
@@ -83,18 +84,16 @@ export interface Mission {
    * Both forms were carried for a while so the thirty briefs could be split as authoring
    * work rather than in one refactor; the string is gone now that all thirty are here.
    * What it could never express is a second voice — a rival charter cutting in, or the
-   * outpost commenting on somebody else's contract — which is what `sender` is for.
-   */
-  messages: BriefMessage[];
-  /**
-   * What the client says after *this* mission's landing, on the score card. See `Debrief`.
+   * outpost commenting on somebody else's contract — which is what `from` is for.
    *
-   * Authored on the mission it answers rather than on the one after it, which is the whole
-   * correction: a debrief belongs to the run it is about, not to whoever flies next.
+   * Structure only: one entry per card, saying whose card it is. The words are in
+   * `src/locales/en.yaml` under this mission's id, at the same index — see
+   * `resolveBriefCards`. What the client says after the landing lives there too, with no
+   * entry here at all, because a debrief is nothing but words. See `Debrief`.
    */
-  debrief?: Debrief;
+  messages: BriefSlot[];
   /** Transmissions that arrive during this descent, without stopping it. See `RadioCall`. */
-  radio?: RadioCall[];
+  radio?: RadioTrigger[];
   /** Overrides the default entry velocity for this mission. */
   entry?: { vx?: number; vy?: number };
   /**
@@ -180,10 +179,23 @@ export interface Mission {
  * Four Ixion contracts still open the campaign, so the tutorial teaches a single scheme
  * before any of this applies.
  */
-/** One authored transmission. `content` is markup, rendered as written. */
-export interface BriefMessage {
-  sender: string;
-  content: string;
+/** One card of a brief as the mission table authors it: whose it is, not what it says. */
+export interface BriefSlot {
+  /**
+   * Whose card this is, and so whose livery it wears: the charter speaking, or the client
+   * whose paperwork it is — Helion's `CONDITIONS OF CARRIAGE`, an annex.
+   *
+   * An id rather than the sender's name. The name is copy and lives in the locale file; the
+   * livery used to be looked up by it, which tied a card's colour to a string any rewording
+   * or translation could change.
+   */
+  from: CorpId;
+}
+
+/** One epilogue card as the mission table authors it. */
+export interface EpilogueSlot {
+  /** Whose livery the card wears. Absent on the console's own card. */
+  from?: CorpId;
   /**
    * Whose chrome the card wears. Omitted means a charter is speaking.
    *
@@ -191,6 +203,14 @@ export interface BriefMessage {
    * livery. Only the epilogue uses it: the one card in the campaign that reports rather
    * than transmits.
    */
+  register?: 'corp' | 'sys';
+}
+
+/** One transmission as shown, in the language asked for. `content` is markup, rendered as written. */
+export interface BriefMessage {
+  sender: string;
+  content: string;
+  /** See `EpilogueSlot.register`. */
   register?: 'corp' | 'sys';
 }
 
@@ -209,6 +229,11 @@ export interface BriefMessage {
  * landing — which is also the first position in the game that can read the rank. The old
  * form could not: *"you set the mast down tighter than the spec asked"* is authored before
  * the flight it praises and prints whatever the player actually did.
+ *
+ * Authored on the mission it answers rather than on the one after it, which is the whole
+ * correction: a debrief belongs to the run it is about, not to whoever flies next. It is
+ * nothing but words, so it lives entirely in the locale file under that mission's id — see
+ * `resolveDebrief`.
  */
 export interface Debrief {
   sender: string;
@@ -239,24 +264,11 @@ export interface Debrief {
  * Which fixes the register: these are **observations, not events**. *"Radar is up and on
  * your feed now"* is an event, and it is a lie on attempt seven. What belongs here is
  * whatever is true of the canyon during any descent.
+ *
+ * The mission table authors only this half — when a call fires and whose colour it wears.
+ * The words are in the locale file; `RadioCall` is the two put together.
  */
-export interface RadioCall {
-  /**
-   * Who is transmitting, shown as the card's header.
-   *
-   * **Omitted for Helion, and that is the character rather than an economy.** The rule was
-   * always no second person and no first — never silence. A machine broadcasting an
-   * unannounced field set assumes the receiver is the kind of thing that parses field sets,
-   * so Helion addresses the carrier by *format* while never once saying `you`, and the
-   * livery is the only routing header the transmission needs.
-   *
-   * A datagram, not a handshake. Nothing is acknowledged, nothing is negotiated and nothing
-   * adapts — the moment Helion's protocol responds to the carrier, Helion has observed it,
-   * and the campaign has a third party with opinions in it. It is the only client that gets
-   * what the carrier is right, and it gets there by never asking.
-   */
-  sender?: string;
-  content: string;
+export interface RadioTrigger {
   /** Whose livery the card wears. Defaults to the client — set it only for a cut-in. */
   corp?: CorpId;
   /**
@@ -274,11 +286,36 @@ export interface RadioCall {
   atSeconds: number;
 }
 
+/** A call as shown: its trigger from the mission table, its words in the language asked for. */
+export interface RadioCall extends RadioTrigger {
+  /**
+   * Who is transmitting, shown as the card's header.
+   *
+   * **Omitted for Helion, and that is the character rather than an economy.** The rule was
+   * always no second person and no first — never silence. A machine broadcasting an
+   * unannounced field set assumes the receiver is the kind of thing that parses field sets,
+   * so Helion addresses the carrier by *format* while never once saying `you`, and the
+   * livery is the only routing header the transmission needs.
+   *
+   * A datagram, not a handshake. Nothing is acknowledged, nothing is negotiated and nothing
+   * adapts — the moment Helion's protocol responds to the carrier, Helion has observed it,
+   * and the campaign has a third party with opinions in it. It is the only client that gets
+   * what the carrier is right, and it gets there by never asking.
+   */
+  sender?: string;
+  content: string;
+}
+
 /** One page of a brief. `body` is the authored markup, unescaped and ready to render. */
 export interface BriefCard {
   title: string;
   body: string;
+  /** Whose livery the card wears — `BriefSlot.from`, whatever language `title` is in. */
+  from: CorpId;
 }
+
+/** English's words for a mission — the fallback every other language resolves through. */
+const englishFor = (missionId: number) => getMissionOverlay(missionId, 'en');
 
 /**
  * The brief as the cards it is shown on.
@@ -291,38 +328,49 @@ export interface BriefCard {
  * brief at its `<b>OBJECTIVE</b>` marker and gave the tail its own page, which invented a
  * speaker — nobody on this canyon is called Objective. You take work from employers, and
  * the address is a line inside what the employer said, so it stays where it was written.
+ *
+ * The mission table decides how many cards there are and whose each one is; the words come
+ * from the language asked for at that index, else from English. A card past the table's
+ * count is ignored, and `CampaignLocale.test.ts` fails on it — and on a missing one —
+ * before a player sees either.
  */
-export function resolveBriefCards(mission: Mission): BriefCard[] {
-  return mission.messages.map((m) => ({ title: m.sender, body: m.content.trim() }));
+export function resolveBriefCards(mission: Mission, locale: string = i18n.currentLocale): BriefCard[] {
+  const own = getMissionOverlay(mission.id, locale)?.messages;
+  const english = englishFor(mission.id)?.messages;
+  return mission.messages.map((slot, i) => ({
+    title: own?.[i]?.sender ?? english?.[i]?.sender ?? '',
+    body: (own?.[i]?.content ?? english?.[i]?.content ?? '').trim(),
+    from: slot.from,
+  }));
 }
 
 /**
- * The plain-text line naming what this run is for — "Deliver the reclaimer to the
- * outpost pad." Pulled from whichever message carries the `<b>OBJECTIVE</b>` marker
- * rather than authored as its own field, for the same reason `resolveBriefCards` gives
- * the marker no card of its own: the sentence already exists, inside an employer's own
- * words, and a second hand-kept copy is one more place for it to drift from what the
- * player actually read. This is not that rejected card — nothing here invents a speaker
- * or touches the brief sequence; it is a plain-data readout (the pause overlay, next to
- * PAYLOAD and FUEL) reusing the one sentence that already says the job.
+ * The cargo's name as the HUD and the pause manifest print it.
  *
- * Mission 1 is the one mission with nothing to pull: `messages` is empty by design (no
- * link yet to receive a brief on — see its own comment in `missions.yaml`), so this falls
- * back to a line worded like its `target: null` already reads — any survivable touchdown
- * completes it.
+ * Display only: what hangs under the lander is `Payload.shape`, which no name decides.
  */
-export function missionGoal(mission: Mission): string {
-  const marker = '<b>OBJECTIVE</b>';
-  for (const m of mission.messages) {
-    const at = m.content.indexOf(marker);
-    if (at === -1) continue;
-    return m.content
-      .slice(at + marker.length)
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-  return 'Land intact — anywhere survivable.';
+export function resolvePayloadName(mission: Mission, locale: string = i18n.currentLocale): string {
+  return getMissionOverlay(mission.id, locale)?.payloadName ?? englishFor(mission.id)?.payloadName ?? '';
+}
+
+/**
+ * The plain-text line naming what this run is for — "Deliver the reclaimer to the outpost
+ * pad." — as a plain-data readout on the pause overlay, next to PAYLOAD and FUEL.
+ *
+ * Authored as `goal` in every language, and held to the brief by a test rather than derived
+ * from it: every goal must appear word for word in its own language's brief. That is the
+ * rule the derivation existed to keep — the sentence already exists inside an employer's
+ * own words, and a readout that says something else is one more place for it to drift from
+ * what the player read. Deriving it meant scanning for a marker, and the marker is copy:
+ * `ZIEL`, `ЦІЛЬ`, and in English a word in a file edited by hand. Reword one and the readout
+ * fell back to the generic line with nothing to say it had.
+ *
+ * Mission 1 has no goal to state: `messages` is empty by design (no link yet to receive a
+ * brief on — see its own comment in `missions.yaml`), so it reads the language's default, a
+ * line worded like its `target: null` already reads — any survivable touchdown completes it.
+ */
+export function missionGoal(mission: Mission, locale: string = i18n.currentLocale): string {
+  return getMissionOverlay(mission.id, locale)?.goal ?? englishFor(mission.id)?.goal ?? getDefaultGoal(locale);
 }
 
 /**
@@ -333,7 +381,7 @@ export function missionGoal(mission: Mission): string {
  * tested. `sinceHandover` is measured from `begin` in fixed 120 Hz steps, so a retry flown
  * the same way fires the same calls at the same points — see `Game.updateRadio`.
  */
-export function radioDue(call: RadioCall, altitude: number, sinceHandover: number): boolean {
+export function radioDue(call: RadioTrigger, altitude: number, sinceHandover: number): boolean {
   return altitude <= call.atAltitude || sinceHandover >= call.atSeconds;
 }
 
@@ -364,7 +412,7 @@ export const RADIO_MIN_GAP = 7;
  * bug with extra steps.
  */
 export function nextRadioCall(
-  calls: readonly RadioCall[],
+  calls: readonly RadioTrigger[],
   sent: ReadonlySet<number>,
   altitude: number,
   sinceHandover: number,
@@ -378,11 +426,23 @@ export function nextRadioCall(
   return null;
 }
 
-/** `54` to `54TH`. English ordinals, for the one field in the game that carries a figure. */
-function ordinal(n: number): string {
-  const tens = n % 100;
-  if (tens >= 11 && tens <= 13) return `${n}TH`;
-  return `${n}${({ 1: 'ST', 2: 'ND', 3: 'RD' } as Record<number, string>)[n % 10] ?? 'TH'}`;
+/**
+ * A mission's debrief in the language asked for, or null when nobody answers the run.
+ *
+ * English decides whether there is one and which variants it carries; another language
+ * supplies only the words, falling back to English's for any it lacks. See `debriefLine`
+ * for why the variants are not a translation's to choose.
+ */
+export function resolveDebrief(mission: Mission, locale: string = i18n.currentLocale): Debrief | null {
+  const english = englishFor(mission.id)?.debrief;
+  if (!english?.sender || !english.content) return null;
+  const own = getMissionOverlay(mission.id, locale)?.debrief;
+  return {
+    sender: own?.sender ?? english.sender,
+    content: own?.content ?? english.content,
+    ...(english.strong === undefined ? {} : { strong: own?.strong ?? english.strong }),
+    ...(english.weak === undefined ? {} : { weak: own?.weak ?? english.weak }),
+  };
 }
 
 /**
@@ -402,15 +462,85 @@ function ordinal(n: number): string {
  * somebody had decided which landings deserved which sentence, and there is nobody over
  * there to decide it. It is also why no Helion debrief carries `strong` or `weak` — a form
  * has nothing to choose. Same reasoning as `RETURN EXPECTED: NO` carrying no emphasis.
+ *
+ * **Which line is English's decision; only its wording is the translation's.** A variant is
+ * picked by whether English authors one, then read in the language asked for. Picking from
+ * each language's own file let a translation that left out a `strong` answer an S-rank
+ * landing with the standard line in that language alone — a scoring difference nobody would
+ * read as one.
  */
-export function debriefLine(debrief: Debrief, score: LandingScore): string {
+export function debriefLine(
+  mission: Mission,
+  score: LandingScore,
+  locale: string = i18n.currentLocale,
+): string {
+  const debrief = resolveDebrief(mission, locale);
+  if (!debrief) return '';
   const line =
     (score.rank === 'S' || score.rank === 'A') && debrief.strong
       ? debrief.strong
       : score.rank === 'C' && debrief.weak
         ? debrief.weak
         : debrief.content;
-  return line.replace('{CENTILE}', ordinal(score.points));
+  return line.replace('{CENTILE}', i18n.formatOrdinal(score.points, locale));
+}
+
+/** Who signs the debrief, in the active language. Empty for a mission that has none. */
+export function resolveDebriefSender(mission: Mission, locale: string = i18n.currentLocale): string {
+  return resolveDebrief(mission, locale)?.sender ?? '';
+}
+
+/**
+ * One radio call: its trigger from the mission table, its words in the active language.
+ *
+ * Everything that decides *when* it fires — `atAltitude`, `atSeconds` — and whose colour it
+ * wears comes from `missions.yaml` untouched, so a retry in German fires the same calls at
+ * the same points as one in English. A language file can only reword it.
+ *
+ * `||` on the sender rather than `??`: the locale files write Helion's absent sender as an
+ * empty string, and `Radio.show` tells no header from an empty one by `undefined` alone.
+ * With `??` every Helion call went up with a blank header bar, in every language, English
+ * included — see `RadioCall.sender` for why it has none.
+ */
+export function resolveRadioCall(
+  mission: Mission,
+  index: number,
+  locale: string = i18n.currentLocale,
+): RadioCall {
+  const trigger = mission.radio?.[index];
+  if (!trigger) {
+    throw new Error(`Radio call index ${index} out of bounds for mission ${mission.id}`);
+  }
+  const own = getMissionOverlay(mission.id, locale)?.radio?.[index];
+  const english = englishFor(mission.id)?.radio?.[index];
+  const sender = own?.sender || english?.sender;
+  return {
+    ...trigger,
+    ...(sender ? { sender } : {}),
+    content: own?.content ?? english?.content ?? '',
+  };
+}
+
+/** Every call a mission carries, in the language asked for. */
+export function resolveRadioCalls(mission: Mission, locale: string = i18n.currentLocale): RadioCall[] {
+  return (mission.radio ?? []).map((_, i) => resolveRadioCall(mission, i, locale));
+}
+
+/**
+ * The epilogue's cards in the active language, by the same rule as a brief: the mission
+ * table sets how many there are, whose livery each wears and in what register, and the words
+ * come from the language asked for at that index, else from English.
+ */
+export function resolveEpilogueCards(
+  locale: string = i18n.currentLocale,
+): Array<BriefMessage & { from?: CorpId }> {
+  const own = getEpilogueOverlay(locale);
+  const english = getEpilogueOverlay('en');
+  return EPILOGUE.map((slot, i) => ({
+    ...slot,
+    sender: own?.[i]?.sender ?? english?.[i]?.sender ?? '',
+    content: own?.[i]?.content ?? english?.[i]?.content ?? '',
+  }));
 }
 
 /**
@@ -524,7 +654,7 @@ import rawMissionsYaml from './missions.yaml?raw';
 
 interface RawMissionSpec {
   missions: Mission[];
-  epilogue: BriefMessage[];
+  epilogue: EpilogueSlot[];
 }
 
 const parsed = parse(rawMissionsYaml) as RawMissionSpec;
@@ -591,7 +721,7 @@ export const LAST_SOL = MISSIONS[MISSIONS.length - 1].sol;
  * a transmission and should close with one rather than with a results screen. It is not a
  * mission: no client, no payload, nothing to fly.
  */
-export const EPILOGUE: BriefMessage[] = parsed.epilogue;
+export const EPILOGUE: EpilogueSlot[] = parsed.epilogue;
 
 export function getMission(id: number): Mission | null {
   return MISSIONS.find((m) => m.id === id) ?? null;

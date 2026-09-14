@@ -513,11 +513,15 @@ is funny by accident and only ever about the job; Ixion is funny on purpose and 
 lands it; Helion cannot be funny at all and is twice the straight man.
 
 - **3, Ixion** — *Corporates Chasm*, below.
-- **4, Ixion** — *"Third week here, somebody swore there was a face in the east wall. We
-  photographed it for a month. It was a rock."* The same shape as the reclaimer line one card
-  away: a story for the setup, an institutional fact for the punchline. It never says Viking
-  or Cydonia, so the player who knows the Face on Mars gets a second layer and nobody else
-  loses anything. It is also the second deflection in two briefs — mission 3 answers the
+- **4, Ixion** — *"Dave's grandfather swore the Face at Cydonia was built. Dave spent our whole
+  first month in orbit photographing it. It was a rock."* The same shape as the reclaimer line
+  one card away: a story for the setup, an institutional fact for the punchline. It names
+  Cydonia on purpose. The first draft — *"somebody swore there was a face in the east wall"* —
+  kept the reference hidden, and a face in a canyon wall read as local geology rather than as
+  the Viking photograph. The grandfather makes it an inherited belief, which is what the Face
+  was for a generation; the orbit is because Cydonia is thousands of kilometres north of
+  Coprates, and the way in is the only place this crew could have photographed it from — the
+  same place Viking did. It is also the second deflection in two briefs — mission 3 answers the
   notice of interest with a pun, and this one is told with two transponders seventeen sols
   out. Ixion's jokes are what they do instead of acting, which is the other reason they stop
   once there is nothing left to deflect.

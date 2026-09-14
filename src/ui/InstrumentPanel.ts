@@ -20,6 +20,7 @@
 
 import { LANDER } from '../entities/LanderBody.ts';
 import { VELOCITY_SPAN, type HudData } from './HudData.ts';
+import { t } from '../i18n/I18n.ts';
 import {
   NEEDLE_RATE,
   bootPhase,
@@ -46,6 +47,16 @@ function el<K extends keyof HTMLElementTagNameMap>(
   const node = document.createElement(tag);
   if (className) node.className = className;
   if (html !== undefined) node.innerHTML = html;
+  return node;
+}
+
+/**
+ * An instrument's caption, tagged with the key it was looked up by, so a language changed
+ * from the pause menu can reword it where it stands — see `Interface.updateStaticLabels`.
+ */
+function label(key: string): HTMLDivElement {
+  const node = el('div', 'inst-label', t(key));
+  node.dataset.i18n = key;
   return node;
 }
 
@@ -105,7 +116,7 @@ class AttitudePanel implements InstrumentPanel {
     this.ring.append(this.index);
     const dial = el('div', 'cp-dial');
     dial.append(this.ring, this.face);
-    this.root.append(dial, el('div', 'inst-label', 'VEL'));
+    this.root.append(dial, label('instruments.vel'));
   }
 
   update(data: HudData, dt: number): void {
@@ -173,9 +184,9 @@ class DifferentialPanel implements InstrumentPanel {
 
     const track = el('div', 'bore-track');
     track.append(this.mark);
-    this.gauge.append(track, el('div', 'inst-label', 'BORE'));
+    this.gauge.append(track, label('instruments.bore'));
 
-    this.root.append(row, el('div', 'inst-label', 'ENGINES'), this.gauge);
+    this.root.append(row, label('instruments.engines'), this.gauge);
   }
 
   update(data: HudData, dt: number): void {
@@ -255,7 +266,7 @@ class TranslationPanel implements InstrumentPanel {
     arc.append(this.bankArc);
 
     const lamps = el('div', 'rcs-row');
-    lamps.append(this.lampLeft, el('div', 'inst-label', 'RCS'), this.lampRight);
+    lamps.append(this.lampLeft, label('instruments.rcs'), this.lampRight);
 
     this.root.append(arc, this.grid, lamps);
   }

@@ -1,4 +1,8 @@
 # 30 Missions to Mars - Campaign Specification
+#
+# Structure only. Every word the player reads — briefs, radio, debriefs, payload
+# names, the epilogue — lives in src/locales/en.yaml and its translations, laid over
+# this file by mission id and entry index. See docs/localisation.md.
 
 missions:
   # ---------------------------------------------------------------------------- 1
@@ -10,7 +14,8 @@ missions:
   # either, for the same reason: a call would be the one transmission in the campaign that
   # arrives before the relay carrying it.
   #
-  # It has a `debrief`, and that is where the campaign's first voice now is. Ixion speaks on
+  # It has a debrief — in src/locales/en.yaml, like every word — and that is where the
+  # campaign's first voice now is. Ixion speaks on
   # this mission's own score card, because the relay is standing on the rim by then and the
   # channel exists — the voice arrives *as a consequence of this landing* rather than one
   # loading screen later at the top of mission 2, which is where it used to sit and where
@@ -34,8 +39,8 @@ missions:
     sol: 0
     client: outpost
     payload:
-      name: UL-5 Relay
       mass: 0
+      shape: crate
     fuel: 300
     start: { x: 150, y: 1020 }
     target: null
@@ -45,15 +50,10 @@ missions:
       outpost: 10
     messages: []
 
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        Your relay is on the rim, and we have had a channel since the moment it stopped moving. Eleven years down here. This is the first voice on it.
   - id: 2
     sol: 6
     client: outpost
     payload:
-      name: Navigation Radar
       mass: 0.5
       shape: sphere
     fuel: 405
@@ -63,61 +63,31 @@ missions:
     colonyBudget:
       outpost: 10
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          Sol 7347. Eleven years on this floor, and every distance we have ever written down has an error bar on it. Today that changes.
-      - sender: IXION OUTPOST
-        content: >-
-          We are the only thing at the bottom of this canyon, and we intend to stay that way.
-      - sender: IXION OUTPOST
-        content: >-
-          Your relay went up six sols ago and we have not stopped ordering since. A rig, a mast, a coring drill. We have thought there was ore under this floor for years. Now we can go and look.
-      - sender: IXION OUTPOST
-        content: >-
-          You are carrying our navigation radar. Until it stands on the floor you have no altimeter and no bearings, so put it down anywhere, in one piece.
-      - sender: IXION OUTPOST
-        content: >-
-          Wherever it stands becomes the origin. Every measurement we take from now is relative to that mast, and we have never had one. Choose the spot.<br/><br/><b>OBJECTIVE</b> Land intact on open ground below the rim.
+      - from: outpost
+      - from: outpost
+      - from: outpost
+      - from: outpost
+      - from: outpost
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          We have you on the relay and nothing else. No ranging, no bearing — that is what is strapped under you.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          It has to stand plumb and it has to stand still. Everything we do after that is arithmetic.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        Radar is standing, and level enough that we can calibrate it against the rim tonight. Every measurement we take from now begins where you put it.
-      strong: >-
-        You set the mast inside tolerance, which is tighter than the spec asked for. Every measurement we take from now begins where you put it.
-      weak: >-
-        It is upright and it is answering, which is the whole of what we needed. Every measurement we take from now begins where you put it.
   - id: 3
     sol: 14
     client: outpost
     payload:
-      name: Core Samples
       mass: 0.4
+      shape: sphere
     fuel: 380
     start: { x: -4, y: 1250 }
     target: outpost-main
     failDepth: -60
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          Radar is up and on your feed now — altitude, range and bearing, all off the mast you set down yesterday. Our pad is marked too. You are flying to an address from here on, navigator.
-      - sender: IXION OUTPOST
-        content: >-
-          First assay is back, and we ran it four times because none of us believed it. Nine point four percent, two metres thick, and it does not thin going down. We were right about this floor. We have been right for eleven years.
-      - sender: HELION EXTRACTION
-        content: >-
-          FILE 4471-C · NOTICE OF INTEREST · AUTO<br/><br/>ORE ASSAY READ FROM AN OPEN RELAY, COPRATES CHASMA.<br/>NO CLAIM ON RECORD.<br/>SURVEY DISPATCHED.
+      - from: outpost
+      - from: outpost
+      - from: helion
       # The campaign's one joke, and the only card in the game that is a reply. It is a
       # groaner, it is a prediction, and it is made the first time a corporation speaks on
       # the outpost's own channel — the setup is Helion filing the real name one card
@@ -126,12 +96,8 @@ missions:
       # No `navigator` here. The name is coined on the next card and cannot be used before
       # it. `either` is doing the other half: the joke was told to a telemetry link, and
       # nothing came back.
-      - sender: IXION OUTPOST
-        content: >-
-          Coprates Chasma. Corporates Chasm, more like. Nobody here laughed either.
-      - sender: IXION OUTPOST
-        content: >-
-          People here started calling you the navigator. Nobody had the standing to make it official, and it stuck.<br/><br/><b>OBJECTIVE</b> Deliver the core samples to the outpost pad.
+      - from: outpost
+      - from: outpost
     adds:
       digs:
         # Eleven years of digging where they could reach rather than where the ore was.
@@ -195,126 +161,66 @@ missions:
           width: 16
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          The hole in this floor is ours. Dug where we could reach, not where the ore was. The next one we sink will be straight.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          Our pad is the only marked address in this canyon. That will not be true for long.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        Cores are into the rig and the assay goes in the record tonight. Nine point four percent, four times over, and now it is a number somebody else has to argue with.
-      strong: >-
-        Cores are off the pad with no shock on the seals, so the assay stands. Nine point four percent, and now it is a number somebody else has to argue with.
-      weak: >-
-        Cores are off the pad and the cases held, which is more than they were rated for. Nine point four percent, and now we can prove it.
   - id: 4
     sol: 31
     client: outpost
     payload:
-      name: Water Reclaimer
       mass: 0.8
+      shape: rig
     fuel: 385
     start: { x: 4, y: 1230 }
     target: outpost-main
     failDepth: -60
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          Heavier load today, navigator, and it will handle worse than the mass number alone says it should. We think it is where the mass sits, not how much of it there is. We have never had a way to measure that from here.
-      - sender: IXION OUTPOST
-        content: >-
-          Two transponders on our radar since last week. Both under power, both trimming for this canyon, seventeen sols out. The mast you set down is the only reason we can see them at all.
-      - sender: IXION OUTPOST
-        content: >-
-          The reclaimer is rated for forty people. There are eleven of us. We keep ordering for the crew we keep saying we will have by winter.
-      - sender: IXION OUTPOST
-        content: >-
-          The frame stays down here — stripped to the last screw and built into the outpost, tanks siphoned and all. Land it heavy, navigator: the crew has plans for tomorrow night.<br/><br/><b>OBJECTIVE</b> Deliver the reclaimer to the outpost pad.
+      - from: outpost
+      - from: outpost
+      - from: outpost
+      - from: outpost
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          Water is the one thing we cannot make down here. Everything else we improvise.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          Third week here, somebody swore there was a face in the east wall. We photographed it for a month. It was a rock.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        Reclaimer is in and the crew has plans for tonight. It is rated for forty. There are eleven of us.
-      strong: >-
-        Down inside a metre of the mark with that much mass on you. The crew has plans for tonight.
-      weak: >-
-        It is down and it is intact, which is what the tanks needed. The crew has plans for tonight.
   - id: 5
     sol: 48
     client: outpost
     payload:
-      name: Claim Filings
       mass: 0.2
+      shape: crate
     fuel: 350
     start: { x: -5, y: 1250 }
     target: outpost-main
     failDepth: -60
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          Two extraction charters made orbit this morning. Helion to our west, Kessler to our east. Neither surveyed on the way in. They read our assay off the open channel and came straight down.
-      - sender: IXION OUTPOST
-        content: >-
-          They will not talk to each other, or to us. Charter rules — no shared survey, no shared method, nothing over the line. We kept our channel open. That is how they found the seam.
-      - sender: IXION OUTPOST
-        content: >-
-          We have spent fifteen sols reading claim law instead of reading the logs. The instruments kept running the whole time. Nobody looked at them. That has not happened in eleven years.
-      - sender: IXION OUTPOST
-        content: >-
-          Here is how ground works on this planet, navigator. You hold ore by digging it, not by marking it. Stop working a claim and it lapses. Mark rock you are not working and it counts for nothing.
-      - sender: IXION OUTPOST
-        content: >-
-          So we filed first. It will not stop them. But it is on the record, and the record is the one thing down here they cannot dig up.<br/><br/><b>OBJECTIVE</b> Get the filings to the outpost pad before the corporate survey lands.
+      - from: outpost
+      - from: outpost
+      - from: outpost
+      - from: outpost
+      - from: outpost
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          Nothing between our pad and the sky today. Make the most of it.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          You will be the only line all three of us have. Nobody planned that, and nobody can undo it.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        Filed, and ahead of their survey. It will not stop them. It is on the record, and the record is the one thing down here they cannot dig up.
   - id: 6
     sol: 55
     client: helion
     payload:
-      name: Drill Head
       mass: 1.2
+      shape: rig
     fuel: 420
     start: { x: -7, y: 1250 }
     target: helion-crest
     failDepth: -60
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/55 · REV 1 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: DRILL HEAD<br/>DESTINATION: HELION DECK<br/>PRIOR FILE: NOTICE OF INTEREST
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          FRAME: ATTITUDE LOCKED. NOTHING TO RECOVER.<br/>THE IXION PAD IS NOT A HELION ADDRESS.<br/>CORRIDOR CLEARANCE FALLS WITH EVERY CONTRACT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the drill head to HELION DECK.
+      - from: helion
+      - from: helion
     adds:
       props:
         - kind: pad
@@ -328,41 +234,25 @@ missions:
           width: 14
 
     radio:
-      - content: >-
-          4471-C/55 · IN TRANSIT<br/>ROUTE: SURFACE DECK, WEST WALL
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/55 · TERMINAL APPROACH<br/>FRAME: ATTITUDE LOCKED
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/55 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO ACTION ARISING
   - id: 7
     sol: 62
     client: kessler
     payload:
-      name: Seismic Array
       mass: 0.9
+      shape: sphere
     fuel: 395
     start: { x: 7, y: 1250 }
     target: kessler-crest
     failDepth: -60
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          Helion read that assay and stopped at the depth the sample came from. We read the same page. Ore gets richer the deeper you go. That's the whole of it. East tower's up.
-      - sender: KESSLER DEEP
-        content: >-
-          It counts the small quakes the seam throws as it settles. It'll count anything Helion does to the west too. That's not why I bought it.
-      - sender: KESSLER DEEP
-        content: >-
-          You fly one of ours now. Nothing that goes down a bore has any business turning, so it doesn't.
-      - sender: KESSLER DEEP
-        content: >-
-          The frame doesn't go back up. Nothing that comes down here does. Right now it's worth more than the load on it. On the deck it's scrap. Don't make it scrap early, tin can.<br/><br/><b>OBJECTIVE</b> Deliver the array to KESSLER DECK.
+      - from: kessler
+      - from: kessler
+      - from: kessler
+      - from: kessler
     adds:
       props:
         - kind: pad
@@ -375,57 +265,29 @@ missions:
           width: 14
 
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          This used to be done with rovers. Months to cross what you do in a minute, and nothing on the far end to talk to.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          You'll feel the frame refuse to rotate. That's not a fault, tin can.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        Array's on the deck and reading inside the hour. I've had units put that down harder and cost me a season of calibration.
-      strong: >-
-        Seated flat and reading inside the hour. I've run units that needed the pad relaid after them.
-      weak: >-
-        It's up and reading, which is what I paid for. I've written off worse arrivals than that one.
   - id: 8
     sol: 106
     client: outpost
     payload:
-      name: Legal Injunction
       mass: 0.2
+      shape: crate
     fuel: 340
     start: { x: 0, y: 1190 }
     target: outpost-main
     failDepth: -60
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          They are building on our sightlines, navigator. We asked a tribunal to stop them, and it did. Order IXN-0071, signed at the last session and put in front of both charters this morning — down tools where they stand.
-      - sender: IXION OUTPOST
-        content: >-
-          Nothing that comes down this canyon goes back up. Cargo, fuel, the frames themselves — it all stays, and the gap you fly closes a little more each mission. It will keep closing.<br/><br/><b>OBJECTIVE</b> Bring the injunction to the outpost pad.
+      - from: outpost
+      - from: outpost
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          The run in is tighter than it was, navigator. That is not your flying.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          Both charters have the order in front of them this morning. Neither has answered it.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        Order is filed and both charters have it. Down tools where they stand — for as long as that lasts.
   - id: 9
     sol: 109
     client: helion
@@ -433,195 +295,113 @@ missions:
     # shipping because a tribunal said so — and nothing is built with it. See `colonyFrozen`.
     colonyFrozen: [helion, kessler]
     payload:
-      name: Pipeline Segment
       mass: 1.6
+      shape: drum
     fuel: 475
     start: { x: -13, y: 1230 }
     target: helion-crest
     failDepth: -60
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/109 · REV 3 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: PIPELINE SEGMENT<br/>DESTINATION: HELION DECK<br/>SITE STATUS: WORK SUSPENDED — ORDER IXN-0071
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          SUSPENSION DOES NOT CANCEL CARRIAGE. THE SEGMENT IS DELIVERED ON SCHEDULE. NOTHING IS BUILT WITH IT WHILE THE ORDER STANDS.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the segment to HELION DECK.
+      - from: helion
+      - from: helion
 
     radio:
-      - content: >-
-          4471-C/109 · IN TRANSIT<br/>SITE STATUS: WORK SUSPENDED
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/109 · TERMINAL APPROACH<br/>SUSPENSION DOES NOT CANCEL CARRIAGE
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/109 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO ACTION ARISING<br/>INSTALLATION WITHHELD — ORDER IXN-0071
   - id: 10
     sol: 112
     client: kessler
     colonyFrozen: [helion, kessler]
     payload:
-      name: Winch Assembly
       mass: 1.3
+      shape: rig
     fuel: 440
     start: { x: 13, y: 1210 }
     target: kessler-crest
     failDepth: -60
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          The winch goes up the day someone lets me bolt it to something. Right now nobody does. That order's served on both of us and my crew's stood down.
-      - sender: KESSLER DEEP
-        content: >-
-          Bring it down anyway, tin can. It's still a contract. Nothing gets built on that deck until a tribunal three months out of date says I can pick it up.<br/><br/><b>OBJECTIVE</b> Deliver the winch to KESSLER DECK.
+      - from: kessler
+      - from: kessler
 
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          My crew's stood down and every drill in this canyon is cold. You're the only thing moving, tin can.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          We could settle this with rock, paper, scissors. They have the paper, I have the rock, and nobody has scissors.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        On the deck, where it stays until a tribunal three months out of date says I can bolt it to something.
-      strong: >-
-        Put down square, which it didn't need to be for a load nobody's allowed to lift. Good habit anyway.
-      weak: >-
-        It's down and in one piece. Nothing's getting built with it this month either way.
   - id: 11
     sol: 115
     client: outpost
     payload:
-      name: Atmosphere Scrubber
       mass: 1.4
+      shape: rig
     fuel: 395
     start: { x: -8, y: 1170 }
     target: outpost-main
     failDepth: -60
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          Nine days, navigator. Nine days with no drill running anywhere in this canyon, and you could hear the wind again.
-      - sender: IXION OUTPOST
-        content: >-
-          Then the charters appealed, and this morning the same tribunal threw out its own IXN-0071, one session later. We have the only clean record down here, and it bought us nine days.<br/><br/><b>OBJECTIVE</b> Bring the scrubber home to the outpost pad.
+      - from: outpost
+      - from: outpost
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          Not a drill running anywhere down here. You will hear nothing on the way in but yourself.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          Eleven years of filings, and nine quiet days is the only thing any of them ever bought.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        Scrubber is home. Nine days of quiet, and this morning the same tribunal threw out its own order.
   - id: 12
     sol: 140
     client: helion
     payload:
-      name: Cutting Charges
       mass: 0.7
+      shape: sphere
     fuel: 360
     start: { x: 11, y: 1170 }
     target: helion-crest
     failDepth: -60
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/140 · REV 4 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: CUTTING CHARGES<br/>DESTINATION: HELION DECK<br/>ORDER IXN-0071: VACATED. WORK RESUMED.
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          CHARGES FOR LATERAL EXCAVATION. HELION WORKS ALONG, NOT DOWN. SUSPENDED CONSIGNMENTS NOW CLEARED FOR INSTALLATION.<br/>FUEL: MINIMUM VIABLE.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the charges to HELION DECK.
+      - from: helion
+      - from: helion
 
     radio:
-      - content: >-
-          4471-C/140 · IN TRANSIT<br/>ORDER IXN-0071: VACATED
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/140 · TERMINAL APPROACH<br/>FUEL: MINIMUM VIABLE
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/140 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO ACTION ARISING
   - id: 13
     sol: 165
     client: kessler
     payload:
-      name: Shaft Liner
       mass: 1.7
+      shape: drum
     fuel: 510
     start: { x: 0, y: 1170 }
     target: kessler-crest
     failDepth: -60
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          The array's been reading the seam for a season. Same story every night — richer rock further down, more small quakes each time. Helion read the same and stopped, if there's anyone at Helion doing the reading. You two related, tin can?
-      - sender: KESSLER DEEP
-        content: >-
-          Anyway. This liner's the last thing you bring me on the surface. From tomorrow we take Ixion's old working down. A proper shaft, straight down the hole they started.
-      - sender: KESSLER DEEP
-        content: >-
-          Heaviest load you've carried for us and the deck hasn't grown. Bring it in flat.<br/><br/><b>OBJECTIVE</b> Deliver the liner to KESSLER DECK.
+      - from: kessler
+      - from: kessler
+      - from: kessler
 
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          Last load that ever lands on a surface deck for us. After this it all goes in the hole.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          Crossed the whole of empty space to get here and the job is digging dirt. Again. Nobody mentions that part.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        Last thing you ever bring me on the surface. From tomorrow we take Ixion's old working down.
-      strong: >-
-        Flat, first pass, on a deck that hasn't grown since the last one. Last thing you bring me up here.
-      weak: >-
-        It's on the deck and the liner's uncracked, which is the only part that mattered. Last thing you bring me up here.
   - id: 14
     sol: 190
     client: kessler
     payload:
-      name: Excavator Core
       mass: 1.5
+      shape: rig
     fuel: 470
     start: { x: 5, y: 1150 }
     target: kessler-crest
     failDepth: -95
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          The shaft's open. Don't take it down yet. There's nothing at the bottom to land on and the walls aren't lined.
-      - sender: IXION OUTPOST
-        content: >-
-          That is our old working he is driving down, navigator. Four hundred metres from our slab, and he never filed for the ground.<br/><br/>Fly the contract. We are not asking you to choose.
-      - sender: KESSLER DEEP
-        content: >-
-          Core goes on the deck, same as always. Look at the hole on your way past if you want. That's the shallowest it'll ever be.<br/><br/><b>OBJECTIVE</b> Deliver the core to KESSLER DECK.
+      - from: kessler
+      - from: outpost
+      - from: kessler
     adds:
       digs:
         - id: shaft
@@ -655,24 +435,10 @@ missions:
             xxxxxxxxx0xxxxx
 
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          That hole was Ixion's before it was anybody's. Nobody could stop us using it, so we did.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          Look at it on the way past. That's the shallowest it'll ever be.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        Core's on the deck. Tomorrow it goes down the hole and it doesn't come back up, same as everything else here.
-      strong: >-
-        Seated first pass. The hole's shallow enough today that a bad one would've cost me a week.
-      weak: >-
-        Down and holding. The hole's forgiving at this depth. It won't be.
   - id: 15
     sol: 215
     client: kessler
@@ -701,19 +467,15 @@ missions:
     # be derived from the resulting geometry rather than typed, or a deeper shaft on a good
     # campaign puts its own deck below the depth the relay can reach.
     payload:
-      name: Shaft Lighting
       mass: 0.6
+      shape: drum
     fuel: 390
     start: { x: 0, y: 1130 }
     target: shaft-head
     failDepth: -95
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          Pad's in at the shaft floor, well under the canyon now, and the walls are close on both sides.
-      - sender: KESSLER DEEP
-        content: >-
-          Nothing heavy today, tin can. That's the second string I've ordered for this shaft. The first one's under the spoil we dropped on it, and my crew's been on helmet lamps ever since.<br/><br/><b>OBJECTIVE</b> Take it down the shaft. Deliver to SHAFT HEAD.
+      - from: kessler
+      - from: kessler
     adds:
       props:
         - kind: pad
@@ -726,41 +488,23 @@ missions:
           atCell: { col: 9, row: 4 }
 
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          You're inside the hole now, not over it. Watch the walls, not the floor.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          I want you learning this hole while it's still forgiving, tin can.
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 19
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        Lights are in. My crew's been on helmet lamps since the first string went under the spoil.
-      strong: >-
-        Down the bore and onto the pad first pass. My crew's been on helmet lamps for a season.
-      weak: >-
-        It's down and the string's unbroken, which is all a light needs to be. Lamps come off tonight.
   - id: 16
     sol: 240
     client: helion
     payload:
-      name: Lateral Bore Rig
       mass: 1.8
+      shape: rig
     fuel: 500
     start: { x: -14, y: 1150 }
     target: helion-crest
     failDepth: -95
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/240 · REV 5 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: LATERAL BORE RIG<br/>DESTINATION: HELION DECK<br/>METHOD: HORIZONTAL. KESSLER WORKS THE HOLE DOWN. HELION WORKS IT ALONG.
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          TITLE BASIS: PRIOR WORKING. HELION TAKES THE WEST END OF IXION'S GALLERY. NO NEW HOLE.<br/>HEAVIEST CONSIGNMENT TO DATE. INERTIA IS NOT A FAULT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the rig to HELION DECK.
+      - from: helion
+      - from: helion
     adds:
       digs:
         - id: shaft
@@ -779,69 +523,43 @@ missions:
             xxxxxxxxx0xxxxx
 
     radio:
-      - content: >-
-          4471-C/240 · IN TRANSIT<br/>METHOD: HORIZONTAL
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/240 · TERMINAL APPROACH<br/>INERTIA IS NOT A FAULT
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/240 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO ACTION ARISING
   - id: 17
     sol: 265
     client: helion
     payload:
-      name: Roof Bracing
       mass: 1.2
+      shape: crate
     fuel: 410
     start: { x: -2, y: 1130 }
     target: helion-crest
     failDepth: -95
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/265 · REV 6 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ROOF BRACING<br/>DESTINATION: HELION DECK
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          THE BRACING CARRIES THE GALLERY ROOF. FROM THE NEXT CONTRACT, DELIVERY IS INTO THE GALLERY ITSELF — DOWN THE SHAFT, THEN WEST ALONG THE WALL.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the bracing to HELION DECK.
+      - from: helion
+      - from: helion
 
     radio:
-      - content: >-
-          4471-C/265 · IN TRANSIT<br/>TITLE BASIS: PRIOR WORKING
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/265 · TERMINAL APPROACH<br/>LAST SCHEDULED SURFACE DELIVERY
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/265 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO ACTION ARISING
   - id: 18
     sol: 290
     client: helion
     payload:
-      name: Ore Processor
       mass: 1.6
+      shape: rig
     fuel: 490
     start: { x: 4, y: 1130 }
     target: shaft-gallery
     failDepth: -95
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/290 · REV 7 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ORE PROCESSOR<br/>DESTINATION: SHAFT GALLERY, WEST END<br/>HELION DECK: DECOMMISSIONED. NO FURTHER SURFACE DELIVERY.<br/>ALLOWANCE: 2.9 / 11.0 T
-      - sender: IXION OUTPOST
-        content: >-
-          Helion is off the surface now, navigator — into the gallery. Kessler is below it, driving the shaft. Everything that stood up here when you arrived is dug in, or it is us.
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          DESCEND THE SHAFT, TURN WEST ALONG THE GALLERY, LEVEL OFF INSIDE.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Turn west along the gallery. Deliver to SHAFT GALLERY.
+      - from: helion
+      - from: outpost
+      - from: helion
     adds:
       props:
         - kind: pad
@@ -856,75 +574,43 @@ missions:
       - helion-crest
 
     radio:
-      - content: >-
-          4471-C/290 · IN TRANSIT<br/>HELION DECK: DECOMMISSIONED
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/290 · GALLERY APPROACH<br/>LATERAL ENTRY, WEST END
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 19
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/290 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO ACTION ARISING<br/>SURFACE OPERATIONS CLOSED
   - id: 19
     sol: 315
     client: kessler
     payload:
-      name: Anchor Pylons
       mass: 1.5
+      shape: sphere
     fuel: 445
     start: { x: 0, y: 1130 }
     target: shaft-head
     failDepth: -190
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          We take the main shaft down tonight, a long way further. The seam we're on is worked out. Good rock's below us now.
-      - sender: KESSLER DEEP
-        content: >-
-          Helion holds this one. They cut it first. I'll hold what's under it, because nobody else is going down there.
-      - sender: KESSLER DEEP
-        content: >-
-          Seat them square, tin can. Everything below them is rock nobody's claimed yet, and I'm not losing it to a crooked pylon.<br/><br/><b>OBJECTIVE</b> Deliver the pylons to SHAFT HEAD.
+      - from: kessler
+      - from: kessler
+      - from: kessler
 
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          Those pylons hold a deck I haven't dug yet. That's how far ahead I have to order down here.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          My crew works lower every month, tin can. Some shifts they don't see the top of the hole at all.
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 19
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        Pylons are seated. Everything under them is rock nobody's claimed, and it stays that way while they hold.
-      strong: >-
-        Seated square, all of them. Everything under those is rock nobody's claimed, and I'm keeping it.
-      weak: >-
-        They're in and holding. Crooked costs me a week of packing, not the ground.
   - id: 20
     sol: 340
     client: kessler
     payload:
-      name: Descent Cable
       mass: 1.0
+      shape: drum
     fuel: 430
     start: { x: -4, y: 1130 }
     target: shaft-ledge
     failDepth: -190
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          We sank the shaft overnight and relaid the deck on the new floor. Further under the canyon than anything you've flown to yet.
-      - sender: KESSLER DEEP
-        content: >-
-          The bore's barely wider than your gear now and there's no room to fix a bad line once you're in it. Get it right above the lip, not below.<br/><br/><b>OBJECTIVE</b> Deliver the cable to SHAFT LEDGE.
+      - from: kessler
+      - from: kessler
     adds:
       # The sinking mission 19's pylons paid for, carved *after* that delivery rather than
       # before it — which is what its own brief says ("we take the main shaft down tonight")
@@ -991,63 +677,34 @@ missions:
       - shaft-head
 
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          The deck under you is three days old. The one before it's under our own spoil.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          Nothing to grab on the way down. The bore doesn't widen again after this.
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 19
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        Cable's on the ledge. The bore's barely wider than your gear from here down, and it doesn't widen again.
-      strong: >-
-        Clean line all the way down a bore with no room to fix one. Every run after this is that bore or narrower.
-      weak: >-
-        It's down. There's no room in that bore to correct a bad line, and you found that out on the way in.
   - id: 21
     sol: 372
     client: helion
     payload:
-      name: Counterclaim Beacon
       mass: 0.8
+      shape: sphere
     fuel: 420
     start: { x: 16, y: 1110 }
     target: shaft-gallery
     failDepth: -190
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/372 · REV 8 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: COUNTERCLAIM BEACON<br/>DESTINATION: SHAFT GALLERY<br/>ALLOWANCE: 2.1 / 11.0 T
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          KESSLER DEEP HAS WORKINGS BELOW THE FLOOR LINE. THE SEAM IS NOW WORKED FROM BOTH SIDES AND IS CONTESTED.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Cross the canyon. Deliver the beacon to SHAFT GALLERY.
-      - sender: ANNEX A — ARBITRATION
-        content: >-
-          THE CARRIER IS NOT A PARTY TO THESE PROCEEDINGS AND HAS NO STANDING TO BE HEARD IN THEM.
+      - from: helion
+      - from: helion
+      - from: helion
 
     radio:
-      - content: >-
-          4471-C/372 · IN TRANSIT<br/>SEAM STATUS: CONTESTED
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/372 · GALLERY APPROACH<br/>WORKINGS BELOW THE FLOOR LINE
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 19
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/372 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO ACTION ARISING
   - id: 22
     sol: 404
     client: outpost
     payload:
-      name: Reclaimer Parts
       mass: 0.5
       # "reclaimer" would infer a rig; this is a box of spares for one.
       shape: crate
@@ -1056,31 +713,15 @@ missions:
     target: outpost-main
     failDepth: -190
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          The water reclaimer you brought us in the early days has failed, navigator. It outlasted its rating by years, and we cannot afford another one.
-      - sender: IXION OUTPOST
-        content: >-
-          We were funded for most of those years — a grant that covered eleven people and a rig that mostly worked. It ended when the charters landed. Since then it has all gone on lawyers, and on ground we were always going to lose.
-      - sender: IXION OUTPOST
-        content: >-
-          So: parts. The lightest load we have ever sent you for. That is not us being kind — it is the size of what is left in the account.<br/><br/><b>OBJECTIVE</b> Bring the parts to the outpost pad.
+      - from: outpost
+      - from: outpost
+      - from: outpost
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          The reclaimer you brought us in the early days has failed. It outlasted its rating by years.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          We were funded once. It ended when the charters landed, and it has all gone on lawyers since.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        Parts are in. The lightest load we have ever sent you for, and that is the size of what is left in the account.
   - id: 23
     sol: 436
     client: outpost
@@ -1098,55 +739,35 @@ missions:
     # either a small slip or a deliberate widening of Helion's history, and only the author
     # knows which was meant. See docs/lore.md.
     payload:
-      name: Evacuation Order
       mass: 0.2
+      shape: crate
     fuel: 365
     start: { x: -16, y: 1110 }
     target: outpost-main
     failDepth: -190
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          Both charters are cutting into the same wall of rock from opposite sides now. The pillar between them thins every shift. Our instruments have watched it since before either of them landed.
-      - sender: IXION OUTPOST
-        content: >-
-          We have never been sure Helion has a crew at all. Ten years of contracts, every one auto-filed, and not one word from a person over there.
-      - sender: IXION OUTPOST
-        content: >-
-          We filed a recommendation to evacuate. Nobody has answered it. You fly for them too, navigator — it has never been held against you. You go where the contract sends you. So do we.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.
+      - from: outpost
+      - from: outpost
+      - from: outpost
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          Four hundred events last week. Forty this time last year. The pillar thins every shift.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          Three parties on one channel and not one of them will answer another. You are the exception.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        It is filed. Nobody is required to answer an outpost, and we do not expect anyone to.
   - id: 24
     sol: 468
     client: kessler
     payload:
-      name: Deep Lighting Rig
       mass: 1.1
+      shape: rig
     fuel: 430
     start: { x: 5, y: 1110 }
     target: shaft-deep
     failDepth: -320
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          We broke into the chasm and the shaft went down with it, deck and all. Below the old ledge the walls squeeze in and the fog goes black.
-      - sender: KESSLER DEEP
-        content: >-
-          Down there the optical feed and the altimeter won't agree. Trust the altimeter. That's the one that's right.<br/><br/><b>OBJECTIVE</b> Deliver the lighting rig to SHAFT DEEP.
+      - from: kessler
+      - from: kessler
     adds:
       # The abyss this phase is named for, and the reason `failDepth` drops to -320 here
       # while nothing in the canyon used to reach past -172. The shaft is what opens it.
@@ -1217,44 +838,24 @@ missions:
       - shaft-ledge
 
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          Three hundred metres of hole under you. It was fifty-eight the first time you came down it.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          The fog goes black below the ledge. Your feed will lie to you before the altimeter does.
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 19
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        Rig's lit at the bottom. Three hundred metres of hole and the only thing down there now is ours.
-      strong: >-
-        Straight down three hundred metres of squeezing wall and seated flat. I've flown units that never made the ledge.
-      weak: >-
-        It's down and it's lit. Below the ledge the walls don't forgive much, and they didn't forgive much of that.
   - id: 25
     sol: 500
     client: helion
     payload:
-      name: Seam Charges
       mass: 1.4
+      shape: sphere
     fuel: 460
     start: { x: 19, y: 1090 }
     target: shaft-gallery
     failDepth: -320
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/500 · REV 9 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: SEAM CHARGES<br/>DESTINATION: SHAFT GALLERY<br/>ATTRITION: WITHIN TOLERANCE<br/>ALLOWANCE: 0.7 / 11.0 T
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          FULL CANYON CROSSING, THEN LATERAL ENTRY TO THE GALLERY. EVERY LEG OF THIS RUN HAS BEEN FLOWN BEFORE. NOT IN ONE CONTRACT.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Deliver the charges to SHAFT GALLERY.
-      - sender: ANNEX A — ARBITRATION
-        content: >-
-          PROCEEDINGS CONTINUE. THE CARRIER IS NOT A PARTY.
+      - from: helion
+      - from: helion
+      - from: helion
     # Helion transmits in flight and announces nothing, which is the character rather than
     # an economy: the rule was always no second person and no first, never silence. An
     # unannounced field set assumes whatever is receiving it parses field sets — so the form
@@ -1262,44 +863,26 @@ missions:
     # routing it carries. A datagram: nothing acknowledged, nothing negotiated, no notice
     # taken of whether anything read it. See `RadioCall.sender`.
     radio:
-      - content: >-
-          4471-C/500 · IN TRANSIT<br/>SCHEDULE VARIANCE: NIL
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/500 · GALLERY APPROACH<br/>ATTRITION: WITHIN TOLERANCE
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 20
-    # The only client that gets the answer right, and it never asks. A figure, no praise,
-    # and a disposition line that leads nowhere — recognition that cannot act on itself.
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/500 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO ACTION ARISING
 
   - id: 26
     sol: 532
     client: kessler
     payload:
-      name: Containment Shell
       mass: 1.9
+      shape: drum
     fuel: 545
     start: { x: -11, y: 1090 }
     target: shaft-deep
     failDepth: -320
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          Heaviest single object anyone's flown here. West wall to the bottom of the shaft, through everything both charters built — and mind the walls. Everything that came down this canyon and never flew out is in them now.
-      - sender: KESSLER DEEP
-        content: >-
-          Outpost's channel has been quiet a long while. Used to be traffic on it every shift. Not something I've got the time to chase.
-      - sender: KESSLER DEEP
-        content: >-
-          Once that's capped I can put a charge under the seam without losing the roof. Helion have been cutting toward it a year and they still can't reach what's under us.
-      - sender: KESSLER DEEP
-        content: >-
-          Do this one right. I wouldn't hand it to anyone else.<br/><br/><b>OBJECTIVE</b> Deliver the shell to SHAFT DEEP.
+      - from: kessler
+      - from: kessler
+      - from: kessler
+      - from: kessler
     # Stateless, both of them: true of any descent down this bore, on any attempt. An event
     # — "the shell is seated" — would be a lie the fourth time the player flies it, which is
     # the whole constraint the every-attempt decision imposes on this channel.
@@ -1309,101 +892,51 @@ missions:
     # the canyon takes him. The second is the personification `docs/lore.md` tracks from
     # mission 15 onward — by 26 the hole is very nearly the only thing he talks to.
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          Crew's off the bottom while you come down. Nobody works under a load like that.
-        atAltitude: 640
+      - atAltitude: 640
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          Wind drops when you cross the rim. Everything under that is the hole breathing.
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 20
-    # Comparative, and about equipment — he talks to units all day and does not distinguish.
-    # No compliment in any of the three, including the one that is plainly praise.
-    debrief:
-      sender: KESSLER DEEP
-      content: >-
-        Capped and seated. I've had loads sit worse than that on the same deck and sent a crew down to straighten them.
-      strong: >-
-        Seated first pass. I've run units that wanted three goes at that deck, and I signed those off as good work.
-      weak: >-
-        It's down and holding, which is the whole of what the deck asks. I've written off units that did less.
 
   - id: 27
     sol: 564
     client: outpost
     payload:
-      name: Core Archive
       mass: 1.0
+      shape: sphere
     fuel: 450
     start: { x: 20, y: 1070 }
     target: outpost-main
     failDepth: -320
     messages:
-      - sender: IXION OUTPOST
-        content: >-
-          Sol 7905. We are shutting the outpost down, navigator. Eleven of us in the early days; fewer now. Everything we learned about this canyon is on that archive — every sounding, every core, the mast calibration.
-      - sender: IXION OUTPOST
-        content: >-
-          Fly it home one last time, navigator.
-      - sender: IXION OUTPOST
-        content: >-
-          The radar stays up. We are leaving it powered — the charters can use it or not. You will still have your bearings after we are gone. It seemed the least we could do.<br/><br/><b>OBJECTIVE</b> Return the archive to the outpost pad.
+      - from: outpost
+      - from: outpost
+      - from: outpost
 
     radio:
-      - sender: IXION OUTPOST
-        content: >-
-          Sol 7905. Eleven of us in the early days, navigator. Fewer now.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: IXION OUTPOST
-        content: >-
-          Everything we learned about this canyon is under you. Every sounding, every core.
-        atAltitude: 300
+      - atAltitude: 300
         atSeconds: 19
-    debrief:
-      sender: IXION OUTPOST
-      content: >-
-        The archive is home. The radar stays powered — you will have your bearings after we are gone. It seemed the least we could do.
   - id: 28
     sol: 596
     client: helion
     payload:
-      name: Arbitration Writ
       mass: 0.3
+      shape: crate
     fuel: 350
     start: { x: 0, y: 1070 }
     target: shaft-gallery
     failDepth: -320
     messages:
-      - sender: HELION EXTRACTION
-        content: >-
-          CONTRACT 4471-C/596 · REV 11 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: ARBITRATION WRIT<br/>DESTINATION: SHAFT GALLERY<br/>ATTRITION: WITHIN TOLERANCE<br/>IXION OUTPOST: NO LONGER A PARTY. FILINGS RETAINED.<br/>ALLOWANCE: 0.4 / 11.0 T
-      - sender: CONDITIONS OF CARRIAGE
-        content: >-
-          THIN MARGINS. NO CLEAN LINE REMAINS.<br/>NO FURTHER CONSIGNMENT CAN BE SCHEDULED UNDER THIS CONTRACT.<br/>RETURN EXPECTED: NO<br/>CARRIER DISPOSITION: DEVOLVES TO SITE<br/><br/><b>OBJECTIVE</b> Deliver the writ to SHAFT GALLERY.
-      - sender: ANNEX A — ARBITRATION
-        content: >-
-          PROCEEDINGS CONTINUE. THE SEAM IS HELION'S BY PRIOR WORKING. KESSLER DEEP DISPUTES BY PRIOR DEPTH.<br/>THE CARRIER HAS NO STANDING AND IS NOT ENTITLED TO NOTICE OF THE OUTCOME.
+      - from: helion
+      - from: helion
+      - from: helion
 
     radio:
-      - content: >-
-          4471-C/596 · IN TRANSIT<br/>THIN MARGINS. NO CLEAN LINE REMAINS
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - content: >-
-          4471-C/596 · GALLERY APPROACH<br/>CARRIER DISPOSITION: DEVOLVES TO SITE
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 19
-    debrief:
-      sender: FILE 4471-C · CARRIER RECORD
-      content: >-
-        CONSIGNMENT 4471-C/596 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>CLASSIFICATION: PENDING
-      strong: >-
-        CONSIGNMENT 4471-C/596 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>NO HUMAN FACTOR DETECTED. CLASSIFICATION: PENDING
-      weak: >-
-        CONSIGNMENT 4471-C/596 · DELIVERED<br/>CARRIER PERFORMANCE: {CENTILE} CENTILE<br/>ATTRITION ABOVE FORECAST. CLASSIFICATION: EXPENDABLE. CONTRACT NOT RENEWED
   - id: 29
     sol: 628
     client: kessler
@@ -1445,28 +978,18 @@ missions:
     # bare. The price paid for it is the "did they leave or did they die" ambiguity.
     musicTrack: outpost
     payload:
-      name: Final Charge
       mass: 1.8
+      shape: sphere
     fuel: 535
     start: { x: -18, y: 1070 }
     target: shaft-deep
     failDepth: -320
     messages:
-      - sender: KESSLER DEEP
-        content: >-
-          Going on a year down this mouth and it still isn't done with us. Down the hole the outpost started, and every metre under that first stretch you put there yourself.
-      - sender: KESSLER DEEP
-        content: >-
-          Seven hundred kilos, same as the cutting charges — you've flown this one before. Nobody else is on the canyon now.
-      - sender: KESSLER DEEP
-        content: >-
-          The outpost did not pull out, navigator. Nobody pulls out of here. I heard their channel go quiet — one at a time, until there was nobody left keying it. So it is you, me, and three hundred metres of—
-      - sender: IXION OUTPOST
-        content: >-
-          We are the only thing at the bottom of this canyon, and we intend to stay that way.
-      - sender: KESSLER DEEP
-        content: >-
-          —of hole. Take it down.<br/><br/><b>OBJECTIVE</b> Deliver the charge to SHAFT DEEP.
+      - from: kessler
+      - from: kessler
+      - from: kessler
+      - from: outpost
+      - from: kessler
 
 # ---------------------------------------------------------------------------- epilogue
 #
@@ -1488,24 +1011,11 @@ missions:
 # legal word for a warning upheld, arriving from a system with no opinion about it, a
 # year after everyone who filed it left the planet.
     radio:
-      - sender: KESSLER DEEP
-        content: >-
-          Every metre under that first stretch is something you put there yourself.
-        atAltitude: 620
+      - atAltitude: 620
         atSeconds: 12
-      - sender: KESSLER DEEP
-        content: >-
-          Every drill is off. There hasn't been a sound in this canyon that wasn't you or me for weeks.
-        atAltitude: 240
+      - atAltitude: 240
         atSeconds: 19
 epilogue:
-  - sender: KESSLER DEEP
-    content: >-
-      Charge is seated, navigator. Never lost one with you yet.<br/><br/>Pulling my crew up now. Give me twenty minutes and I'll—
-  - sender: UPLINK
-    register: sys
-    content: >-
-      Vehicle telemetry: lost.<br/>Mast bearing: lost.<br/><br/>Nothing is answering on this channel.
-  - sender: HELION EXTRACTION
-    content: >-
-      CONTRACT 4471-C · REV 12 · AUTO<br/><br/>SITE STATUS: INACCESSIBLE<br/>HAZARD FILING IXN-0114: SUSTAINED<br/>ARBITRATION: MOOT<br/>CARRIER: CLASSIFICATION PENDING
+  - from: kessler
+  - register: sys
+  - from: helion

@@ -20,6 +20,7 @@ import { MenuController, type MenuHost } from './MenuController.ts';
 import { describeCrash } from './CrashReport.ts';
 import { writeSharedSeed } from '../campaign/CanyonLink.ts';
 import { activeSlot, defaultStore } from '../campaign/SaveData.ts';
+import { i18n } from '../i18n/I18n.ts';
 import {
   getMission,
   airframeFor,
@@ -28,6 +29,7 @@ import {
   entryX,
   musicTrackFor,
   nextRadioCall,
+  resolveRadioCall,
   MISSION_COUNT,
   CAMPAIGN_FLIGHTS,
   ENTRY_VELOCITY,
@@ -219,6 +221,11 @@ export class Game implements MenuHost {
 
   constructor(container: HTMLElement, uiLayer: HTMLElement) {
     this.container = container;
+    // Before any UI or audio is built, apply saved preferences
+    audio.applyPreferences(this.progress.audioPrefs);
+    i18n.setLocale(this.progress.locale);
+    document.documentElement.lang = this.progress.locale;
+
     // Touch is scoped to the canyon's own element rather than the window — see
     // `InputManager`. `#app` exists before the canvas does, and holds nothing else.
     this.input = new InputManager(container);
@@ -285,10 +292,6 @@ export class Game implements MenuHost {
     // vertex colour, cast shadows were invisible and cost ~30% of the frame.
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
-
-    // Before any mission loads, so a save that muted the music does not get one bar
-    // of it on startup while the preference is still being read.
-    audio.applyPreferences(this.progress.audioPrefs);
 
     this.canyon = new CanyonGenerator(this.scene, this.physics, this.progress.seed);
     // The camera flies inside the canyon now, so it needs to know where the rock is.
@@ -1165,10 +1168,19 @@ export class Game implements MenuHost {
           this.succeed(contact.speed, contact.offset);
         } else {
           const corp = this.colony.pads.find((p) => p.id === contact.padId);
-          const name = corp ? CORPS[corp.corp].name : 'ANOTHER OPERATOR';
+          const target = wanted.replace(/-/g, ' ').toUpperCase();
+          /**
+           * Two whole sentences rather than one with the owner dropped in. The owner slot
+           * takes whatever case its sentence governs — dative after `gehört` and `належить` —
+           * and a noun translated as its own key cannot know that: Ukrainian printed
+           * "належить ІНШИЙ ОПЕРАТОР". A charter name fills the slot safely only because it
+           * is Latin-script, which neither language declines.
+           */
           this.fail(
-            'WRONG ADDRESS',
-            `Clean landing — on the wrong pad. This deck belongs to ${name}. The manifest was routed to <b>${wanted.replace(/-/g, ' ').toUpperCase()}</b>.`,
+            i18n.t('crash.wrong_address_title'),
+            corp
+              ? i18n.t('crash.wrong_address_detail', { owner: CORPS[corp.corp].name, target })
+              : i18n.t('crash.wrong_address_unowned_detail', { target }),
           );
         }
         return;
@@ -1180,18 +1192,12 @@ export class Game implements MenuHost {
       }
 
       if (lander.y < this.mission.failDepth && this.heightAboveGround > 40) {
-        this.fail(
-          'SIGNAL LOST',
-          'You passed the last depth the relay can reach. Nothing comes back up from there.',
-        );
+        this.fail(i18n.t('crash.signal_lost_title'), i18n.t('crash.signal_lost_detail'));
         return;
       }
 
       if (lander.y > CEILING_Y) {
-        this.fail(
-          'ENVELOPE EXCEEDED',
-          'You climbed out of the canyon and kept going. The mission is down there, not up here.',
-        );
+        this.fail(i18n.t('crash.envelope_exceeded_title'), i18n.t('crash.envelope_exceeded_detail'));
         return;
       }
     }
@@ -1361,7 +1367,7 @@ export class Game implements MenuHost {
     const since = this.missionTime - this.consoleUpAt;
     const next = nextRadioCall(calls, this.radioSent, lander.y, since, this.radioLastAt);
     if (next === null) return;
-    const call = calls[next];
+    const call = resolveRadioCall(this.mission, next);
     this.radioSent.add(next);
     this.radioLastAt = since;
     this.ui.showRadio(call.sender, call.content, CORPS[call.corp ?? this.mission.client].color);
@@ -1800,6 +1806,13 @@ export class Game implements MenuHost {
         audio.setMusicMuted(muted);
         this.progress.setMutedMusic(muted);
       },
+      language: {
+        current: this.progress.locale,
+        available: i18n.supportedLocales,
+        onChange: (code) => {
+          this.applyLocaleChange(code);
+        },
+      },
       // Only where there are two engines to tell apart — the same condition the brief
       // uses. On the other frames the row would be a control that does nothing.
       invert:
@@ -1813,6 +1826,19 @@ export class Game implements MenuHost {
             }
           : null,
     };
+  }
+
+  private applyLocaleChange(locale: string): void {
+    this.progress.setLocale(locale);
+    i18n.setLocale(locale);
+    document.documentElement.lang = locale;
+
+    if (this.state === 'MENU') {
+      this.menu.openSettings();
+    } else if (this.state === 'PAUSED') {
+      this.ui.updateStaticLabels();
+      this.pause();
+    }
   }
 
   /**

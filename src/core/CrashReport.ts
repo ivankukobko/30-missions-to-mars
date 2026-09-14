@@ -1,4 +1,5 @@
 import { LANDER } from '../entities/LanderBody.ts';
+import { t } from '../i18n/I18n.ts';
 
 /**
  * What the failure card says, from what the vehicle was doing when it stopped.
@@ -30,34 +31,39 @@ export function describeCrash(kind: CrashSurface | string, speed: number, tilt: 
 
   if (kind === 'structure') {
     return {
-      title: 'STRUCTURAL COLLISION',
-      detail:
-        'You hit colony hardware. Every beam in this canyon was flown down here by a pilot doing your job.',
+      title: t('crash.structure_title'),
+      detail: t('crash.structure_detail'),
     };
   }
 
   if (kind === 'pad') {
     if (lean > LANDER.MAX_LANDING_TILT) {
       return {
-        title: 'TIPPED ON TOUCHDOWN',
-        detail: `You reached the pad at ${degrees(lean)}° of tilt. The tolerance is ${degrees(LANDER.MAX_LANDING_TILT)}°.`,
+        title: t('crash.tipped_title'),
+        detail: t('crash.tipped_detail', {
+          tilt: degrees(lean),
+          limit: degrees(LANDER.MAX_LANDING_TILT),
+        }),
       };
     }
     return {
-      title: 'HARD LANDING',
-      detail: `Touchdown at ${speed.toFixed(1)} u/s. The gear takes ${LANDER.MAX_LANDING_SPEED.toFixed(1)} u/s and not a fraction more.`,
+      title: t('crash.hard_landing_title'),
+      detail: t('crash.hard_landing_detail', {
+        speed: speed.toFixed(1),
+        limit: LANDER.MAX_LANDING_SPEED.toFixed(1),
+      }),
     };
   }
 
   if (speed > IMPACT_SPEED) {
     return {
-      title: 'IMPACT',
-      detail: `Ground contact at ${speed.toFixed(1)} u/s. Start braking higher.`,
+      title: t('crash.impact_title'),
+      detail: t('crash.impact_detail', { speed: speed.toFixed(1) }),
     };
   }
 
   return {
-    title: 'LANDER DESTROYED',
-    detail: 'Contact with terrain at speed. There is no such thing as a gentle rock here.',
+    title: t('crash.destroyed_title'),
+    detail: t('crash.destroyed_detail'),
   };
 }

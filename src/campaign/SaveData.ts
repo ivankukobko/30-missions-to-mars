@@ -1,4 +1,5 @@
 import type { Rank } from './Progress.ts';
+import { i18n } from '../i18n/I18n.ts';
 
 /**
  * Everything in storage that is not one campaign's own record: the player's
@@ -172,6 +173,7 @@ export interface PreferenceData {
   mutedSfx: boolean;
   mutedMusic: boolean;
   invertThrusters: boolean;
+  locale: string;
 }
 
 /**
@@ -203,10 +205,17 @@ export class Preferences {
   private load(): PreferenceData {
     const own = read<PreferenceData>(this.store, PREFS_KEY);
     const source = own ?? read<PreferenceData>(this.store, LEGACY_KEY) ?? {};
+    const navLang = typeof navigator !== 'undefined' ? navigator.language : 'en';
+    const defaultLocale = i18n.normalizeLocale(navLang);
+    const locale =
+      typeof source.locale === 'string' && i18n.isSupported(source.locale)
+        ? source.locale
+        : defaultLocale;
     return {
       mutedSfx: source.mutedSfx === true,
       mutedMusic: source.mutedMusic === true,
       invertThrusters: source.invertThrusters === true,
+      locale,
       // No `touchHintSeen`: the hint shows on every uplink now, so there is nothing left
       // to remember. Saves from when it showed once still carry the key, and rebuilding
       // the record field by field here is what drops it on the next write.
@@ -223,6 +232,10 @@ export class Preferences {
 
   get invertThrusters(): boolean {
     return this.data.invertThrusters;
+  }
+
+  get locale(): string {
+    return this.data.locale;
   }
 
   set(patch: Partial<PreferenceData>): void {

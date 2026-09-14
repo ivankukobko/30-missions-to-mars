@@ -1,0 +1,675 @@
+# German. `ui` is the interface, looked up by key; `campaign` is the mission text,
+# laid over missions.yaml by mission id and card index. What a translation has to agree
+# with, and how each string resolves: docs/localisation.md.
+
+ui:
+  menu:
+    title: DAS EINZIGE GANZ UNTEN
+    subtitle: eine Geschichte über 30 Missionen zum Mars
+    continue: WEITER
+    missions: MISSIONEN
+    canyons: CANYONS
+    slot_of: "{{slot}} VON {{count}}"
+    history: VERLAUF
+    share_canyon: CANYON TEILEN
+    settings: EINSTELLUNGEN
+    new_canyon: NEUER CANYON
+    back: ZURÜCK
+    cancel: ABBRECHEN
+    epilogue: EPILOG
+    mission_n: MISSION {{number}}
+    canyon_n: CANYON {{number}}
+    seed_n: SEED {{seed}}
+    here: HIER
+    empty: LEER
+    storage_unavailable: SPEICHER NICHT VERFÜGBAR — DIESE KAMPAGNE ÜBERLEBT KEIN NEULADEN, UND DER CANYON WIRD JEDES MAL NEU ERZEUGT. CANYON TEILEN KOPIERT EINEN LINK, DER HIERHER ZURÜCKFÜHRT.
+    link_copied: LINK KOPIERT. JEDER, DER IHN ÖFFNET, KANN DIESEN CANYON FLIEGEN.
+    clipboard_failed: ZWISCHENABLAGE NICHT ERREICHBAR — DER SEED STEHT IN DER ZEILE DARÜBER.
+  history:
+    runs_zero: KEINE
+    runs_one: "{{count}} FLUG"
+    runs_other: "{{count}} FLÜGE"
+    nothing_filed: NOCH NICHTS VERZEICHNET
+  dialogs:
+    new_canyon_title: NEUER CANYON
+    new_canyon_body: Erzeugt einen neuen Seed und startet die Kampagne bei Mission eins. Jeder Rang auf diesem Spielstand wird verworfen, und der Canyon, in dem Sie gebaut haben, ist verloren.<br/><br/>Ihre Ton- und Steuerungseinstellungen bleiben erhalten.
+    roll_new_canyon: NEUEN CANYON ERZEUGEN
+    shared_canyon_title: GETEILTER CANYON
+    shared_canyon_full_body: Jemand hat Canyon <b>{{seed}}</b> geteilt.<br/><br/>Alle {{count}} Ihrer Canyons sind belegt, und ein Link ersetzt niemals einen bestehenden. Löschen Sie eine Kampagne unter CANYONS und öffnen Sie den Link erneut.
+    open_canyons: CANYONS ÖFFNEN
+    shared_canyon_adopt_body: Jemand hat Canyon <b>{{seed}}</b> geteilt.<br/><br/>Damit startet eine neue Kampagne bei Mission eins in Canyon {{slot}}, der leer ist. Die aktuelle Kampagne bleibt unberührt.
+    fly_canyon_n: CANYON {{slot}} FLIEGEN
+  settings:
+    title: EINSTELLUNGEN
+    sound: TON
+    music: MUSIK
+    controls: STEUERUNG
+    language: SPRACHE
+    on: EIN
+    muted: STUMM
+    controls_inverted: INVERTIERT · TASTE FEUERT EIGENES TRIEBWERK
+    controls_direct: DIREKT · TASTE ENTSPRICHT FLUGWEG
+  hud:
+    fuel: TREIBSTOFF
+    alt: HÖHE
+    vs: V/S
+    hs: H/S
+    uplink_default: UPLINK WIRD AUFGEBAUT
+    warning_signal_degrading: SIGNAL SCHWÄCHT AB · HOCHZIEHEN
+    warning_fuel_exhausted: TREIBSTOFF ERSCHÖPFT
+    warning_fuel_critical: TREIBSTOFF KRITISCH
+    pause: Pause
+  pause:
+    title: PAUSIERT
+    resume: FORTSETZEN
+    restart_mission: MISSION NEU STARTEN
+    main_menu: HAUPTMENÜ
+    payload: NUTZLAST
+    mass: MASSE
+    fuel: TREIBSTOFF
+    vehicle: FAHRZEUG
+    client: AUFTRAGGEBER
+    best: BESTWERT
+  touch_hint:
+    caption: HALTEN ZUM FLIEGEN
+    rotate_left: ‹ DREHEN
+    rotate_right: DREHEN ›
+    thrust: SCHUB ▲
+    go_left: ‹ NACH LINKS
+    go_right: NACH RECHTS ›
+    up: HOCH ▲
+    slide_left: ‹ GLEITEN
+    slide_right: GLEITEN ›
+    lift: AUFTRIEB ▲
+  crash:
+    structure_title: STRUKTURKOLLISION
+    structure_detail: Sie haben Kolonie-Hardware getroffen. Jeder Träger in diesem Canyon wurde von einem Piloten mit Ihrer Aufgabe hierher geflogen.
+    tipped_title: BEI LANDUNG GEKIPPT
+    tipped_detail: Sie haben die Plattform mit {{tilt}}° Neigung erreicht. Die Toleranz liegt bei {{limit}}°.
+    hard_landing_title: HARTE LANDUNG
+    hard_landing_detail: Aufsetzgeschwindigkeit {{speed}} u/s. Das Fahrwerk hält {{limit}} u/s aus und keinen Bruchteil mehr.
+    impact_title: AUFPRALL
+    impact_detail: Bodenkontakt bei {{speed}} u/s. Bremsen Sie früher ab.
+    destroyed_title: LANDER ZERSTÖRT
+    destroyed_detail: Kontakt mit dem Gelände bei Geschwindigkeit. Sanfte Felsen gibt es hier nicht.
+    wrong_address_title: FALSCHE ADRESSE
+    wrong_address_detail: Saubere Landung — auf der falschen Plattform. Dieses Deck gehört {{owner}}. Das Frachtmanifest war für <b>{{target}}</b> bestimmt.
+    wrong_address_unowned_detail: Saubere Landung — auf der falschen Plattform. Dieses Deck gehört EINEM ANDEREN BETREIBER. Das Frachtmanifest war für <b>{{target}}</b> bestimmt.
+    signal_lost_title: SIGNAL VERLOREN
+    signal_lost_detail: Sie haben die maximale Tiefe des Relais überschritten. Von dort unten kehrt nichts zurück.
+    envelope_exceeded_title: FLUGRAUM VERLASSEN
+    envelope_exceeded_detail: Sie sind aus dem Canyon gestiegen und weitergeflogen. Die Mission ist da unten, nicht hier oben.
+  result:
+    mission_failed: MISSION GESCHEITERT
+    payload_delivered: NUTZLAST GELIEFERT
+    fuel_remaining: RESTTREIBSTOFF
+    touchdown: AUFSETZEN
+    pad_offset: PLATTFORM-ABWEICHUNG
+    pts: PKT
+    retry_mission: MISSION WIEDERHOLEN
+    next_mission: NÄCHSTE MISSION
+    finish_campaign: KAMPAGNE ABSCHLIESSEN
+  brief:
+    skip_esc: ÜBERSPRINGEN · ESC
+    next: WEITER
+    begin_descent: ABSTIEG BEGINNEN
+    close: SCHLIESSEN
+    epilogue_cell_title: Der Epilog
+  victory:
+    campaign_complete: KAMPAGNE ABGESCHLOSSEN
+    delivered_message: Jede Struktur zwischen der Westwand und dem Abgrundboden wurde durch etwas errichtet, das Sie hierher transportiert haben.
+    delivered: GELIEFERT
+    total_score: GESAMTPUNKTE
+    average: DURCHSCHNITT
+    ranks: RÄNGE
+    best_run: BESTER FLUG
+    weakest: SCHWÄCHSTER
+    canyon_seed: CANYON-SEED
+    colophon: Dieser Canyon wurde für Sie generiert, und keine andere Kampagne hat ihn beflogen.<br/>Jedes Deck, jeder Schacht und jede Struktur darin entstand aus einer Ihrer Lieferungen.
+  instruments:
+    bore: SCHACHT
+    engines: TRIEBWERKE
+    rcs: RCS
+    vel: GESCHW
+campaign:
+  defaultGoal: Intakt landen — irgendwo, wo man überlebt.
+  missions:
+    "1":
+      payloadName: UL-5-Relais
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Dein Relais steht auf dem Rand, und wir haben einen Kanal, seit es zum Stillstand kam. Elf Jahre hier unten. Das ist die erste Stimme darauf.
+    "2":
+      payloadName: Navigationsradar
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Sol 7347. Elf Jahre auf diesem Grund, und jede Entfernung, die wir je notiert haben, hatte eine Fehlerspanne. Heute ändert sich das.
+        - sender: IXION-AUSSENPOSTEN
+          content: Wir sind das Einzige am Grund dieses Canyons, und wir beabsichtigen, dass das so bleibt.
+        - sender: IXION-AUSSENPOSTEN
+          content: Dein Relais ging vor sechs Sols online, und seither haben wir ununterbrochen bestellt. Eine Bohrplattform, einen Mast, einen Kernbohrer. Wir glaubten jahrelang, dass unter diesem Grund Erz liegt. Jetzt können wir nachsehen.
+        - sender: IXION-AUSSENPOSTEN
+          content: Du trägst unser Navigationsradar. Bis es auf dem Grund steht, hast du keinen Höhenmesser und keine Peilung. Setz es also irgendwo ab, in einem Stück.
+        - sender: IXION-AUSSENPOSTEN
+          content: Wo immer es steht, wird es zum Nullpunkt. Jede Messung ab jetzt bezieht sich auf diesen Mast, und wir hatten nie einen. Wähle die Stelle.<br/><br/><b>ZIEL</b> Intakt auf offenem Gelände unterhalb des Rands landen.
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Das Radar steht und ist eben genug, dass wir es heute Nacht am Rand kalibrieren können. Jede Messung ab jetzt beginnt dort, wo du es abgesetzt hast.
+        strong: Du hast den Mast innerhalb der Toleranz aufgesetzt, enger als die Vorgabe verlangte. Jede Messung ab jetzt beginnt dort, wo du es abgesetzt hast.
+        weak: Es steht aufrecht und antwortet, und das war alles, was wir brauchten. Jede Messung ab jetzt beginnt dort, wo du es abgesetzt hast.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Wir empfangen dich über das Relais und sonst nichts. Keine Entfernung, keine Peilung — das ist es, was unter dich geschnallt ist.
+        - sender: IXION-AUSSENPOSTEN
+          content: Es muss im Lot stehen und es muss stillstehen. Alles danach ist reine Arithmetik.
+      goal: Intakt auf offenem Gelände unterhalb des Rands landen.
+    "3":
+      payloadName: Bohrkerne
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Das Radar ist aktiv und in deinem Feed — Höhe, Distanz und Peilung, alles über den Mast, den du gestern abgesetzt hast. Unsere Plattform ist auch markiert. Ab jetzt fliegst du zu einer Adresse, Navigator.
+        - sender: IXION-AUSSENPOSTEN
+          content: Die erste Analyse ist da. Wir haben sie viermal wiederholt, weil keiner es glaubte. Neun Komma vier Prozent, zwei Meter mächtig, nach unten nicht dünner. Wir hatten recht mit diesem Grund. Elf Jahre lang hatten wir recht.
+        - sender: HELION-FÖRDERUNG
+          content: AKTE 4471-C · INTERESSENSBEKUNDUNG · AUTO<br/><br/>ERZANALYSE VON OFFENEM RELAIS EMPFANGEN, COPRATES CHASMA.<br/>KEIN ANSPRUCH VERZEICHNET.<br/>VERMESSUNG ENTSANDT.
+        - sender: IXION-AUSSENPOSTEN
+          content: Coprates Chasma. Wohl eher Konzern-Chasma. Hier hat auch keiner gelacht.
+        - sender: IXION-AUSSENPOSTEN
+          content: Die Leute hier nennen dich inzwischen den Navigator. Niemand hatte die Befugnis, es offiziell zu machen, aber es blieb hängen.<br/><br/><b>ZIEL</b> Die Bohrkerne zur Außenposten-Plattform bringen.
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Die Bohrkerne sind in der Anlage und die Analyse geht heute Nacht ins Protokoll. Neun Komma vier Prozent, viermal bestätigt — das ist eine Zahl, über die andere erst mal streiten müssen.
+        strong: Kerne von der Plattform geholt ohne Stoß an den Dichtungen, die Analyse steht also. Neun Komma vier Prozent, und jetzt ist es eine Zahl, an der andere nagen müssen.
+        weak: Kerne sind von der Plattform und die Kisten haben gehalten, was mehr war, als wofür sie gebaut waren. Neun Komma vier Prozent, und jetzt können wir es beweisen.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Das Loch in diesem Grund gehört uns. Gegraben, wo wir hinkamen, nicht wo das Erz lag. Das nächste treiben wir geradeaus nach unten.
+        - sender: IXION-AUSSENPOSTEN
+          content: Unsere Plattform ist die einzige markierte Adresse in diesem Canyon. Das wird nicht lange so bleiben.
+      goal: Die Bohrkerne zur Außenposten-Plattform bringen.
+    "4":
+      payloadName: Wasseraufbereiter
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Schwerere Fracht heute, Navigator, und sie wird sich träger fliegen, als die bloße Massezahl vermuten lässt. Wir vermuten, es liegt daran, wie die Masse verteilt ist, nicht wie viel es ist. Von hier aus konnten wir das nie messen.
+        - sender: IXION-AUSSENPOSTEN
+          content: Zwei Transponder seit letzter Woche auf unserem Radar. Beide unter Schub, beide auf Kurs in diesen Canyon, siebzehn Sols entfernt. Der Mast, den du abgesetzt hast, ist der einzige Grund, warum wir sie überhaupt sehen.
+        - sender: IXION-AUSSENPOSTEN
+          content: Der Aufbereiter ist für vierzig Personen ausgelegt. Wir sind zu elft. Wir bestellen immer für die Besatzung, von der wir sagen, dass wir sie bis zum Winter haben werden.
+        - sender: IXION-AUSSENPOSTEN
+          content: "Der Rahmen bleibt unten — bis zur letzten Schraube zerlegt und im Außenposten verbaut, die Tanks leer. Setz ihn schwer auf, Navigator: Die Mannschaft hat Pläne für morgen Abend.<br/><br/><b>ZIEL</b> Den Aufbereiter zur Außenposten-Plattform bringen."
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Der Aufbereiter ist drin und die Mannschaft hat Pläne für heute Abend. Er ist für vierzig ausgelegt. Wir sind zu elft.
+        strong: Mit so viel Masse bis auf einen Meter an der Markierung runtergebracht. Die Mannschaft hat Pläne für heute Abend.
+        weak: Er ist unten und intakt, das war alles, was die Tanks brauchten. Die Mannschaft hat Pläne für heute Abend.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Wasser ist das Einzige, was wir hier unten nicht herstellen können. Alles andere improvisieren wir.
+        - sender: IXION-AUSSENPOSTEN
+          content: Daves Großvater schwor, das Gesicht von Cydonia sei gebaut worden. Dave hat unseren ganzen ersten Monat im Orbit damit verbracht, es zu fotografieren. Es war ein Felsen.
+      goal: Den Aufbereiter zur Außenposten-Plattform bringen.
+    "5":
+      payloadName: Schürfrecht-Anträge
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Zwei Förder-Chartas sind heute Morgen in den Orbit eingeschwenkt. Helion westlich von uns, Kessler östlich. Keiner hat beim Anflug vermessen. Sie haben unsere Analyse auf dem offenen Kanal abgefangen und kamen direkt runter.
+        - sender: IXION-AUSSENPOSTEN
+          content: Sie reden weder miteinander noch mit uns. Regeln der Chartas — keine gemeinsamen Vermessungen, keine gemeinsamen Methoden, nichts über die Grenzlinie. Alles ist Betriebsgeheimnis. Wir hielten unseren Kanal offen. So fanden sie das Flöz.
+        - sender: IXION-AUSSENPOSTEN
+          content: Wir haben fünfzehn Sols damit verbracht, Schürfrechtsparagraphen zu wälzen, statt die Protokolle zu lesen. Die Instrumente liefen die ganze Zeit durch. Niemand sah sie an. Das ist in elf Jahren nicht vorgekommen.
+        - sender: IXION-AUSSENPOSTEN
+          content: "So funktioniert Land auf diesem Planeten, Navigator: Du sicherst dir Erz, indem du gräbst, nicht indem du absteckst. Hörst du auf zu arbeiten, verfällt der Anspruch. Fels zu markieren, den du nicht abbaust, zählt gar nichts."
+        - sender: IXION-AUSSENPOSTEN
+          content: Also reichten wir zuerst ein. Es wird sie nicht aufhalten. Aber es steht im Register — dem Einzigen hier unten, das sie nicht ausgraben können.<br/><br/><b>ZIEL</b> Die Anträge zur Außenposten-Plattform bringen, bevor die Konzern-Vermessung landet.
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Eingereicht, und zwar vor ihrer Vermessung. Es wird sie nicht aufhalten. Aber es steht im Register, und das Register ist das Einzige hier unten, das sie nicht weggestalten können.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Heute ist nichts zwischen unserer Plattform und dem Himmel. Mach das Beste daraus.
+        - sender: IXION-AUSSENPOSTEN
+          content: Du wirst die einzige Verbindung sein, die wir alle drei haben. Das hat niemand geplant, und niemand kann es rückgängig machen.
+      goal: Die Anträge zur Außenposten-Plattform bringen, bevor die Konzern-Vermessung landet.
+    "6":
+      payloadName: Bohrkopf
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/55 · REV 1 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: BOHRKOPF<br/>ZIEL: HELION-DECK<br/>VORHERIGE AKTE: INTERESSENSBEKUNDUNG"
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "ZELLENSTRUKTUR: LAGE VERRIEGELT. NICHTS ZU KORRIGIEREN.<br/>DIE IXION-PLATTFORM IST KEINE HELION-ADRESSE.<br/>KORRIDORFREIRAUM SINKT MIT JEDEM VERTRAG.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Den Bohrkopf zum HELION-DECK bringen."
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/55 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEINE MASSNAHMEN ERFORDERLICH"
+      radio:
+        - sender: ""
+          content: "4471-C/55 · IM TRANSIT<br/>ROUTE: OBERFLÄCHEN-DECK, WESTWAND"
+        - sender: ""
+          content: "4471-C/55 · ENDANFLUG<br/>ZELLENSTRUKTUR: LAGE VERRIEGELT"
+      goal: Den Bohrkopf zum HELION-DECK bringen.
+    "7":
+      payloadName: Seismik-Array
+      messages:
+        - sender: KESSLER DEEP
+          content: Helion hat die Analyse gelesen und bei der Tiefe gestoppt, aus der die Probe stammte. Wir haben dieselbe Seite gelesen. Erz wird reicher, je tiefer man geht. Das ist das ganze Geheimnis. Der Ostturm steht.
+        - sender: KESSLER DEEP
+          content: Er zählt die kleinen Erschütterungen, die das Flöz beim Setzen wirft. Er zählt auch alles mit, was Helion im Westen treibt. Deswegen habe ich ihn aber nicht gekauft.
+        - sender: KESSLER DEEP
+          content: Du fliegst jetzt eines unserer Schiffe. Nichts, was in ein Bohrloch gehört, hat irgendeinen Grund sich zu drehen, also tut es das auch nicht.
+        - sender: KESSLER DEEP
+          content: Die Zelle fliegt nicht wieder hoch. Nichts, was hier runterkommt, tut das. Gerade ist sie mehr wert als die Ladung. Auf dem Deck ist sie Schrott. Mach sie nicht zu früh zu Schrott, Blechbüchse.<br/><br/><b>ZIEL</b> Das Array zum KESSLER-DECK bringen.
+      debrief:
+        sender: KESSLER DEEP
+        content: Das Array steht auf dem Deck und liefert binnen einer Stunde Daten. Ich hatte schon Einheiten, die das härter aufgesetzt und mich eine Saison Kalibrierung gekostet haben.
+        strong: Flach aufgesetzt und liefert binnen einer Stunde Daten. Ich hatte schon Einheiten, nach denen das Deck neu verlegt werden musste.
+        weak: Es steht und liest ab, das ist es, wofür ich bezahlt habe. Ich habe schon schlimmere Ankünfte als diese abgeschrieben.
+      radio:
+        - sender: KESSLER DEEP
+          content: Früher wurde das mit Rovern erledigt. Monate, um das zu überqueren, was du in einer Minute fliegst, und am anderen Ende niemand zum Reden.
+        - sender: KESSLER DEEP
+          content: Du wirst spüren, wie die Zelle sich weigert zu drehen. Das ist kein Defekt, Blechbüchse.
+      goal: Das Array zum KESSLER-DECK bringen.
+    "8":
+      payloadName: Gerichtliche Verfügung
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Sie bauen in unsere Sichtachsen, Navigator. Wir riefen ein Schiedsgericht an, und es hat sie gestoppt. Anordnung IXN-0071, beschlossen in der letzten Sitzung und beiden Chartas heute Morgen vorgelegt — Werkzeug nieder, wo sie stehen.
+        - sender: IXION-AUSSENPOSTEN
+          content: Was hier herunterkommt, fliegt nie wieder hoch. Fracht, Treibstoff, die Rahmen selbst — alles bleibt, und dein Flugweg wird mit jeder Mission enger. Und das hört nicht auf.<br/><br/><b>ZIEL</b> Die Verfügung zur Außenposten-Plattform bringen.
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Die Anordnung ist zugestellt und beide Chartas haben sie vorliegen. Werkzeuge niederlegen, wo sie stehen — wie lange auch immer das halten mag.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Der Einflugkorridor ist enger als zuvor, Navigator. Das liegt nicht an deiner Flugkunst.
+        - sender: IXION-AUSSENPOSTEN
+          content: Beide Chartas haben die Anordnung heute Morgen vorliegen. Keine von beiden hat reagiert.
+      goal: Die Verfügung zur Außenposten-Plattform bringen.
+    "9":
+      payloadName: Rohrleitungssegment
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/109 · REV 3 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: ROHRLEITUNGSSEGMENT<br/>ZIEL: HELION-DECK<br/>STANDORTSTATUS: ARBEITEN AUSGESETZT — ANORDNUNG IXN-0071"
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "AUSSETZUNG STORNIERT DEN TRANSPORT NICHT. DAS SEGMENT WIRD FAHRPLANMÄSSIG ZUGESTELLT. WÄHREND DER GÜLTIGKEIT DER ANORDNUNG WIRD DAMIT NICHTS GEBAUT.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Das Segment zum HELION-DECK bringen."
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/109 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEINE MASSNAHMEN ERFORDERLICH<br/>INSTALLATION ZURÜCKGEHALTEN — ANORDNUNG IXN-0071"
+      radio:
+        - sender: ""
+          content: "4471-C/109 · IM TRANSIT<br/>STANDORTSTATUS: ARBEITEN AUSGESETZT"
+        - sender: ""
+          content: 4471-C/109 · ENDANFLUG<br/>AUSSETZUNG STORNIERT DEN TRANSPORT NICHT
+      goal: Das Segment zum HELION-DECK bringen.
+    "10":
+      payloadName: Windeneinheit
+      messages:
+        - sender: KESSLER DEEP
+          content: Die Winde wird an dem Tag montiert, an dem mir jemand erlaubt, sie irgendwo festzuschrauben. Im Moment erlaubt mir das keiner. Diese Verfügung wurde uns beiden zugestellt und meine Mannschaft hat die Arbeit niedergelegt.
+        - sender: KESSLER DEEP
+          content: Bring sie trotzdem runter, Blechbüchse. Ein Vertrag ist ein Vertrag. Auf diesem Deck wird nichts gebaut, bis ein Schiedsgericht, das drei Monate hinterherhinkt, sagt, dass ich sie anheben darf.<br/><br/><b>ZIEL</b> Die Winde zum KESSLER-DECK bringen.
+      debrief:
+        sender: KESSLER DEEP
+        content: Auf dem Deck, wo sie bleibt, bis ein drei Monate verspätetes Schiedsgericht mir erlaubt, sie festzuschrauben.
+        strong: Exakt aufgesetzt, was gar nicht nötig gewesen wäre für eine Last, die keiner anheben darf. Trotzdem eine gute Angewohnheit.
+        weak: Sie ist unten und an einem Stück. Diesen Monat wird damit so oder so nichts gebaut.
+      radio:
+        - sender: KESSLER DEEP
+          content: Meine Mannschaft pausiert und jeder Bohrer in diesem Canyon ist kalt. Du bist das Einzige, was sich hier bewegt, Blechbüchse.
+        - sender: KESSLER DEEP
+          content: Wir könnten das mit Schere, Stein, Papier klären. Sie haben das Papier, ich den Stein, und niemand hat eine Schere.
+      goal: Die Winde zum KESSLER-DECK bringen.
+    "11":
+      payloadName: Atmosphärenwäscher
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Neun Tage, Navigator. Neun Tage lang lief nirgendwo in diesem Canyon ein Bohrer, und man konnte wieder den Wind hören.
+        - sender: IXION-AUSSENPOSTEN
+          content: Die Chartas gingen in Berufung. Heute Morgen kippte dasselbe Gericht IXN-0071, eine Sitzung später. Wir haben die einzige weiße Weste hier unten, und sie brachte uns neun Tage.<br/><br/><b>ZIEL</b> Den Wäscher zur Außenposten-Plattform heimbringen.
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Der Wäscher ist daheim. Neun Tage Ruhe, und heute Morgen kippte dasselbe Gericht seine eigene Anordnung.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Kein einziger Bohrer läuft hier unten. Beim Anflug wirst du nichts hören außer dir selbst.
+        - sender: IXION-AUSSENPOSTEN
+          content: Elf Jahre Anträge und Akten, und neun ruhige Tage waren das Einzige, was wir je dafür bekamen.
+      goal: Den Wäscher zur Außenposten-Plattform heimbringen.
+    "12":
+      payloadName: Schneidladungen
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/140 · REV 4 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: SCHNEIDLADUNGEN<br/>ZIEL: HELION-DECK<br/>ANORDNUNG IXN-0071: AUFGEHOBEN. ARBEITEN WIEDERAUFGENOMMEN."
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "LADUNGEN FÜR HORIZONTALAUSHUB. HELION ARBEITET ENTLANG, NICHT NACH UNTEN. ZURÜCKGEHALTENE SENDUNGEN ZUR INSTALLATION FREIGEGEBEN.<br/>TREIBSTOFF: MINIMAL VIABEL.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Die Ladungen zum HELION-DECK bringen."
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/140 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEINE MASSNAHMEN ERFORDERLICH"
+      radio:
+        - sender: ""
+          content: "4471-C/140 · IM TRANSIT<br/>ANORDNUNG IXN-0071: AUFGEHOBEN"
+        - sender: ""
+          content: "4471-C/140 · ENDANFLUG<br/>TREIBSTOFF: MINIMAL VIABEL"
+      goal: Die Ladungen zum HELION-DECK bringen.
+    "13":
+      payloadName: Schachtverkleidung
+      messages:
+        - sender: KESSLER DEEP
+          content: Das Array hört das Flöz seit einer Saison ab. Jede Nacht dasselbe — reicheres Gestein weiter unten, jedes Mal mehr kleine Beben. Helion las dasselbe und hörte auf, falls dort überhaupt jemand liest. Seid ihr zwei verwandt, Blechbüchse?
+        - sender: KESSLER DEEP
+          content: Wie auch immer. Diese Verkleidung ist das Letzte, was du mir an die Oberfläche bringst. Ab morgen treiben wir Ixions alten Stollen nach unten. Einen richtigen Schacht, schnurgerade in das Loch, das sie angefangen haben.
+        - sender: KESSLER DEEP
+          content: Die schwerste Last, die du je für uns getragen hast, und das Deck ist nicht breiter geworden. Bring sie flach rein.<br/><br/><b>ZIEL</b> Die Verkleidung zum KESSLER-DECK bringen.
+      debrief:
+        sender: KESSLER DEEP
+        content: Das Letzte, was du mir je an die Oberfläche bringst. Ab morgen treiben wir Ixions alten Stollen nach unten.
+        strong: Flach, erster Anflug, auf einem Deck, das seit dem letzten Mal nicht gewachsen ist. Das Letzte, was du mir hier oben bringst.
+        weak: Sie liegt auf dem Deck und die Verkleidung hat keine Risse, das war der einzige Teil, der zählte. Das Letzte, was du mir hier oben bringst.
+      radio:
+        - sender: KESSLER DEEP
+          content: Die letzte Ladung, die je auf einem Oberflächen-Deck für uns landet. Danach geht alles ins Loch.
+        - sender: KESSLER DEEP
+          content: Den gesamten leeren Weltraum durchquert, um hier anzukommen, und die Arbeit besteht darin, Dreck zu schaufeln. Wieder mal. Diesen Teil erwähnt nie jemand.
+      goal: Die Verkleidung zum KESSLER-DECK bringen.
+    "14":
+      payloadName: Baggerkern
+      messages:
+        - sender: KESSLER DEEP
+          content: Der Schacht ist offen. Flieg noch nicht rein. Am Grund gibt es noch nichts zum Landen und die Wände sind noch nicht verkleidet.
+        - sender: IXION-AUSSENPOSTEN
+          content: Das ist unser alter Stollen, den er da nach unten treibt, Navigator. Vierhundert Meter von unserer Plattform entfernt, und er hat das Land nie beantragt.<br/><br/>Flieg den Vertrag. Wir verlangen nicht von dir, Partei zu ergreifen.
+        - sender: KESSLER DEEP
+          content: Der Kern kommt aufs Deck, wie immer. Schau dir das Loch im Vorbeiflug an, wenn du willst. Das ist das Seichteste, was es je sein wird.<br/><br/><b>ZIEL</b> Den Kern zum KESSLER-DECK bringen.
+      debrief:
+        sender: KESSLER DEEP
+        content: Der Kern liegt auf dem Deck. Morgen wandert er ins Loch und kommt nie wieder hoch, genau wie alles andere hier.
+        strong: Im ersten Anflug sauber aufgesetzt. Das Loch ist heute noch flach genug, dass ein schlechter Anflug mich eine Woche gekostet hätte.
+        weak: Unten und stabil. Bei dieser Tiefe verzeiht das Loch noch Fehler. Das wird sich ändern.
+      radio:
+        - sender: KESSLER DEEP
+          content: Dieses Loch gehörte Ixion, bevor es irgendwem gehörte. Niemand konnte uns verbieten, es zu nutzen, also taten wir es.
+        - sender: KESSLER DEEP
+          content: Schau es dir im Vorbeiflug an. Das ist das Seichteste, was es je sein wird.
+      goal: Den Kern zum KESSLER-DECK bringen.
+    "15":
+      payloadName: Schachtbeleuchtung
+      messages:
+        - sender: KESSLER DEEP
+          content: Die Plattform auf der Schachtsohle steht, tief unter dem Canyon, und die Wände stehen auf beiden Seiten eng.
+        - sender: KESSLER DEEP
+          content: Nichts Schweres heute, Blechbüchse. Meine zweite Lichterkette für diesen Schacht. Die erste liegt unter unserem Abraum, und meine Leute arbeiten seitdem mit Helmlampen.<br/><br/><b>ZIEL</b> Hinab in den Schacht. Zustellung am SCHACHTKOPF.
+      debrief:
+        sender: KESSLER DEEP
+        content: Die Lichter sind drin. Meine Leute arbeiten mit Helmlampen, seit die erste Kette unter dem Abraum verschwand.
+        strong: Den Schacht runter und im ersten Versuch auf die Plattform. Meine Mannschaft lief eine ganze Saison mit Helmlampen herum.
+        weak: Sie ist unten und die Kette ist ganz geblieben, mehr braucht ein Licht nicht zu tun. Die Stirnlampen gehen heute Abend aus.
+      radio:
+        - sender: KESSLER DEEP
+          content: Du bist jetzt im Loch, nicht mehr darüber. Achte auf die Wände, nicht auf den Boden.
+        - sender: KESSLER DEEP
+          content: Ich will, dass du dieses Loch lernst, solange es noch Fehler verzeiht, Blechbüchse.
+      goal: Hinab in den Schacht. Zustellung am SCHACHTKOPF.
+    "16":
+      payloadName: Horizontal-Bohranlage
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/240 · REV 5 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: HORIZONTAL-BOHRANLAGE<br/>ZIEL: HELION-DECK<br/>METHODE: HORIZONTAL. KESSLER TREIBT DAS LOCH NACH UNTEN. HELION TREIBT ES ENTLANG."
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "TITELGRUNDLAGE: VORHERIGE ARBEITEN. HELION ÜBERNIMMT DAS WESTENDE VON IXIONS STOLLEN. KEIN NEUES LOCH.<br/>SCHWERSTE SENDUNG BISHER. TRÄGHEIT IST KEIN DEFEKT.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Die Bohranlage zum HELION-DECK bringen."
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/240 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEINE MASSNAHMEN ERFORDERLICH"
+      radio:
+        - sender: ""
+          content: "4471-C/240 · IM TRANSIT<br/>METHODE: HORIZONTAL"
+        - sender: ""
+          content: 4471-C/240 · ENDANFLUG<br/>TRÄGHEIT IST KEIN DEFEKT
+      goal: Die Bohranlage zum HELION-DECK bringen.
+    "17":
+      payloadName: Gewölbeverstrebung
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/265 · REV 6 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: GEWÖLBEVERSTREBUNG<br/>ZIEL: HELION-DECK"
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "DIE VERSTREBUNG TRÄGT DIE STOLLENDECKE. AB DEM NÄCHSTEN VERTRAG ERFOLGT DIE LIEFERUNG DIREKT IN DEN STOLLEN — DEN SCHACHT HINAB, DANN WESTWÄRTS ENTLANG DER WAND.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Die Verstrebung zum HELION-DECK bringen."
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/265 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEINE MASSNAHMEN ERFORDERLICH"
+      radio:
+        - sender: ""
+          content: "4471-C/265 · IM TRANSIT<br/>TITELGRUNDLAGE: VORHERIGE ARBEITEN"
+        - sender: ""
+          content: 4471-C/265 · ENDANFLUG<br/>LETZTE REGULÄRE LIEFERUNG ZUR OBERFLÄCHE
+      goal: Die Verstrebung zum HELION-DECK bringen.
+    "18":
+      payloadName: Erzprozessor
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/290 · REV 7 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: ERZPROZESSOR<br/>ZIEL: SCHACHTSTOLLEN, WESTENDE<br/>HELION-DECK: STILLGELEGT. KEINE WEITEREN OBERFLÄCHENLIEFERUNGEN.<br/>TOLERANZ: 2.9 / 11.0 T"
+        - sender: IXION-AUSSENPOSTEN
+          content: Helion ist von der Oberfläche verschwunden, Navigator — rein in den Stollen. Kessler ist darunter und treibt den Schacht voran. Alles, was hier oben stand, als du ankamst, hat sich eingegraben, oder wir sind es.
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "SCHACHT HINABFLIEGEN, WESTLICH IN DEN STOLLEN EINBIEGEN, IM INNEREN NIVELLIEREN.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Nach Westen in den Stollen einbiegen. Zustellung am SCHACHTSTOLLEN."
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/290 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEINE MASSNAHMEN ERFORDERLICH<br/>OBERFLÄCHENBETRIEB EINGESTELLT"
+      radio:
+        - sender: ""
+          content: "4471-C/290 · IM TRANSIT<br/>HELION-DECK: STILLGELEGT"
+        - sender: ""
+          content: 4471-C/290 · STOLLENANFLUG<br/>SEITLICHER EINFLUG, WESTENDE
+      goal: Nach Westen in den Stollen einbiegen. Zustellung am SCHACHTSTOLLEN.
+    "19":
+      payloadName: Verankerungspylone
+      messages:
+        - sender: KESSLER DEEP
+          content: Wir treiben den Hauptschacht heute Nacht viel tiefer. Das Flöz, an dem wir dran sind, ist erschöpft. Das gute Gestein liegt jetzt unter uns.
+        - sender: KESSLER DEEP
+          content: Helion hält diesen Abschnitt. Sie haben ihn zuerst angeschnitten. Ich halte, was darunterliegt, denn sonst geht da niemand runter.
+        - sender: KESSLER DEEP
+          content: Setz sie sauber und gerade auf, Blechbüchse. Alles darunter ist Fels, den noch niemand beansprucht hat, und ich verliere ihn nicht wegen eines schiefen Pylons.<br/><br/><b>ZIEL</b> Die Pylone zum SCHACHTKOPF bringen.
+      debrief:
+        sender: KESSLER DEEP
+        content: Pylone sind verankert. Alles darunter ist Fels, den niemand beansprucht hat, und so bleibt es, solange sie halten.
+        strong: Gerade aufgesetzt, alle miteinander. Alles darunter ist Fels, den niemand beansprucht hat, und ich behalte ihn.
+        weak: Sie sitzen und halten. Schief kostet mich eine Woche Stopfen, aber nicht das Gelände.
+      radio:
+        - sender: KESSLER DEEP
+          content: Diese Pylone halten ein Deck, das ich noch gar nicht gegraben habe. So weit im Voraus muss ich hier unten bestellen.
+        - sender: KESSLER DEEP
+          content: Meine Mannschaft arbeitet jeden Monat tiefer, Blechbüchse. Manche Schichten sehen sie den Schachtrand gar nicht.
+      goal: Die Pylone zum SCHACHTKOPF bringen.
+    "20":
+      payloadName: Abstiegskabel
+      messages:
+        - sender: KESSLER DEEP
+          content: Wir haben den Schacht über Nacht vertieft und das Deck auf die neue Sohle verlegt. Weiter unter dem Canyon als alles, was du bisher angeflogen hast.
+        - sender: KESSLER DEEP
+          content: Das Bohrloch ist jetzt kaum breiter als dein Fahrwerk und es gibt keinen Raum, eine schlechte Linie zu korrigieren, wenn du erst mal drin bist. Mach es oberhalb der Kante richtig, nicht darunter.<br/><br/><b>ZIEL</b> Das Kabel zur SCHACHTSIMSE bringen.
+      debrief:
+        sender: KESSLER DEEP
+        content: Kabel liegt auf der Simse. Das Bohrloch ist ab hier kaum breiter als dein Fahrwerk, und es wird nicht wieder breiter.
+        strong: Saubere Linie den ganzen Weg hinab durch ein Bohrloch ohne Spielraum für Korrekturen. Jeder Flug ab jetzt hat diesen Schacht oder einen engeren.
+        weak: Es ist unten. In diesem Loch ist kein Platz, um eine schlechte Linie auszubügeln, und das hast du beim Reinfliegen gemerkt.
+      radio:
+        - sender: KESSLER DEEP
+          content: Das Deck unter dir ist drei Tage alt. Das davor liegt unter unserem eigenen Abraum.
+        - sender: KESSLER DEEP
+          content: Nichts zum Festhalten auf dem Weg nach unten. Weiter wird das Bohrloch danach nicht mehr.
+      goal: Das Kabel zur SCHACHTSIMSE bringen.
+    "21":
+      payloadName: Gegenanspruchs-Bake
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/372 · REV 8 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: GEGENANSPRUCHS-BAKE<br/>ZIEL: SCHACHTSTOLLEN<br/>TOLERANZ: 2.1 / 11.0 T"
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "KESSLER DEEP BETREIBT ANLAGEN UNTERHALB DER SOHLE. DAS FLÖZ WIRD NUN VON BEIDEN SEITEN BEARBEITET UND IST UMSTRITTEN.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Den Canyon queren. Die Bake zum SCHACHTSTOLLEN bringen."
+        - sender: ANHANG A — SCHIEDSVERFAHREN
+          content: DER FRACHTFÜHRER IST KEINE PARTEI DIESES VERFAHRENS UND HAT KEIN RECHT AUF ANHÖRUNG.
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/372 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEINE MASSNAHMEN ERFORDERLICH"
+      radio:
+        - sender: ""
+          content: "4471-C/372 · IM TRANSIT<br/>FLÖZSTATUS: UMSTRITTEN"
+        - sender: ""
+          content: 4471-C/372 · STOLLENANFLUG<br/>ANLAGEN UNTERHALB DER SOHLE
+      goal: Den Canyon queren. Die Bake zum SCHACHTSTOLLEN bringen.
+    "22":
+      payloadName: Aufbereiter-Ersatzteile
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Der Wasseraufbereiter, den du uns damals gebracht hast, ist ausgefallen, Navigator. Er hat seine Spezifikation um Jahre überlebt, und einen neuen können wir uns nicht leisten.
+        - sender: IXION-AUSSENPOSTEN
+          content: Die meisten dieser Jahre waren wir gefördert — ein Stipendium für elf Leute und eine Anlage, die meist lief. Es endete, als die Chartas landeten. Seitdem ging alles an Anwälte und an Land, das wir ohnehin verlieren würden.
+        - sender: IXION-AUSSENPOSTEN
+          content: "Deshalb: Ersatzteile. Die leichteste Last, die wir dich je holen ließen. Das ist keine Güte von uns — es entspricht exakt dem Restguthaben auf dem Konto.<br/><br/><b>ZIEL</b> Die Teile zur Außenposten-Plattform bringen."
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Teile sind da. Die leichteste Last, die wir je beauftragt haben, und so groß wie das, was noch auf dem Konto ist.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Der Aufbereiter aus den frühen Tagen hat versagt. Er hat seine Lebensdauer um Jahre übertroffen.
+        - sender: IXION-AUSSENPOSTEN
+          content: Wir hatten mal Fördergelder. Das endete mit der Landung der Chartas, seither fraßen Anwälte alles auf.
+      goal: Die Teile zur Außenposten-Plattform bringen.
+    "23":
+      payloadName: Evakuierungsbefehl
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Beide Chartas schneiden jetzt von gegenüberliegenden Seiten in dieselbe Felswand. Der Pfeiler dazwischen wird mit jeder Schicht dünner. Unsere Instrumente beobachten das, seit bevor die beiden gelandet sind.
+        - sender: IXION-AUSSENPOSTEN
+          content: Wir waren nie sicher, ob Helion überhaupt eine menschliche Besatzung hat. Zehn Jahre Verträge, jeder einzelne automatisch eingereicht, und kein einziges Wort von einem Menschen dort drüben.
+        - sender: IXION-AUSSENPOSTEN
+          content: Wir haben eine Evakuierung empfohlen. Niemand hat geantwortet. Du fliegst auch für sie, Navigator — keiner nimmt dir das übel. Du gehst, wohin der Vertrag dich schickt. Wir auch.<br/><br/><b>ZIEL</b> Den Befehl zur Außenposten-Plattform bringen.
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Es ist hinterlegt. Niemand ist verpflichtet, einem Außenposten zu antworten, und wir erwarten es auch von niemandem.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Vierhundert Erschütterungen letzte Woche. Vierzig vor einem Jahr um diese Zeit. Der Pfeiler wird jede Schicht dünner.
+        - sender: IXION-AUSSENPOSTEN
+          content: Drei Parteien auf einem Kanal und keine einzige antwortet der anderen. Du bist die Ausnahme.
+      goal: Den Befehl zur Außenposten-Plattform bringen.
+    "24":
+      payloadName: Tiefenschacht-Leuchten
+      messages:
+        - sender: KESSLER DEEP
+          content: Wir sind in den Abgrund durchgebrochen und der Schacht ist mit ihm nach unten abgesackt, samt Deck. Unterhalb der alten Simse rücken die Wände eng zusammen und der Nebel wird pechschwarz.
+        - sender: KESSLER DEEP
+          content: Da unten werden das optische Signal und der Höhenmesser nicht übereinstimmen. Vertrau dem Höhenmesser. Das ist der, der recht hat.<br/><br/><b>ZIEL</b> Die Beleuchtung zur SCHACHTSOHLE bringen.
+      debrief:
+        sender: KESSLER DEEP
+        content: Die Anlage leuchtet da unten. Dreihundert Meter Schacht und das Einzige da unten gehört jetzt uns.
+        strong: Schnurgerade durch dreihundert Meter zusammenrückende Felswände und flach aufgesetzt. Ich habe schon Einheiten geflogen, die nicht mal die Simse schafften.
+        weak: Sie ist unten und brennt. Unter der Simse verzeihen die Wände nicht viel, und sie haben dir davon auch nicht viel geschenkt.
+      radio:
+        - sender: KESSLER DEEP
+          content: Dreihundert Meter Schacht unter dir. Beim ersten Mal, als du reinflogst, waren es achtundfünfzig.
+        - sender: KESSLER DEEP
+          content: Der Nebel wird pechschwarz unter der Simse. Dein Feed wird dich eher anlügen als der Höhenmesser.
+      goal: Die Beleuchtung zur SCHACHTSOHLE bringen.
+    "25":
+      payloadName: Flözladungen
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/500 · REV 9 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: FLÖZLADUNGEN<br/>ZIEL: SCHACHTSTOLLEN<br/>VERSCHLEISS: INNERHALB DER TOLERANZ<br/>TOLERANZ: 0.7 / 11.0 T"
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "VOLLSTÄNDIGE CANYONQUERUNG, DANN SEITLICHER EINFLUG IN DEN STOLLEN. JEDER TEILABSCHNITT WURDE BEREITS GEFLOGEN. NICHT IN EINEM EINZIGEN VERTRAG.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Die Ladungen zum SCHACHTSTOLLEN bringen."
+        - sender: ANHANG A — SCHIEDSVERFAHREN
+          content: VERFAHREN DAUERT AN. DER FRACHTFÜHRER IST KEINE PARTEI.
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/500 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEINE MASSNAHMEN ERFORDERLICH"
+      radio:
+        - sender: ""
+          content: "4471-C/500 · IM TRANSIT<br/>ZEITPLANABWEICHUNG: NULL"
+        - sender: ""
+          content: "4471-C/500 · STOLLENANFLUG<br/>VERSCHLEISS: INNERHALB DER TOLERANZ"
+      goal: Die Ladungen zum SCHACHTSTOLLEN bringen.
+    "26":
+      payloadName: Schutzmantel
+      messages:
+        - sender: KESSLER DEEP
+          content: Das schwerste Einzelstück, das je hier runterflog. Westwand bis Schachtgrund, durch alles, was beide Chartas bauten — und pass auf die Wände auf. Alles, was je in diesen Canyon kam und nie hinausflog, steckt jetzt darin.
+        - sender: KESSLER DEEP
+          content: Der Kanal des Außenpostens ist seit einer halben Ewigkeit still. Früher gab es jede Schicht Funkverkehr. Nicht etwas, wofür ich Zeit hätte.
+        - sender: KESSLER DEEP
+          content: Wenn das Ding erst mal gedeckelt ist, kann ich eine Ladung unter das Flöz setzen, ohne die Decke zu verlieren. Helion schneidet seit einem Jahr darauf zu und kommt immer noch nicht an das ran, was unter uns liegt.
+        - sender: KESSLER DEEP
+          content: Mach das hier ordentlich. Ich würde es niemand anderem anvertrauen.<br/><br/><b>ZIEL</b> Den Schutzmantel zur SCHACHTSOHLE bringen.
+      debrief:
+        sender: KESSLER DEEP
+        content: Gedeckelt und sitzt. Ich hatte schon Lasten, die schlechter auf demselben Deck lagen, und musste eine Kolonne runterschicken, um sie geradezubiegen.
+        strong: Im ersten Anflug aufgesetzt. Ich hatte schon Einheiten, die drei Anläufe für dieses Deck brauchten, und selbst das habe ich noch als gute Arbeit durchgewinkt.
+        weak: Er ist unten und hält, mehr verlangt das Deck nicht. Ich habe schon Einheiten abgeschrieben, die weniger geschafft haben.
+      radio:
+        - sender: KESSLER DEEP
+          content: Die Mannschaft ist von der Sohle weg, während du reinkommst. Niemand arbeitet unter so einer Last.
+        - sender: KESSLER DEEP
+          content: Der Wind bricht ab, wenn du den Rand überquerst. Alles darunter ist das Atmen des Lochs.
+      goal: Den Schutzmantel zur SCHACHTSOHLE bringen.
+    "27":
+      payloadName: Bohrkern-Archiv
+      messages:
+        - sender: IXION-AUSSENPOSTEN
+          content: Sol 7905. Wir fahren den Außenposten herunter, Navigator. Elf von uns in den frühen Tagen; weniger jetzt. Alles, was wir über diesen Canyon gelernt haben, ist auf diesem Archiv — jede Sondierung, jeder Bohrkern, die Mast-Kalibrierung.
+        - sender: IXION-AUSSENPOSTEN
+          content: Flieg es ein letztes Mal nach Hause, Navigator.
+        - sender: IXION-AUSSENPOSTEN
+          content: Das Radar bleibt an. Wir lassen es unter Strom — die Chartas können es nutzen oder nicht. Du behältst deine Peilung, auch wenn wir fort sind. Das schien uns das Mindeste.<br/><br/><b>ZIEL</b> Das Archiv zur Außenposten-Plattform zurückbringen.
+      debrief:
+        sender: IXION-AUSSENPOSTEN
+        content: Das Archiv ist daheim. Das Radar bleibt unter Strom — du behältst deine Peilung, auch wenn wir fort sind. Das schien uns das Mindeste zu sein.
+      radio:
+        - sender: IXION-AUSSENPOSTEN
+          content: Sol 7905. Elf von uns in den frühen Tagen, Navigator. Weniger jetzt.
+        - sender: IXION-AUSSENPOSTEN
+          content: Alles, was wir über diesen Canyon gelernt haben, liegt unter dir. Jede Sondierung, jeder Bohrkern.
+      goal: Das Archiv zur Außenposten-Plattform zurückbringen.
+    "28":
+      payloadName: Schiedsgerichtsbescheid
+      messages:
+        - sender: HELION-FÖRDERUNG
+          content: "VERTRAG 4471-C/596 · REV 11 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: SCHIEDSGERICHTSBESCHEID<br/>ZIEL: SCHACHTSTOLLEN<br/>VERSCHLEISS: INNERHALB DER TOLERANZ<br/>IXION-AUSSENPOSTEN: NICHT LÄNGER PARTEI. AKTEN VERBLEIBEN.<br/>TOLERANZ: 0.4 / 11.0 T"
+        - sender: BEFÖRDERUNGSBEDINGUNGEN
+          content: "KNAPPE TOLERANZEN. KEINE SAUBERE LINIE MEHR MÖGLICH.<br/>KEINE WEITERE SENDUNG UNTER DIESEM VERTRAG DISPONIERBAR.<br/>RÜCKKEHR ERWARTET: NEIN<br/>FRACHTFÜHRER-VERFÜGUNG: FÄLLT AN STANDORT<br/><br/><b>ZIEL</b> Den Bescheid zum SCHACHTSTOLLEN bringen."
+        - sender: ANHANG A — SCHIEDSVERFAHREN
+          content: VERFAHREN DAUERT AN. DAS FLÖZ GEHÖRT HELION DURCH VORHERIGE ARBEITEN. KESSLER DEEP BESTREITET WEGEN VORHERIGER TIEFE.<br/>DER FRACHTFÜHRER HAT KEIN ANHÖRUNGSRECHT UND KEINEN ANSPRUCH AUF ZUSTELLUNG DES ERGEBNISSES.
+      debrief:
+        sender: AKTE 4471-C · FRACHTFÜHRER-DATENSATZ
+        content: "SENDUNG 4471-C/596 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KLASSIFIZIERUNG: AUSSTEHEND"
+        strong: "SENDUNG 4471-C/596 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>KEIN MENSCHLICHER FAKTOR ERKANNT. KLASSIFIZIERUNG: AUSSTEHEND"
+        weak: "SENDUNG 4471-C/596 · ZUGESTELLT<br/>LEISTUNG FRACHTFÜHRER: {CENTILE} PERZENTIL<br/>VERSCHLEISS ÜBER PROGNOSE. KLASSIFIZIERUNG: ENTBBEHRLICH. VERTRAG NICHT VERLÄNGERT"
+      radio:
+        - sender: ""
+          content: 4471-C/596 · IM TRANSIT<br/>KNAPPE TOLERANZEN. KEINE SAUBERE LINIE MEHR MÖGLICH
+        - sender: ""
+          content: "4471-C/596 · STOLLENANFLUG<br/>FRACHTFÜHRER-VERFÜGUNG: FÄLLT AN STANDORT"
+      goal: Den Bescheid zum SCHACHTSTOLLEN bringen.
+    "29":
+      payloadName: Letzte Ladung
+      messages:
+        - sender: KESSLER DEEP
+          content: Fast ein ganzes Jahr in diesem Schlund und er ist immer noch nicht mit uns fertig. Den Schacht hinab, den der Außenposten angefangen hat, und jeden Meter unterhalb des ersten Stücks hast du selbst dort reingeflogen.
+        - sender: KESSLER DEEP
+          content: Siebenhundert Kilo, genau wie die Schneidladungen — das bist du schon mal geflogen. Niemand sonst ist mehr im Canyon.
+        - sender: KESSLER DEEP
+          content: Der Außenposten hat sich nicht zurückgezogen, Navigator. Hier zieht niemand ab. Ich hörte ihren Kanal verstummen — einer nach dem anderen, bis keiner mehr die Sendetaste drückte. Also sind es nur noch du, ich und dreihundert Meter—
+        - sender: IXION-AUSSENPOSTEN
+          content: Wir sind das Einzige am Grund dieses Canyons, und wir beabsichtigen, dass das so bleibt.
+        - sender: KESSLER DEEP
+          content: —Loch. Bring es runter.<br/><br/><b>ZIEL</b> Die Ladung zur SCHACHTSOHLE bringen.
+      radio:
+        - sender: KESSLER DEEP
+          content: Jeder Meter unter dem ersten Abschnitt ist etwas, das du selbst dort reingesetzt hast.
+        - sender: KESSLER DEEP
+          content: Jeder Bohrer ist aus. Seit Wochen gab es kein Geräusch in diesem Canyon, das nicht von dir oder mir stammte.
+      goal: Die Ladung zur SCHACHTSOHLE bringen.
+  epilogue:
+    - sender: KESSLER DEEP
+      content: Ladung sitzt, Navigator. Mit dir habe ich noch nie eine verloren.<br/><br/>Hole meine Mannschaft jetzt hoch. Gib mir zwanzig Minuten und ich—
+    - sender: UPLINK
+      content: "Fahrzeug-Telemetrie: verloren.<br/>Mast-Peilung: verloren.<br/><br/>Auf diesem Kanal antwortet niemand."
+    - sender: HELION-FÖRDERUNG
+      content: "VERTRAG 4471-C · REV 12 · AUTO<br/><br/>STANDORTSTATUS: UNZUGÄNGLICH<br/>GEFAHRENHINWEIS IXN-0114: BESTÄTIGT<br/>SCHIEDSVERFAHREN: GEGENSTANDSLOS<br/>FRACHTFÜHRER: KLASSIFIZIERUNG AUSSTEHEND"

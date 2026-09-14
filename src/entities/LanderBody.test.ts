@@ -13,7 +13,7 @@ const BURN: InputState = { left: false, right: false, main: true };
 const LEFT: InputState = { left: true, right: false, main: false };
 const RIGHT: InputState = { left: false, right: true, main: false };
 
-const CARGO: Payload = { name: 'Test Load', mass: 0.5 };
+const CARGO: Payload = { mass: 0.5, shape: 'crate' };
 
 /** The default airframe, whose numbers everything below was tuned against. */
 const LANDER_FRAME = AIRFRAMES.lander as Extract<Airframe, { scheme: 'attitude' }>;
@@ -84,8 +84,8 @@ function oneStep(b: LanderBody, input: InputState) {
 
 describe('mass and thrust', () => {
   it('adds payload mass at the documented factor', () => {
-    const light = new LanderBody({ name: 'Filings', mass: 0.2 }, 400);
-    const heavy = new LanderBody({ name: 'Shell', mass: 1.9 }, 400);
+    const light = new LanderBody({ mass: 0.2, shape: 'crate' }, 400);
+    const heavy = new LanderBody({ mass: 1.9, shape: 'drum' }, 400);
 
     expect(light.mass).toBeCloseTo(1 + 0.2 * LANDER.PAYLOAD_MASS_FACTOR, 10);
     expect(heavy.mass).toBeCloseTo(1 + 1.9 * LANDER.PAYLOAD_MASS_FACTOR, 10);
@@ -96,15 +96,15 @@ describe('mass and thrust', () => {
    * the heaviest payload must still out-accelerate gravity with margin.
    */
   it('leaves the heaviest payload a net upward acceleration', () => {
-    const heavy = new LanderBody({ name: 'Containment Shell', mass: 1.9 }, 460);
+    const heavy = new LanderBody({ mass: 1.9, shape: 'drum' }, 460);
 
     expect(heavy.thrustAccel).toBeCloseTo(17.56, 1);
     expect(heavy.thrustAccel + GRAVITY).toBeGreaterThan(11);
   });
 
   it('gives heavy cargo less acceleration than light', () => {
-    const light = new LanderBody({ name: 'Filings', mass: 0.2 }, 400);
-    const heavy = new LanderBody({ name: 'Shell', mass: 1.9 }, 400);
+    const light = new LanderBody({ mass: 0.2, shape: 'crate' }, 400);
+    const heavy = new LanderBody({ mass: 1.9, shape: 'drum' }, 400);
 
     expect(heavy.thrustAccel).toBeLessThan(light.thrustAccel);
   });
@@ -243,8 +243,8 @@ describe('attitude', () => {
   });
 
   it('answers the stick more slowly under a heavy load', () => {
-    const light = new LanderBody({ name: 'Filings', mass: 0.2 }, 400);
-    const heavy = new LanderBody({ name: 'Shell', mass: 1.9 }, 400);
+    const light = new LanderBody({ mass: 0.2, shape: 'crate' }, 400);
+    const heavy = new LanderBody({ mass: 1.9, shape: 'drum' }, 400);
     const input = { left: true, right: false, main: false };
 
     light.step(DT, input, emptyWorld());

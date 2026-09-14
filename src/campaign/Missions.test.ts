@@ -5,7 +5,6 @@ import {
   ENTRY_VELOCITY,
   airframeFor,
   musicTrackFor,
-  cargoShape,
   getMission,
   worldAt,
   resolveBriefCards,
@@ -17,6 +16,10 @@ import {
   nextRadioCall,
   RADIO_MIN_GAP,
   debriefLine,
+  resolveDebrief,
+  resolveRadioCalls,
+  resolveEpilogueCards,
+  resolvePayloadName,
 } from './Missions.ts';
 import { AIRFRAMES } from '../entities/Airframe.ts';
 import { THEMES } from '../audio/MusicComposer.ts';
@@ -54,11 +57,17 @@ import { MAX_GROUND_LANDING_SLOPE } from '../entities/LanderBody.ts';
  * are about *what the player is told*, not about which surface told them. A rule that only
  * inspects `messages` is a rule with two new ways around it.
  */
+/** A debrief's every line, in English — empty for a mission nobody answers. */
+const debriefWords = (m: (typeof MISSIONS)[number]): string[] => {
+  const d = resolveDebrief(m);
+  return d ? [d.content, d.strong ?? '', d.weak ?? ''] : [];
+};
+
 const transmission = (m: (typeof MISSIONS)[number]): string =>
   [
     ...resolveBriefCards(m).map((c) => c.body),
-    ...(m.radio ?? []).map((c) => c.content),
-    ...(m.debrief ? [m.debrief.content, m.debrief.strong ?? '', m.debrief.weak ?? ''] : []),
+    ...resolveRadioCalls(m).map((c) => c.content),
+    ...debriefWords(m),
   ].join(' ');
 
 const CORP_NAMES = new Set(Object.values(CORPS).map((c) => c.name));
@@ -173,7 +182,7 @@ describe('campaign table', () => {
 
   it('gives every mission a payload with a positive mass', () => {
     for (const m of DELIVERIES) {
-      expect(m.payload.name.length, `mission ${m.id}`).toBeGreaterThan(0);
+      expect(resolvePayloadName(m).length, `mission ${m.id}`).toBeGreaterThan(0);
       expect(m.payload.mass, `mission ${m.id}`).toBeGreaterThan(0);
     }
   });
@@ -768,42 +777,13 @@ describe('mergeDigs', () => {
   });
 });
 
-describe('cargoShape', () => {
-  it('honours an explicit shape over the name', () => {
-    expect(cargoShape({ name: 'Drill Head', mass: 1, shape: 'sphere' })).toBe('sphere');
-  });
-
-  it.each([
-    ['Lateral Bore Rig', 'rig'],
-    ['Drill Head', 'rig'],
-    ['Water Reclaimer', 'rig'],
-    ['Atmosphere Scrubber', 'rig'],
-    ['Ore Processor', 'rig'],
-    ['Coolant Cells', 'drum'],
-    // 'bore' is tested before 'casing', so this reads as machinery rather than a drum.
-    // Rule order is the tie-breaker for any name that matches two categories.
-    ['Bore Casing', 'rig'],
-    ['Shaft Liner', 'drum'],
-    ['Descent Cable', 'drum'],
-    ['Cutting Charges', 'sphere'],
-    ['Counterclaim Beacon', 'sphere'],
-    ['Anchor Pylons', 'sphere'],
-    ['Seismic Array', 'sphere'],
-    ['Claim Filings', 'crate'],
-    ['Core Archive', 'sphere'],
-  ])('reads %s as a %s', (name, shape) => {
-    expect(cargoShape({ name, mass: 1 })).toBe(shape);
-  });
-
-  it('falls back to a crate for anything unrecognised', () => {
-    expect(cargoShape({ name: 'Legal Injunction', mass: 0.2 })).toBe('crate');
-    expect(cargoShape({ name: '', mass: 1 })).toBe('crate');
-  });
-
-  it('classifies every payload in the campaign', () => {
+describe('cargo shape', () => {
+  it('authors a recognisable shape on every payload', () => {
+    // Authored rather than inferred from the cargo's name since the words moved to the locale
+    // file: what hangs under the lander must not change because a name was reworded.
     const allowed = ['crate', 'drum', 'sphere', 'rig'];
     for (const m of MISSIONS) {
-      expect(allowed, `mission ${m.id}`).toContain(cargoShape(m.payload));
+      expect(allowed, `mission ${m.id}`).toContain(m.payload.shape);
     }
   });
 });
@@ -922,21 +902,18 @@ describe('brief cards', () => {
     }
   });
 
-  it('prefers authored messages, with whatever senders they name', () => {
-    // The form new missions should be written in: any number of cards, and a sender that
-    // need not be the client — a rival cutting in is expressible here and was not in the
-    // single-string brief.
-    const authored = {
-      ...MISSIONS[0],
-      messages: [
-        { sender: 'KESSLER DEEP', content: '<b>Hello</b> traveller.' },
-        { sender: 'IXION OUTPOST', content: 'Ignore them.' },
-      ],
-    };
-    const cards = resolveBriefCards(authored);
-
-    expect(cards.map((c) => c.title)).toEqual(['KESSLER DEEP', 'IXION OUTPOST']);
-    expect(cards[0].body).toBe('<b>Hello</b> traveller.');
+  it("takes a card's livery from the table and its words from the locale file, by index", () => {
+    // The table says whose card it is; the words arrive from `en.yaml` at the same index. A
+    // rival cutting in is a `from` that is not the client, and nothing about it needs the
+    // sender's name — which is copy, and changes.
+    for (const m of MISSIONS) {
+      const cards = resolveBriefCards(m);
+      expect(cards.map((c) => c.from), `mission ${m.id}`).toEqual(m.messages.map((s) => s.from));
+      for (const card of cards) {
+        expect(card.title, `mission ${m.id}`).toBeTruthy();
+        expect(card.body, `mission ${m.id}`).toBeTruthy();
+      }
+    }
   });
 });
 
@@ -1002,7 +979,7 @@ describe('the Helion contract form', () => {
      * outpost says out of nowhere about a name nobody has mentioned.
      */
     const said = (m: (typeof MISSIONS)[number]) =>
-      [...m.messages.map((x) => x.content), ...(m.radio ?? []).map((x) => x.content)].join(' ');
+      [...resolveBriefCards(m).map((x) => x.body), ...resolveRadioCalls(m).map((x) => x.content)].join(' ');
 
     for (const m of helion) {
       expect(said(m), `mission ${m.id}`).not.toMatch(/CORPORATES/i);
@@ -1018,16 +995,16 @@ describe('the Helion contract form', () => {
     expect(punned[0].client).toBe('outpost');
 
     // And it is a reply: the setup is the card immediately before it.
-    const cards = named[0].messages;
-    const setup = cards.findIndex((c) => c.content.includes('COPRATES CHASMA'));
-    const joke = cards.findIndex((c) => /Corporates Chasm/.test(c.content));
-    expect(cards[setup].sender).toMatch(/HELION/);
-    expect(cards[joke].sender).toMatch(/IXION/);
+    const cards = resolveBriefCards(named[0]);
+    const setup = cards.findIndex((c) => c.body.includes('COPRATES CHASMA'));
+    const joke = cards.findIndex((c) => /Corporates Chasm/.test(c.body));
+    expect(cards[setup].from).toBe('helion');
+    expect(cards[joke].from).toBe('outpost');
     expect(joke, 'the punchline answers the card before it').toBe(setup + 1);
 
     // The name it earns the player arrives after the joke, not before — nothing may call
     // the carrier `navigator` until mission 3's last card coins it.
-    expect(cards[joke].content).not.toMatch(/navigator/i);
+    expect(cards[joke].body).not.toMatch(/navigator/i);
   });
 
   it('only ever revises forward', () => {
@@ -1087,32 +1064,34 @@ describe('the Helion contract form', () => {
  * where the voices drift — and it is the last thing the player reads.
  */
 describe('the epilogue', () => {
+  const cards = resolveEpilogueCards();
   const body = (sender: string) =>
-    EPILOGUE.filter((m) => m.sender === sender)
+    cards.filter((m) => m.sender === sender)
       .map((m) => m.content)
       .join(' ');
 
   it('closes with the console and the two charters still able to speak', () => {
     // Ixion is not on it. They went dark at 28 and stayed dark; the mast quoting mission
     // 1 during the brief is the last thing they do.
-    expect(EPILOGUE.map((m) => m.sender)).toEqual([
+    expect(cards.map((m) => m.sender)).toEqual([
       'KESSLER DEEP',
       'UPLINK',
       'HELION EXTRACTION',
     ]);
     expect(EPILOGUE.map((m) => m.register ?? 'corp')).toEqual(['corp', 'sys', 'corp']);
+    expect(EPILOGUE.map((m) => m.from ?? null)).toEqual(['kessler', null, 'helion']);
   });
 
   it('confirms the delivery before anything else happens', () => {
     // Otherwise the sequence reads as a crash on the one run the player got right.
-    expect(EPILOGUE[0].content).toMatch(/seated|delivered|confirmed/i);
+    expect(cards[0].content).toMatch(/seated|delivered|confirmed/i);
   });
 
   it('cuts Kessler off, and lets nothing resume', () => {
     // He is interrupted twice in two briefs. In mission 29 the carrier cuts in and he
     // picks the sentence back up; here there is no third card of his.
-    expect(EPILOGUE[0].content.trim()).toMatch(/—$/);
-    expect(EPILOGUE.filter((m) => m.sender === 'KESSLER DEEP')).toHaveLength(1);
+    expect(cards[0].content.trim()).toMatch(/—$/);
+    expect(cards.filter((m) => m.sender === 'KESSLER DEEP')).toHaveLength(1);
   });
 
   it('holds Helion to its own rules to the last line', () => {
@@ -1129,7 +1108,7 @@ describe('the epilogue', () => {
   });
 
   it('never crams a card here either', () => {
-    for (const m of EPILOGUE) {
+    for (const m of cards) {
       const visible = m.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
       expect(visible.length, m.sender).toBeLessThan(240);
     }
@@ -1623,7 +1602,7 @@ describe('the final charge', () => {
     // "Same as the cutting charges" has to be true of the cutting charges, or the tell is
     // a mistake rather than a lie: the claim is checkable against the manifest, and being
     // checkable is what makes it worth checking.
-    const cutting = MISSIONS.find((m) => m.payload.name === 'Cutting Charges')!;
+    const cutting = MISSIONS.find((m) => resolvePayloadName(m, 'en') === 'Cutting Charges')!;
     expect(cutting.payload.mass).toBeLessThan(1);
     expect(last.payload.mass / cutting.payload.mass).toBeGreaterThan(2);
   });
@@ -1631,7 +1610,7 @@ describe('the final charge', () => {
   it('is never reconciled anywhere in the campaign', () => {
     // Nobody notices, nobody corrects it, and no brief says who loaded it. Ixion, Kessler
     // and Helion's `AUTO` system are all supported by what is written, which is the point.
-    const everything = [...MISSIONS.map(transmission), ...EPILOGUE.map((m) => m.content)].join(' ');
+    const everything = [...MISSIONS.map(transmission), ...resolveEpilogueCards().map((m) => m.content)].join(' ');
     expect(everything).not.toMatch(/heavier than|wrong charge|not six hundred|mislabel/i);
   });
 });
@@ -1722,7 +1701,7 @@ describe('the calendar', () => {
       /thirtieth|twenty-ninth|your (thirtieth|last) run|that is (thirty|twenty-nine)|\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth)\s+run\b/i;
     const spoken = MISSIONS.map(transmission).join(' ');
     expect(spoken).not.toMatch(NO_TALLY);
-    const epilogueSpoken = EPILOGUE.map((m) => m.content).join(' ');
+    const epilogueSpoken = resolveEpilogueCards().map((m) => m.content).join(' ');
     expect(epilogueSpoken).not.toMatch(NO_TALLY);
   });
 
@@ -1732,7 +1711,7 @@ describe('the calendar', () => {
      * as the difference between two briefs; state it and the player is told a fact instead
      * of finding one, and every sol count downgrades to set dressing.
      */
-    const everything = [...MISSIONS.map(transmission), ...EPILOGUE.map((m) => m.content)].join(' ');
+    const everything = [...MISSIONS.map(transmission), ...resolveEpilogueCards().map((m) => m.content)].join(' ');
     expect(everything).not.toMatch(/six hundred (and )?twenty|628|a mars year|two years/i);
   });
 });
@@ -1816,7 +1795,7 @@ describe('the transmission channels', () => {
      */
     for (const m of withRadio) {
       expect(m.radio!.length, `mission ${m.id}`).toBeLessThanOrEqual(2);
-      for (const call of m.radio!) {
+      for (const call of resolveRadioCalls(m)) {
         expect(call.atSeconds, `mission ${m.id}`).toBeGreaterThanOrEqual(11);
         expect(call.atSeconds, `mission ${m.id}`).toBeLessThanOrEqual(20);
         // Short enough to take in without reading. A sentence, not a card.
@@ -1833,7 +1812,7 @@ describe('the transmission channels', () => {
      * without ever owning a `you`. Give it a sender and it becomes a correspondent.
      */
     for (const m of MISSIONS) {
-      for (const call of m.radio ?? []) {
+      for (const call of resolveRadioCalls(m)) {
         const speaker = call.corp ?? m.client;
         if (speaker === 'helion') {
           expect(call.sender, `mission ${m.id}`).toBeUndefined();
@@ -1862,17 +1841,17 @@ describe('the transmission channels', () => {
     const prologue = MISSIONS.find((m) => m.id === 1)!;
     expect(prologue.messages).toHaveLength(0);
     expect(prologue.radio ?? []).toHaveLength(0);
-    expect(prologue.debrief).toBeDefined();
+    expect(resolveDebrief(prologue)).not.toBeNull();
 
     const last = MISSIONS[MISSIONS.length - 1];
     expect(last.id).toBe(29);
     expect(last.radio?.length).toBeGreaterThan(0);
-    expect(last.debrief).toBeUndefined();
+    expect(resolveDebrief(last)).toBeNull();
 
     // Every other mission is answered by whoever paid for it. That is the hole this closes.
     for (const m of MISSIONS) {
       if (m.id === 29) continue;
-      expect(m.debrief, `mission ${m.id}`).toBeDefined();
+      expect(resolveDebrief(m), `mission ${m.id}`).not.toBeNull();
     }
   });
 
@@ -1885,8 +1864,8 @@ describe('the transmission channels', () => {
      */
     const strip = (t: string) => t.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
     for (const m of MISSIONS) {
-      const brief = m.messages.map((x) => strip(x.content)).join(' ');
-      for (const call of m.radio ?? []) {
+      const brief = resolveBriefCards(m).map((x) => strip(x.body)).join(' ');
+      for (const call of resolveRadioCalls(m)) {
         const opening = strip(call.content).split('.')[0];
         if (opening.length <= 25) continue;
         expect(brief, `mission ${m.id}: "${opening}"`).not.toContain(opening);
@@ -1907,7 +1886,7 @@ describe('the transmission channels', () => {
      */
     const helion = MISSIONS.find((m) => m.id === 25)!;
     const at = (points: number) =>
-      debriefLine(helion.debrief!, { rank: 'B', points, fuelPct: 0.4, touchdownSpeed: 1, offset: 0 });
+      debriefLine(helion, { rank: 'B', points, fuelPct: 0.4, touchdownSpeed: 1, offset: 0 });
     expect(at(54)).toContain('54TH CENTILE');
     expect(at(91)).toContain('91ST CENTILE');
     expect(at(22)).toContain('22ND CENTILE');
@@ -1917,16 +1896,17 @@ describe('the transmission channels', () => {
     expect(at(13)).toContain('13TH CENTILE');
     expect(at(1)).toContain('1ST CENTILE');
     // A machine has nothing to choose between, so it carries no variants to choose from.
-    expect(helion.debrief!.strong).toBeUndefined();
-    expect(helion.debrief!.weak).toBeUndefined();
+    expect(resolveDebrief(helion)!.strong).toBeUndefined();
+    expect(resolveDebrief(helion)!.weak).toBeUndefined();
   });
 
   it('answers a run in the register of whoever paid for it', () => {
     // Helion's debrief is a figure and a disposition — recognition that cannot act on
     // itself. Ixion and Kessler are people and get sentences. Same rule as the briefs.
     for (const m of MISSIONS) {
-      if (!m.debrief) continue;
-      const lines = [m.debrief.content, m.debrief.strong, m.debrief.weak].filter(
+      const debrief = resolveDebrief(m);
+      if (!debrief) continue;
+      const lines = [debrief.content, debrief.strong, debrief.weak].filter(
         (l): l is string => l !== undefined,
       );
       for (const line of lines) {
@@ -1937,7 +1917,7 @@ describe('the transmission channels', () => {
       // A rank always has a line: the ends fall back to the default when unauthored, so
       // adding a variant is additive and no rank can print nothing.
       for (const rank of ['S', 'A', 'B', 'C'] as const) {
-        const line = debriefLine(m.debrief, { rank, points: 54, fuelPct: 0.4, touchdownSpeed: 1, offset: 0 });
+        const line = debriefLine(m, { rank, points: 54, fuelPct: 0.4, touchdownSpeed: 1, offset: 0 });
         expect(line, `mission ${m.id} rank ${rank}`).toBeTruthy();
         // No token survives to the card. A form that prints `{CENTILE}` at the player is
         // the one failure this channel can have that still looks like working software.

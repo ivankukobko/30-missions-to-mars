@@ -277,6 +277,9 @@ Two other things came out of that profiling:
 | `src/testing/Autopilot.ts` | A reference pilot: consistent rather than good |
 | `src/testing/flyMission.ts` | Flying a mission headlessly, on the real physics |
 | `src/ui/Interface.ts` | HUD, briefs, results, target marker |
+| `src/i18n/I18n.ts` | Locale detection, UI string dictionary, interpolation and ordinal grammar |
+| `src/campaign/CampaignLocale.ts` | Narrative bundle overlays (briefs, debriefs, radio, goals, epilogue) |
+| `src/i18n/Locales.ts` | Every `src/locales/<code>.yaml`, found by glob and parsed at build time |
 
 ## Tests
 

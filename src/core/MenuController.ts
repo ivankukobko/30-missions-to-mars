@@ -9,6 +9,7 @@ import {
   type ProgressStore,
 } from '../campaign/SaveData.ts';
 import type { GameSettings, Interface, MenuNote } from '../ui/Interface.ts';
+import { t } from '../i18n/I18n.ts';
 
 /**
  * Every screen the player reaches without flying: the main menu, the mission grid, the
@@ -83,7 +84,7 @@ export class MenuController {
 
   private historyDetail(): string {
     const runs = readHistory(this.host.store).length;
-    return runs === 0 ? 'NONE' : `${runs} RUN${runs === 1 ? '' : 'S'}`;
+    return runs === 0 ? t('history.runs_zero') : t('history.runs', { count: runs });
   }
 
   /**
@@ -109,21 +110,21 @@ export class MenuController {
 
     this.host.ui.showMenu([
       {
-        label: 'CONTINUE',
-        detail: done ? 'EPILOGUE' : `MISSION ${String(next).padStart(2, '0')}`,
+        label: t('menu.continue'),
+        detail: done ? t('menu.epilogue') : t('menu.mission_n', { number: String(next).padStart(2, '0') }),
         onSelect: () => this.host.enterMission(next),
       },
       {
-        label: 'MISSIONS',
+        label: t('menu.missions'),
         detail: `${this.flownCount()} / ${CAMPAIGN_FLIGHTS}`,
         onSelect: () => this.openMissions(),
       },
       {
-        label: 'CANYONS',
-        detail: `${this.progress.slot + 1} OF ${SLOT_COUNT}`,
+        label: t('menu.canyons'),
+        detail: t('menu.slot_of', { slot: this.progress.slot + 1, count: SLOT_COUNT }),
         onSelect: () => this.openSlots(),
       },
-      { label: 'HISTORY', detail: this.historyDetail(), onSelect: () => this.openHistory() },
+      { label: t('menu.history'), detail: this.historyDetail(), onSelect: () => this.openHistory() },
       /**
        * The seed is on the row rather than behind it because it is the thing being
        * shared, and a player on itch cannot see the address bar to read it off — the
@@ -132,12 +133,12 @@ export class MenuController {
        * where sharing needs help, reading the number back is all the player could do.
        */
       {
-        label: 'SHARE CANYON',
-        detail: `SEED ${this.progress.seed}`,
+        label: t('menu.share_canyon'),
+        detail: t('menu.seed_n', { seed: this.progress.seed }),
         onSelect: () => this.copyLink(),
       },
-      { label: 'SETTINGS', onSelect: () => this.openSettings() },
-      { label: 'NEW CANYON', danger: true, onSelect: () => this.confirmNewCanyon() },
+      { label: t('menu.settings'), onSelect: () => this.openSettings() },
+      { label: t('menu.new_canyon'), danger: true, onSelect: () => this.confirmNewCanyon() },
     ], this.notes());
     // Consumed by the render above: the copy result is about the press that caused it.
     this.linkNote = null;
@@ -156,7 +157,7 @@ export class MenuController {
     const notes: MenuNote[] = [];
     if (this.host.store === null) {
       notes.push({
-        text: 'STORAGE UNAVAILABLE — THIS CAMPAIGN WILL NOT SURVIVE A RELOAD, AND THE CANYON IS REROLLED EACH TIME. SHARE CANYON COPIES A LINK THAT COMES BACK TO THIS ONE.',
+        text: t('menu.storage_unavailable'),
         warn: true,
       });
     }
@@ -174,8 +175,8 @@ export class MenuController {
   private copyLink(): void {
     void copyShareLink(this.progress.seed).then((copied) => {
       this.linkNote = copied
-        ? 'LINK COPIED. ANYONE WHO OPENS IT CAN FLY THIS CANYON.'
-        : 'COULD NOT REACH THE CLIPBOARD — THE SEED IS ON THE ROW ABOVE.';
+        ? t('menu.link_copied')
+        : t('menu.clipboard_failed');
       this.open();
     });
   }
@@ -204,11 +205,11 @@ export class MenuController {
     const rows = readSlots(this.host.store).map((slot) => {
       const here = slot.slot === this.progress.slot;
       const detail = !slot.occupied
-        ? 'EMPTY'
-        : `${slot.delivered} / ${MISSION_COUNT} · SEED ${slot.seed}`;
+        ? t('menu.empty')
+        : `${slot.delivered} / ${MISSION_COUNT} · ${t('menu.seed_n', { seed: slot.seed ?? '' })}`;
       return {
-        label: `CANYON ${slot.slot + 1}`,
-        detail: here ? `${detail} · HERE` : detail,
+        label: t('menu.canyon_n', { number: slot.slot + 1 }),
+        detail: here ? `${detail} · ${t('menu.here')}` : detail,
         current: here,
         // The row you are already on does nothing. Reloading the active slot would
         // rebuild the world for no change the player asked for.
@@ -244,19 +245,19 @@ export class MenuController {
     const runs = readHistory(this.host.store);
     const rows =
       runs.length === 0
-        ? [{ label: 'NOTHING FILED YET', detail: '' }]
+        ? [{ label: t('history.nothing_filed'), detail: '' }]
         : runs.map((run) => ({
             // The rank tally is deliberately absent: it does not fit beside a nine-digit
             // seed at this card's width, and the figure that answers "how did that run
             // go" is the score.
-            label: `${run.completed ? '◆' : '◇'} SEED ${run.seed}`,
-            detail: `${run.delivered} / ${MISSION_COUNT} · ${run.totalPoints} PTS`,
+            label: `${run.completed ? '◆' : '◇'} ${t('menu.seed_n', { seed: run.seed })}`,
+            detail: `${run.delivered} / ${MISSION_COUNT} · ${run.totalPoints} ${t('result.pts')}`,
             compact: true,
           }));
     this.host.ui.showHistory(rows, () => this.open());
   }
 
-  private openSettings(): void {
+  openSettings(): void {
     this.host.menuDepth = 1;
     this.host.ui.showSettings(this.host.settings(), () => this.open());
   }
@@ -265,9 +266,9 @@ export class MenuController {
   confirmNewCanyon(): void {
     this.host.menuDepth = 1;
     this.host.ui.showConfirm(
-      'NEW CANYON',
-      'Rolls a new seed and starts the campaign at mission one. Every rank on this save is discarded, and the canyon you have been building in is gone.<br/><br/>Your sound and control settings are kept.',
-      'ROLL A NEW CANYON',
+      t('dialogs.new_canyon_title'),
+      t('dialogs.new_canyon_body'),
+      t('dialogs.roll_new_canyon'),
       () => this.newCanyon(),
       () => this.open(),
     );
@@ -322,9 +323,9 @@ export class MenuController {
       // is the single most destructive thing a URL could do here, and the player is two
       // screens from doing it deliberately if they want to.
       this.host.ui.showConfirm(
-        'SHARED CANYON',
-        `Someone shared canyon <b>${seed}</b>.<br/><br/>All ${SLOT_COUNT} of your canyons are in use, and a link never replaces one. Discard a campaign from CANYONS and open the link again.`,
-        'OPEN CANYONS',
+        t('dialogs.shared_canyon_title'),
+        t('dialogs.shared_canyon_full_body', { seed, count: SLOT_COUNT }),
+        t('dialogs.open_canyons'),
         // Hash deliberately left alone on this one path: the card has just told the
         // player to come back to this link once they have freed a canyon, and rewriting
         // it here is what would make that instruction a lie.
@@ -335,9 +336,9 @@ export class MenuController {
     }
 
     this.host.ui.showConfirm(
-      'SHARED CANYON',
-      `Someone shared canyon <b>${seed}</b>.<br/><br/>It starts a new campaign at mission one, in canyon ${free.slot + 1}, which is empty. The campaign you are in now is not touched.`,
-      `FLY CANYON ${free.slot + 1}`,
+      t('dialogs.shared_canyon_title'),
+      t('dialogs.shared_canyon_adopt_body', { seed, slot: free.slot + 1 }),
+      t('dialogs.fly_canyon_n', { slot: free.slot + 1 }),
       () => this.adoptSeed(free.slot, seed),
       () => this.dismissShared(),
     );

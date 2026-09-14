@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { PhysicsWorld } from '../physics/PhysicsWorld.ts';
 import type { InputState } from '../core/InputManager.ts';
-import { cargoShape, type Payload } from '../campaign/Missions.ts';
+import type { Payload } from '../campaign/Missions.ts';
 import { damp, lerp } from '../world/Noise.ts';
 import { AIRFRAMES, type Airframe } from './Airframe.ts';
 import { idleFiring, LANDER, LanderBody, type Contact, type Firing } from './LanderBody.ts';
@@ -870,7 +870,7 @@ class LanderView {
    */
   private buildCargo(payload: Payload): { group: THREE.Group; height: number } {
     const s = 0.34 + payload.mass * 0.3;
-    const shape = cargoShape(payload);
+    const shape = payload.shape;
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({
       color: 0xd98a2b,

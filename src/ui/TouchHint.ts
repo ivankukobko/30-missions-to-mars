@@ -1,4 +1,5 @@
 import type { Scheme } from './InstrumentPanel.ts';
+import { t } from '../i18n/I18n.ts';
 
 /**
  * The "here is where the controls are" hint, shown over every uplink hold on a touch
@@ -16,19 +17,23 @@ import type { Scheme } from './InstrumentPanel.ts';
  * other two — so the labels are keyed on `scheme`. The middle third is the lift engine
  * on every frame, so its label never has to branch on more than the verb.
  *
+ * The words are looked up on every `show` rather than once at construction, so a language
+ * changed from the pause menu is on the next hold's hint without the hint being rebuilt.
+ *
  * Untested, like `Radio` and `Reticle`: it constructs DOM and holds no logic worth a
  * jsdom dependency. When it shows and hides, and the once-ever gate, live in `Game` and
  * `Progress`, which are covered.
  */
-const LABELS: Record<Scheme, readonly [string, string, string]> = {
-  attitude: ['‹ ROTATE', 'THRUST ▲', 'ROTATE ›'],
-  differential: ['‹ GO LEFT', 'UP ▲', 'GO RIGHT ›'],
-  translation: ['‹ SLIDE', 'LIFT ▲', 'SLIDE ›'],
+const LABEL_KEYS: Record<Scheme, readonly [string, string, string]> = {
+  attitude: ['touch_hint.rotate_left', 'touch_hint.thrust', 'touch_hint.rotate_right'],
+  differential: ['touch_hint.go_left', 'touch_hint.up', 'touch_hint.go_right'],
+  translation: ['touch_hint.slide_left', 'touch_hint.lift', 'touch_hint.slide_right'],
 };
 
 export class TouchHint {
   readonly root: HTMLElement;
   private readonly labels: HTMLElement[] = [];
+  private readonly caption: HTMLElement;
 
   constructor() {
     this.root = document.createElement('div');
@@ -48,12 +53,11 @@ export class TouchHint {
       this.labels.push(label);
     }
 
-    const caption = document.createElement('div');
-    caption.className = 'touch-hint-caption';
     // The interaction model in three words: these are held, not tapped, and two at once
     // is the point — which the vehicle then teaches live once the controls wake up.
-    caption.textContent = 'HOLD TO FLY';
-    this.root.append(caption);
+    this.caption = document.createElement('div');
+    this.caption.className = 'touch-hint-caption';
+    this.root.append(this.caption);
   }
 
   /**
@@ -63,8 +67,9 @@ export class TouchHint {
    * of which two would be lying.
    */
   show(scheme: Scheme, sides: boolean): void {
-    const text = LABELS[scheme];
-    for (let i = 0; i < 3; i++) this.labels[i].textContent = text[i];
+    const keys = LABEL_KEYS[scheme];
+    for (let i = 0; i < 3; i++) this.labels[i].textContent = t(keys[i]);
+    this.caption.textContent = t('touch_hint.caption');
     this.root.classList.toggle('touch-hint--single', !sides);
     this.root.classList.add('visible');
   }

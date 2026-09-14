@@ -16,9 +16,10 @@
  */
 
 import { CORPS } from '../world/CanyonSpec.ts';
-import { EPILOGUE, resolveBriefCards, type Mission } from '../campaign/Missions.ts';
+import { resolveBriefCards, resolveEpilogueCards, type Mission } from '../campaign/Missions.ts';
 import { audio } from '../audio/AudioManager.ts';
 import { teletype, type Typing } from './Teletype.ts';
+import { t } from '../i18n/I18n.ts';
 
 interface Page {
   /** Whose voice this is. Decides the card's chrome. */
@@ -64,7 +65,6 @@ export function buildBrief(
   onBegin: () => void,
   opts: BriefOptions = {},
 ): void {
-  const corp = CORPS[mission.client];
   const cards = resolveBriefCards(mission);
 
   /**
@@ -94,14 +94,18 @@ export function buildBrief(
    *
    * Senders that are not charters — Helion's `CONDITIONS OF CARRIAGE`, an annex — are
    * not voices and take the client's colour, because they are that client's paperwork.
+   *
+   * Read off `from`, the charter id the mission table authors, while the eyebrow prints the
+   * sender's name in the active language. Keying on the printed name needed every
+   * language's spelling of every charter in a map here, which went stale on the first
+   * reworded Ukrainian sender. A paperwork card is authored `from` its client.
    */
-  const liveries = new Map(Object.values(CORPS).map((c) => [c.name, c.color]));
   const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
 
   const pages: Page[] = cards.map((card) => ({
     register: 'corp' as const,
     eyebrow: card.title,
-    color: hex(liveries.get(card.title) ?? corp.color),
+    color: hex(CORPS[card.from].color),
     body: card.body,
   }));
 
@@ -116,17 +120,17 @@ export function buildBrief(
  * only difference is that one of the senders is not a charter — see `register`.
  */
 export function buildEpilogue(host: BriefHost, onDone: () => void): void {
-  const liveries = new Map(Object.values(CORPS).map((c) => [c.name, c.color]));
+  const cards = resolveEpilogueCards();
   const hex = (n: number) => '#' + n.toString(16).padStart(6, '0');
 
-  const pages: Page[] = EPILOGUE.map((m) => ({
+  const pages: Page[] = cards.map((m) => ({
     register: m.register ?? 'corp',
     eyebrow: m.sender,
-    color: hex(liveries.get(m.sender) ?? CORPS.outpost.color),
+    color: hex(m.from ? CORPS[m.from].color : CORPS.outpost.color),
     body: m.content.trim(),
   }));
 
-  new BriefRun(pages, host, onDone, 0, 'CLOSE').show();
+  new BriefRun(pages, host, onDone, 0, t('brief.close'), false).show();
 }
 
 class BriefRun {
@@ -138,7 +142,8 @@ class BriefRun {
     private onBegin: () => void,
     private at = 0,
     /** What the final card's button says. A brief launches; the epilogue closes. */
-    private finalLabel = 'BEGIN DESCENT',
+    private finalLabel = t('brief.begin_descent'),
+    private isLaunch = true,
   ) {}
 
   show(): void {
@@ -178,13 +183,13 @@ class BriefRun {
       // visible. Sitting in the dots row rather than beside the button keeps it out of
       // the path of the key a player is already pressing.
       if (!last) {
-        const skip = el('button', 'brief-skip', 'SKIP · ESC');
+        const skip = el('button', 'brief-skip', t('brief.skip_esc'));
         skip.addEventListener('click', () => this.skip());
         dots.append(skip);
       }
     }
 
-    const advance = el('button', 'primary', last ? this.finalLabel : 'NEXT');
+    const advance = el('button', 'primary', last ? this.finalLabel : t('brief.next'));
     advance.addEventListener('click', () => this.next());
     card.append(advance);
 
@@ -253,7 +258,7 @@ class BriefRun {
     audio.playUiBeep(760, 'square', 0.03);
 
     if (this.at >= this.pages.length - 1) {
-      if (this.finalLabel === 'BEGIN DESCENT') audio.playLaunch();
+      if (this.isLaunch) audio.playLaunch();
       this.onBegin();
       return;
     }

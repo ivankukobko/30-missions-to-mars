@@ -310,6 +310,14 @@ export class Progress {
     this.prefs.set({ mutedMusic: muted });
   }
 
+  get locale(): string {
+    return this.prefs.locale;
+  }
+
+  setLocale(locale: string): void {
+    this.prefs.set({ locale });
+  }
+
   rankFor(missionId: number): Rank | null {
     return this.data.ranks[String(missionId)] ?? null;
   }

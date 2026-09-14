@@ -75,7 +75,7 @@ function showAirframe(id: AirframeId, relayFolded: boolean): void {
   // only matters for the relay — nothing else reads it — and defaults `true` in
   // `Lander`'s own constructor, matching what the live game always builds; this is the
   // one place `false` is ever passed, since nothing in play can reach that state yet.
-  const lander = new Lander(scene, { name: 'PREVIEW', mass: 0.6 }, 300, AIRFRAMES[id], relayFolded);
+  const lander = new Lander(scene, { mass: 0.6, shape: 'crate' }, 300, AIRFRAMES[id], relayFolded);
   current = [lander.group];
   frameCamera(new THREE.Vector3(0, 0, 0), 3.5);
 }
