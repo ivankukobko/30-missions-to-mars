@@ -503,7 +503,7 @@ campaign:
         - sender: HELION-FÖRDERUNG
           content: "VERTRAG 4471-C/372 · REV 8 · AUTO<br/><br/>GUTSKLASSE: FERNFRACHT / HD-7<br/>SENDUNG: GEGENANSPRUCHS-BAKE<br/>ZIEL: SCHACHTSTOLLEN<br/>TOLERANZ: 2.1 / 11.0 T"
         - sender: BEFÖRDERUNGSBEDINGUNGEN
-          content: "KESSLER DEEP BETREIBT ANLAGEN UNTERHALB DER SOHLE. DAS FLÖZ WIRD NUN VON BEIDEN SEITEN BEARBEITET UND IST UMSTRITTEN.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Den Canyon queren. Die Bake zum SCHACHTSTOLLEN bringen."
+          content: "KESSLER DEEP BETREIBT ANLAGEN UNTERHALB DER SOHLE. DAS FLÖZ WIRD NUN ENTLANG UND DARUNTER GETRIEBEN UND IST UMSTRITTEN.<br/>RÜCKKEHR ERWARTET: NEIN<br/><br/><b>ZIEL</b> Den Canyon queren. Die Bake zum SCHACHTSTOLLEN bringen."
         - sender: ANHANG A — SCHIEDSVERFAHREN
           content: DER FRACHTFÜHRER IST KEINE PARTEI DIESES VERFAHRENS UND HAT KEIN RECHT AUF ANHÖRUNG.
       debrief:
@@ -537,9 +537,9 @@ campaign:
       payloadName: Evakuierungsbefehl
       messages:
         - sender: IXION-AUSSENPOSTEN
-          content: Beide Chartas schneiden jetzt von gegenüberliegenden Seiten in dieselbe Felswand. Der Pfeiler dazwischen wird mit jeder Schicht dünner. Unsere Instrumente beobachten das, seit bevor die beiden gelandet sind.
+          content: Helion schneidet jetzt am Flöz entlang und Kessler darunter. Der Pfeiler dazwischen wird mit jeder Schicht dünner. Unsere Instrumente beobachten ihn schon, seit noch keiner von beiden gelandet war.
         - sender: IXION-AUSSENPOSTEN
-          content: Wir waren nie sicher, ob Helion überhaupt eine menschliche Besatzung hat. Zehn Jahre Verträge, jeder einzelne automatisch eingereicht, und kein einziges Wort von einem Menschen dort drüben.
+          content: Wir waren nie sicher, ob Helion überhaupt eine menschliche Besatzung hat. Jeder Vertrag seit ihrer Landung automatisch eingereicht, und kein einziges Wort von einem Menschen dort drüben.
         - sender: IXION-AUSSENPOSTEN
           content: Wir haben eine Evakuierung empfohlen. Niemand hat geantwortet. Du fliegst auch für sie, Navigator — keiner nimmt dir das übel. Du gehst, wohin der Vertrag dich schickt. Wir auch.<br/><br/><b>ZIEL</b> Den Befehl zur Außenposten-Plattform bringen.
       debrief:

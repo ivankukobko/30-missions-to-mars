@@ -503,7 +503,7 @@ campaign:
         - sender: HELION EXTRACTION
           content: "CONTRACT 4471-C/372 · REV 8 · AUTO<br/><br/>ASSET CLASS: REMOTE CARGO / HD-7<br/>CONSIGNMENT: COUNTERCLAIM BEACON<br/>DESTINATION: SHAFT GALLERY<br/>ALLOWANCE: 2.1 / 11.0 T"
         - sender: CONDITIONS OF CARRIAGE
-          content: "KESSLER DEEP HAS WORKINGS BELOW THE FLOOR LINE. THE SEAM IS NOW WORKED FROM BOTH SIDES AND IS CONTESTED.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Cross the canyon. Deliver the beacon to SHAFT GALLERY."
+          content: "KESSLER DEEP HAS WORKINGS BELOW THE FLOOR LINE. THE SEAM IS NOW WORKED ALONG AND BELOW AND IS CONTESTED.<br/>RETURN EXPECTED: NO<br/><br/><b>OBJECTIVE</b> Cross the canyon. Deliver the beacon to SHAFT GALLERY."
         - sender: ANNEX A — ARBITRATION
           content: THE CARRIER IS NOT A PARTY TO THESE PROCEEDINGS AND HAS NO STANDING TO BE HEARD IN THEM.
       debrief:
@@ -537,9 +537,9 @@ campaign:
       payloadName: Evacuation Order
       messages:
         - sender: IXION OUTPOST
-          content: Both charters are cutting into the same wall of rock from opposite sides now. The pillar between them thins every shift. Our instruments have watched it since before either of them landed.
+          content: Helion is cutting along the seam and Kessler is cutting under it now. The pillar between them thins every shift. Our instruments have watched it since before either of them landed.
         - sender: IXION OUTPOST
-          content: We have never been sure Helion has a crew at all. Ten years of contracts, every one auto-filed, and not one word from a person over there.
+          content: We have never been sure Helion has a crew at all. Every contract since they landed auto-filed, and not one word from a person over there.
         - sender: IXION OUTPOST
           content: We filed a recommendation to evacuate. Nobody has answered it. You fly for them too, navigator — it has never been held against you. You go where the contract sends you. So do we.<br/><br/><b>OBJECTIVE</b> Bring the order to the outpost pad.
       debrief:
